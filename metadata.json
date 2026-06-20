@@ -1,0 +1,6 @@
+{
+  "name": "StudentKit",
+  "description": "All-in-one student utility app for Pakistani students featuring finance trackers, document tools, calculator, QR utilities, focus timer, study notes, and BMI analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
