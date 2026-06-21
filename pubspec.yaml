@@ -39,7 +39,7 @@ dependencies:
   uuid: ^4.3.3
   permission_handler: ^11.3.0
   local_auth: ^2.1.8
-  cunning_document_scanner: ^0.0.9
+  cunning_document_scanner: ^1.2.3
 
 dev_dependencies:
   flutter_test:
