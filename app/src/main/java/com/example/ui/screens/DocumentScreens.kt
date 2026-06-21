@@ -2709,7 +2709,7 @@ private fun triggerNativePdfGeneration(
                     }
 
                     // Render dynamic shape profile picture
-                    fun drawPortraitCircle(cx: Float, cy: Float, radius: Float) {
+                    fun drawPortraitCircle(cx: Float, cy: Float, radius: Float, photoFrameShape: String = "Circle") {
                         if (profilePic != null) {
                             try {
                                 val size = (radius * 2).toInt()
