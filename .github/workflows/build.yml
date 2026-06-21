@@ -2,43 +2,47 @@ name: Build StudentKit APK
 
 on:
   push:
-    branches: [main]
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build-android:
-    name: Build Android APK
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.19.0'
-          channel: stable
-          cache: true
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
-      - name: Analyze code
-        run: flutter analyze --no-fatal-infos
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
 
-      - name: Build release APK
-        run: flutter build apk --release --no-shrink
-
-      - name: Upload APK artifact
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: StudentKit-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
