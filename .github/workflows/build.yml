@@ -24,6 +24,10 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > studentkit-release.jks
+
       - name: Generate debug keystore
         run: |
           keytool -genkeypair \
@@ -52,10 +56,9 @@ jobs:
       - name: Build Release APK
         run: ./gradlew assembleRelease
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/debug.keystore
-          STORE_PASSWORD: android
-          KEY_PASSWORD: android
-        continue-on-error: true
+          KEYSTORE_PATH: ${{ github.workspace }}/studentkit-release.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
@@ -63,4 +66,3 @@ jobs:
           name: release-apk
           path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
-        continue-on-error: true
