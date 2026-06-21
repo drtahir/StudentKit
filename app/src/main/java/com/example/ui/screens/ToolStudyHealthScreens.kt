@@ -14,6 +14,16 @@ import androidx.compose.ui.unit.IntSize
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import com.google.accompanist.permissions.*
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.common.InputImage
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.draw.scale
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -512,12 +522,13 @@ fun QrCodePreviewEngine(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val boxSize = size.width / 15f
 
-            if (qrDotStyle == "Logo Halftone Fusion" && imageBitmap != null) {
+            if ((qrDotStyle == "Logo Halftone Fusion" || qrDotStyle == "My Logo as QR Matrix") && imageBitmap != null) {
+                val logoAlpha = if (qrDotStyle == "My Logo as QR Matrix") 0.88f else 0.28f
                 drawImage(
                     image = imageBitmap,
                     dstOffset = IntOffset(0, 0),
                     dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                    alpha = 0.28f
+                    alpha = logoAlpha
                 )
             }
 
@@ -595,6 +606,15 @@ fun QrCodePreviewEngine(
                             SolidColor(cellColor),
                             topLeft = Offset(cx + boxSize * 0.05f, cy + boxSize * 0.05f),
                             size = Size(boxSize * 0.9f, boxSize * 0.9f),
+                            cornerRadius = CornerRadius(boxSize * 0.35f, boxSize * 0.35f)
+                        )
+                    }
+                    "My Logo as QR Matrix" -> {
+                        val cellColor = getSampledColor(cx, cy)
+                        drawRoundRect(
+                            SolidColor(cellColor.copy(alpha = 0.92f)),
+                            topLeft = Offset(cx + boxSize * 0.08f, cy + boxSize * 0.08f),
+                            size = Size(boxSize * 0.84f, boxSize * 0.84f),
                             cornerRadius = CornerRadius(boxSize * 0.35f, boxSize * 0.35f)
                         )
                     }
@@ -1108,7 +1128,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("Logo Halftone Fusion", "Classic Square", "Spherical Dot", "Fluid Rounded", "Stellar Star", "Curved Leaf", "Cyber Cross", "Heart Shape", "Ring Wave").forEach { pattern ->
+                    listOf("My Logo as QR Matrix", "Logo Halftone Fusion", "Classic Square", "Spherical Dot", "Fluid Rounded", "Stellar Star", "Curved Leaf", "Cyber Cross", "Heart Shape", "Ring Wave").forEach { pattern ->
                         ElevatedFilterChip(
                             selected = qrDotStyle == pattern,
                             onClick = { qrDotStyle = pattern },
@@ -1521,15 +1541,20 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
 // -------------------------------------------------------------
 // MODULE 14: QR BARCODE SCANNER
 // -------------------------------------------------------------
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun QrScannerScreen(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
-    var isScanResultActive by remember { mutableStateOf(false) }
-    var scannedBarcodeText by remember { mutableStateOf("") }
-    var scannerStatusInfo by remember { mutableStateOf("Ready to scan real-world assets") }
-    var lastScannedType by remember { mutableStateOf("QR Code") }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Initialize Google Play Services Code Scanner Client
+    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
+
+    var scannedBarcodeText by remember { mutableStateOf("") }
+    var isScanResultActive by remember { mutableStateOf(false) }
+    var lastScannedType by remember { mutableStateOf("QR Code") }
+    var isScanningActive by remember { mutableStateOf(true) }
+
+    // Backup GMS scanner
     val gmsScannerClient = remember {
         try {
             val options = GmsBarcodeScannerOptions.Builder()
@@ -1544,10 +1569,9 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
 
     fun triggerRealCameraScanner() {
         if (gmsScannerClient == null) {
-            scannerStatusInfo = "Google Code Scanner client is not initialized."
+            Toast.makeText(context, "Google Play Services scanner is not available.", Toast.LENGTH_SHORT).show()
             return
         }
-        scannerStatusInfo = "Launching camera-lens viewfinder..."
         gmsScannerClient.startScan()
             .addOnSuccessListener { barcode ->
                 val scannedValue = barcode.rawValue
@@ -1561,18 +1585,11 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                     scannedBarcodeText = scannedValue
                     lastScannedType = formatType
                     isScanResultActive = true
-                    scannerStatusInfo = "Successfully scanned $formatType!"
-                    Toast.makeText(context, "Scan Successful: $formatType", Toast.LENGTH_SHORT).show()
-                } else {
-                    scannerStatusInfo = "Failed: Barcode payload is empty"
+                    Toast.makeText(context, "Scanned $scannedValue successfully!", Toast.LENGTH_SHORT).show()
                 }
             }
             .addOnFailureListener { exception ->
-                scannerStatusInfo = "Scan Failed: ${exception.localizedMessage ?: "User cancelled or Google Play Services pending install."}"
-                Toast.makeText(context, "Scan Failed or Interrupted", Toast.LENGTH_LONG).show()
-            }
-            .addOnCanceledListener {
-                scannerStatusInfo = "Scan Canceled by User"
+                Toast.makeText(context, "Scanning Failed: ${exception.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
     }
 
@@ -1589,22 +1606,32 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
             Row(
                 modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = Icons.Default.QrCodeScanner,
-                    contentDescription = "Scanner engine active",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-                Column {
-                    Text("Dual-Engine Barcode & QR Lens", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(scannerStatusInfo, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = "Scanner engine active",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Column {
+                        Text("Dual-Engine Barcode & QR Lens", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(if (cameraPermissionState.status.isGranted) "In-app sensor active..." else "Press button to activate real offline lens", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                
+                if (gmsScannerClient != null) {
+                    IconButton(onClick = { triggerRealCameraScanner() }) {
+                        Icon(Icons.Default.FlipCameraAndroid, contentDescription = "Use GMS Overlay", tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         }
 
-        // Viewfinder guide and Scanning Action Trigger
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1614,40 +1641,167 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                 .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(24.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Camera,
-                    contentDescription = "Viewfinder icon",
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                    modifier = Modifier.size(72.dp)
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    "Standard Scanner Active",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                Text(
-                    "Press the button below to launch Google Play Services camera engine. Autofocus, zoom, and lightning-fast decryption are handled automatically without manual permission checks.",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 11.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
-                )
+            if (cameraPermissionState.status.isGranted) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { ctx ->
+                            val previewView = PreviewView(ctx).apply {
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                            }
+                            
+                            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                            cameraProviderFuture.addListener({
+                                val cameraProvider = cameraProviderFuture.get()
+                                val preview = Preview.Builder().build().also {
+                                    it.setSurfaceProvider(previewView.surfaceProvider)
+                                }
+                                
+                                val barcodeScanner = BarcodeScanning.getClient(
+                                    com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
+                                        .setBarcodeFormats(
+                                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE,
+                                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
+                                        )
+                                        .build()
+                                )
+                                
+                                val imageAnalysis = ImageAnalysis.Builder()
+                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                    .build()
+                                    .also { analysis ->
+                                        analysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
+                                            val mediaImage = imageProxy.image
+                                            if (mediaImage != null && isScanningActive && !isScanResultActive) {
+                                                val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                                barcodeScanner.process(image)
+                                                    .addOnSuccessListener { barcodes ->
+                                                        for (barcode in barcodes) {
+                                                            val value = barcode.rawValue
+                                                            if (!value.isNullOrBlank()) {
+                                                                scannedBarcodeText = value
+                                                                lastScannedType = when (barcode.valueType) {
+                                                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_URL -> "Website Link"
+                                                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_WIFI -> "Wi-Fi Config"
+                                                                    else -> "QR Code Text"
+                                                                }
+                                                                isScanResultActive = true
+                                                                isScanningActive = false
+                                                                Toast.makeText(ctx, "QR Code Detected Successfully!", Toast.LENGTH_SHORT).show()
+                                                                break
+                                                            }
+                                                        }
+                                                    }
+                                                    .addOnCompleteListener {
+                                                        imageProxy.close()
+                                                    }
+                                            } else {
+                                                imageProxy.close()
+                                            }
+                                        }
+                                    }
+                                    
+                                try {
+                                    cameraProvider.unbindAll()
+                                    cameraProvider.bindToLifecycle(
+                                        lifecycleOwner,
+                                        CameraSelector.DEFAULT_BACK_CAMERA,
+                                        preview,
+                                        imageAnalysis
+                                    )
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }, ContextCompat.getMainExecutor(ctx))
+                            
+                            previewView
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
 
-                Button(
-                    onClick = { triggerRealCameraScanner() },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    // Diagnostic Overlay corners
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val strokeW = 2.5f.dp.toPx()
+                        val len = 24.dp.toPx()
+                        val w = size.width
+                        val h = size.height
+                        val boxW = 210.dp.toPx()
+                        val boxH = 210.dp.toPx()
+                        
+                        val startX = (w - boxW) / 2f
+                        val startY = (h - boxH) / 2f
+                        val endX = startX + boxW
+                        val endY = startY + boxH
+                        
+                        drawRect(Color.Black.copy(alpha = 0.45f), size = size)
+                        
+                        drawRoundRect(
+                            color = Color.Transparent,
+                            topLeft = Offset(startX, startY),
+                            size = Size(boxW, boxH),
+                            blendMode = androidx.compose.ui.graphics.BlendMode.Clear
+                        )
+                        
+                        val neonColor = Color(0xFF00FFCC)
+                        
+                        drawLine(neonColor, Offset(startX, startY), Offset(startX + len, startY), strokeW)
+                        drawLine(neonColor, Offset(startX, startY), Offset(startX, startY + len), strokeW)
+                        
+                        drawLine(neonColor, Offset(endX, startY), Offset(endX - len, startY), strokeW)
+                        drawLine(neonColor, Offset(endX, startY), Offset(endX, startY + len), strokeW)
+                        
+                        drawLine(neonColor, Offset(startX, endY), Offset(startX + len, endY), strokeW)
+                        drawLine(neonColor, Offset(startX, endY), Offset(startX, endY - len), strokeW)
+                        
+                        drawLine(neonColor, Offset(endX, endY), Offset(endX - len, endY), strokeW)
+                        drawLine(neonColor, Offset(endX, endY), Offset(endX, endY - len), strokeW)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(16.dp)
+                            .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("Center QR code inside targeting frame", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(24.dp)
                 ) {
-                    Icon(Icons.Default.QrCodeScanner, null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Launch Camera Scanner", fontWeight = FontWeight.SemiBold)
+                    Icon(
+                        imageVector = Icons.Default.Camera,
+                        contentDescription = "Viewfinder icon",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        modifier = Modifier.size(72.dp)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        "Interactive QR / Barcode Scan Area",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        "Activate your back camera to interactively target, scan, and parse custom QR and Barcode items in real-time.",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+                    )
+
+                    Button(
+                        onClick = { cameraPermissionState.launchPermissionRequest() },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Grant Camera Permission", fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
@@ -1664,7 +1818,10 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Scanned Decrypted Result ($lastScannedType):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        IconButton(onClick = { isScanResultActive = false }) {
+                        IconButton(onClick = { 
+                            isScanResultActive = false 
+                            isScanningActive = true // Resume
+                        }) {
                             Icon(Icons.Default.Close, "Dismiss Result", modifier = Modifier.size(16.dp))
                         }
                     }
@@ -1721,22 +1878,6 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         }
                     }
                 }
-            }
-        } else {
-            // Emulated fallback quick trigger for test coverage in non-GMS emulator
-            OutlinedButton(
-                onClick = {
-                    scannedBarcodeText = "https://example-academic.edu/scanned-matrix-report"
-                    lastScannedType = "QR Code (Local Simulated Fallback)"
-                    isScanResultActive = true
-                    scannerStatusInfo = "Simulated Fallback scan results loaded."
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
-            ) {
-                Icon(Icons.Default.AppShortcut, null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Test Fallback Simulator (No Camera Option)", fontSize = 11.sp)
             }
         }
     }
@@ -2644,29 +2785,52 @@ fun BmiCalculatorScreen(viewModel: StudentKitViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Metric Imperial settings choices
+        // Height Unit Selection Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Measurement settings toggle: ", fontWeight = FontWeight.Bold)
+            Text("Height Unit: ", fontWeight = FontWeight.Bold)
             Row {
                 ElevatedFilterChip(
-                    selected = viewModel.bmiIsMetric,
-                    onClick = { viewModel.bmiIsMetric = true },
-                    label = { Text("Metric") }
+                    selected = viewModel.bmiHeightUnit == "CM",
+                    onClick = { viewModel.bmiHeightUnit = "CM" },
+                    label = { Text("Centimeters (cm)") }
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 ElevatedFilterChip(
-                    selected = !viewModel.bmiIsMetric,
-                    onClick = { viewModel.bmiIsMetric = false },
-                    label = { Text("Imperial") }
+                    selected = viewModel.bmiHeightUnit == "FT_IN",
+                    onClick = { viewModel.bmiHeightUnit = "FT_IN" },
+                    label = { Text("Feet & Inches") }
                 )
             }
         }
 
-        if (viewModel.bmiIsMetric) {
+        // Weight Unit Selection Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Weight Unit: ", fontWeight = FontWeight.Bold)
+            Row {
+                ElevatedFilterChip(
+                    selected = viewModel.bmiWeightUnit == "KG",
+                    onClick = { viewModel.bmiWeightUnit = "KG" },
+                    label = { Text("Kilograms (kg)") }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                ElevatedFilterChip(
+                    selected = viewModel.bmiWeightUnit == "LBS",
+                    onClick = { viewModel.bmiWeightUnit = "LBS" },
+                    label = { Text("Pounds (lbs)") }
+                )
+            }
+        }
+
+        // Independent Height Controls
+        if (viewModel.bmiHeightUnit == "CM") {
             OutlinedTextField(
                 value = viewModel.bmiHeightCm,
                 onValueChange = { viewModel.bmiHeightCm = it },
@@ -2674,6 +2838,27 @@ fun BmiCalculatorScreen(viewModel: StudentKitViewModel) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().testTag("height_in")
             )
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = viewModel.bmiHeightFt,
+                    onValueChange = { viewModel.bmiHeightFt = it },
+                    label = { Text("Feet") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = viewModel.bmiHeightIn,
+                    onValueChange = { viewModel.bmiHeightIn = it },
+                    label = { Text("Inches") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // Independent Weight Controls
+        if (viewModel.bmiWeightUnit == "KG") {
             OutlinedTextField(
                 value = viewModel.bmiWeightKg,
                 onValueChange = { viewModel.bmiWeightKg = it },
@@ -2682,37 +2867,24 @@ fun BmiCalculatorScreen(viewModel: StudentKitViewModel) {
                 modifier = Modifier.fillMaxWidth().testTag("weight_in")
             )
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = viewModel.bmiHeightFt,
-                    onValueChange = { viewModel.bmiHeightFt = it },
-                    label = { Text("Feet") },
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    value = viewModel.bmiHeightIn,
-                    onValueChange = { viewModel.bmiHeightIn = it },
-                    label = { Text("Inches") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
             OutlinedTextField(
                 value = viewModel.bmiWeightLbs,
                 onValueChange = { viewModel.bmiWeightLbs = it },
                 label = { Text("Weight (Pounds)") },
-                modifier = Modifier.fillMaxWidth()
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().testTag("weight_lbs_in")
             )
         }
 
         Button(
             onClick = {
-                val weightVal = if (viewModel.bmiIsMetric) {
+                val weightVal = if (viewModel.bmiWeightUnit == "KG") {
                     viewModel.bmiWeightKg.toDoubleOrNull() ?: 65.0
                 } else {
                     (viewModel.bmiWeightLbs.toDoubleOrNull() ?: 140.0) * 0.453592
                 }
 
-                val heightVal = if (viewModel.bmiIsMetric) {
+                val heightVal = if (viewModel.bmiHeightUnit == "CM") {
                     (viewModel.bmiHeightCm.toDoubleOrNull() ?: 170.0) / 100.0
                 } else {
                     val ft = viewModel.bmiHeightFt.toDoubleOrNull() ?: 5.0

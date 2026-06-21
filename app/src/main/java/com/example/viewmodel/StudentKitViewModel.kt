@@ -369,6 +369,8 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     var bmiHeightIn by mutableStateOf("7")
     var bmiWeightLbs by mutableStateOf("140")
     var bmiIsMetric by mutableStateOf(true)
+    var bmiWeightUnit by mutableStateOf("KG") // "KG" vs "LBS"
+    var bmiHeightUnit by mutableStateOf("CM") // "CM" vs "FT_IN"
     var bmiSelectionAct by mutableStateOf("Sedentary")
     var dailyWaterLitres by mutableStateOf(0.0)
 
