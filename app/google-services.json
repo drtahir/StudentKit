@@ -1,0 +1,97 @@
+{
+  "project_info": {
+    "project_number": "479494703844",
+    "project_id": "hhms-b3959",
+    "storage_bucket": "hhms-b3959.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:479494703844:android:8ce45aab55eccdf230baf1",
+        "android_client_info": {
+          "package_name": "com.drtahir.homeopathic"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "479494703844-i6nqtt2bbs6kbh8i7ntkgi2a7i5b7qlb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDhV-1OCYPlKnyLjR_3b_f2cOt02dvOZv0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "479494703844-i6nqtt2bbs6kbh8i7ntkgi2a7i5b7qlb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:479494703844:android:8a6b44d369f938ee30baf1",
+        "android_client_info": {
+          "package_name": "com.studentkit.buner"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "479494703844-i6nqtt2bbs6kbh8i7ntkgi2a7i5b7qlb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDhV-1OCYPlKnyLjR_3b_f2cOt02dvOZv0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "479494703844-i6nqtt2bbs6kbh8i7ntkgi2a7i5b7qlb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:479494703844:android:4c877c3b1c2c72e830baf1",
+        "android_client_info": {
+          "package_name": "com.tahirbuneri.studentkit"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "479494703844-i6nqtt2bbs6kbh8i7ntkgi2a7i5b7qlb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDhV-1OCYPlKnyLjR_3b_f2cOt02dvOZv0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "479494703844-i6nqtt2bbs6kbh8i7ntkgi2a7i5b7qlb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
