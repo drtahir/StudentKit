@@ -1,4 +1,4 @@
-package com.example.data
+package com.studentkit.buner.data
 
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences

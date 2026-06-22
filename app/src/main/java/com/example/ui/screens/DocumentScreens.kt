@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.studentkit.buner.ui.screens
 
 import android.app.Activity
 import android.content.Context

@@ -1,4 +1,4 @@
-package com.example.viewmodel
+package com.studentkit.buner.viewmodel
 
 import android.app.Application
 import androidx.compose.runtime.getValue

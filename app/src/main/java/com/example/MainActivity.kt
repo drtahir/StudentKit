@@ -1,4 +1,4 @@
-package com.example
+package com.studentkit.buner
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.studentkit.buner.ui.screens
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*

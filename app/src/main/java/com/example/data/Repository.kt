@@ -1,4 +1,4 @@
-package com.example.data
+package com.studentkit.buner.data
 
 import kotlinx.coroutines.flow.Flow
 

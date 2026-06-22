@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.studentkit.buner.ui.screens
 
 data class ResumePresetDetail(
     val id: String,
