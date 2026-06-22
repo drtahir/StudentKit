@@ -33,7 +33,7 @@ fun LicenseScreen(onLicenseValid: () -> Unit) {
     // Auto-check on launch — skip screen if already licensed
     LaunchedEffect(Unit) {
         val status = licenseService.checkLicense()
-        if (status == com.example.data.LicenseStatus.VALID || status == com.example.data.LicenseStatus.GRACE) {
+        if (status == com.studentkit.buner.data.LicenseStatus.VALID || status == com.studentkit.buner.data.LicenseStatus.GRACE) {
             onLicenseValid()
         } else {
             checkingExisting = false
