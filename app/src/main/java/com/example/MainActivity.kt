@@ -128,6 +128,8 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                 label = "ScreenTransition"
             ) { screen ->
                 when (screen) {
+                    is Screen.License -> LicenseScreen(onLicenseValid = { viewModel.navigateTo(Screen.Dashboard) })
+
                     is Screen.Dashboard -> DashboardScreen(viewModel = viewModel)
 
                     // --- FINANCE MODULES ---
