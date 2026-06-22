@@ -13,6 +13,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 sealed class Screen {
+    object License : Screen()
     object Dashboard : Screen()
     object ExpenseTracker : Screen()
     object IncomeTracker : Screen()
@@ -49,7 +50,7 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- NAVIGATION BACKSTACK ---
-    private val _backstack = MutableStateFlow<List<Screen>>(listOf(Screen.Dashboard))
+    private val _backstack = MutableStateFlow<List<Screen>>(listOf(Screen.License))
     val currentScreen: StateFlow<Screen> = _backstack
         .map { it.lastOrNull() ?: Screen.Dashboard }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Screen.Dashboard)
