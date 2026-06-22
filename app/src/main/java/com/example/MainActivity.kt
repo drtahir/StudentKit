@@ -27,10 +27,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ui.screens.*
-import com.example.ui.theme.MyApplicationTheme
-import com.example.viewmodel.Screen
-import com.example.viewmodel.StudentKitViewModel
+import com.studentkit.buner.ui.screens.*
+import com.studentkit.buner.ui.theme.MyApplicationTheme
+import com.studentkit.buner.viewmodel.Screen
+import com.studentkit.buner.viewmodel.StudentKitViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -71,9 +71,9 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.*
-import com.example.viewmodel.Screen
-import com.example.viewmodel.StudentKitViewModel
+import com.studentkit.buner.data.*
+import com.studentkit.buner.viewmodel.Screen
+import com.studentkit.buner.viewmodel.StudentKitViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.delay
