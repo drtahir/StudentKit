@@ -20,25 +20,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.19.0'
-          channel: stable
-          cache: true
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Analyze code
-        run: flutter analyze --no-fatal-infos
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > studentkit-release.jks
 
       - name: Build release APK
-        run: flutter build apk --release --no-shrink
+        run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/studentkit-release.jks
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: StudentKit-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
