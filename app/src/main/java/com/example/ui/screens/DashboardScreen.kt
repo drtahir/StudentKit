@@ -1,0 +1,1069 @@
+package com.example.ui.screens
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.graphicsLayer
+import com.example.data.*
+import com.example.viewmodel.Screen
+import com.example.viewmodel.StudentKitViewModel
+import java.text.SimpleDateFormat
+import java.util.*
+
+data class UtilityTool(
+    val id: String,
+    val label: String,
+    val description: String,
+    val category: String,
+    val icon: ImageVector,
+    val color: Color,
+    val badge: String?,
+    val screen: Screen
+)
+
+val allToolsList = listOf(
+    // 🕌 Finance
+    UtilityTool("expense", "Expense Tracker", "Log & categorize daily cash outflows", "Finance", Icons.Default.TrendingDown, Color(0xFFE53935), "SQLITE", Screen.ExpenseTracker),
+    UtilityTool("income", "Income Tracker", "Monitor income streams & earnings", "Finance", Icons.Default.TrendingUp, Color(0xFF43A047), "SQLITE", Screen.IncomeTracker),
+    UtilityTool("bills", "Utility Bills", "Reminders and logs for utility bills", "Finance", Icons.Default.ReceiptLong, Color(0xFF1E88E5), "ALERTS", Screen.UtilityBills),
+    UtilityTool("zakat", "Zakat Calculator", "Calculate wealth Zakat accurately", "Finance", Icons.Default.AccountBalance, Color(0xFF00897B), "ISLAMIC", Screen.ZakatCalculator),
+    UtilityTool("committee", "BC Committees", "Kameti lucky draw & cycle logs", "Finance", Icons.Default.Groups, Color(0xFF8E24AA), "DRAWS", Screen.BcCommittee),
+    UtilityTool("loans", "Loan Ledger", "Track borrowings & lent payments", "Finance", Icons.Default.SwapHoriz, Color(0xFFD81B60), "TRACK", Screen.LoanTracker),
+    UtilityTool("savings", "Savings Goals", "Target savings & deposit logs", "Finance", Icons.Default.Star, Color(0xFFF4511E), "SAVINGS", Screen.SavingsGoals),
+
+    // 📄 Documents
+    UtilityTool("cv", "CV Resume Builder", "Create custom print-ready A4 PDF resumes", "Documents", Icons.Default.Badge, Color(0xFF00C853), "A4 PRINT", Screen.CvBuilder),
+    UtilityTool("id_scanner", "ID Card Scanner", "Scan front & back of ID on single page", "Documents", Icons.Default.ContactPage, Color(0xFF1E88E5), "SINGLE PAGE", Screen.IdCardScanner),
+    UtilityTool("passport_scanner", "Passport Scanner", "Full photo passport page scan utility", "Documents", Icons.Default.AssignmentInd, Color(0xFF00ACC1), "GOVT DOC", Screen.PassportScanner),
+    UtilityTool("img2pdf", "Image to PDF", "Compile images into single PDF file", "Documents", Icons.Default.PictureAsPdf, Color(0xFFE53935), "PDF CONV", Screen.ImageToPdf),
+    UtilityTool("img2xls", "Image to Excel", "Convert tables to spreadsheet via OCR", "Documents", Icons.Default.TableChart, Color(0xFF2E7D32), "OCR AI", Screen.ImageToXls),
+    UtilityTool("img2word", "Image to Word", "Convert images to DOCX files via OCR", "Documents", Icons.Default.Description, Color(0xFF1565C0), "DOCX CONV", Screen.ImageToWord),
+    UtilityTool("scanner", "Edge Scanner", "Scan physical doc pages via camera", "Documents", Icons.Default.DocumentScanner, Color(0xFF673AB7), "HD SCAN", Screen.DocumentScanner),
+    UtilityTool("pdftools", "PDF Handlers", "Compress, merge, split or lock PDFs", "Documents", Icons.Default.Compress, Color(0xFFEF6C00), "EDIT", Screen.PdfTools),
+    UtilityTool("invoice", "Invoice Maker", "Create professional PDF invoices", "Documents", Icons.Default.Receipt, Color(0xFF00838F), "INVOICES", Screen.InvoiceGenerator),
+    UtilityTool("stamp_sign", "Stamp & Sign", "Freehand draw signature & stamp docs", "Documents", Icons.Default.Gesture, Color(0xFF1976D2), "STAMP", Screen.SignaturePad),
+
+    // ⚙️ Utilities
+    UtilityTool("calc", "Scientific Calc", "Advance mathematical formula solver", "Utilities", Icons.Default.Calculate, Color(0xFFE91E63), "MATH ENGINE", Screen.Calculator),
+    UtilityTool("converter", "Unit Converter", "Convert data, length, weight, speeds", "Utilities", Icons.Default.SwapVert, Color(0xFF00ACC1), "CONVERT", Screen.UnitConverter),
+    UtilityTool("qr_gen", "QR Generator", "Generate secure colored QR codes", "Utilities", Icons.Default.QrCode, Color(0xFF3949AB), "VECTOR", Screen.QrGenerator),
+    UtilityTool("qr_scan", "QR Scanner", "Scan bar codes & check web links", "Utilities", Icons.Default.QrCodeScanner, Color(0xFF00897B), "CAMERA", Screen.QrScanner),
+    UtilityTool("wifi_qr", "Wi-Fi QR Code", "Create offline network share QR codes", "Utilities", Icons.Default.Wifi, Color(0xFF5E35B1), "SECURE", Screen.WifiQrGenerator),
+    UtilityTool("passwords", "Password Vault", "Local encrypted credentials keeper", "Utilities", Icons.Default.Lock, Color(0xFF2E7D32), "CRYPT", Screen.PasswordManager),
+    UtilityTool("img_tools", "Image Compress", "Compress, resize & optimize images", "Utilities", Icons.Default.AddPhotoAlternate, Color(0xFFC2185B), "BATCH", Screen.ImageTools),
+    UtilityTool("age", "Age Calculator", "Exact age in years, months & days", "Utilities", Icons.Default.Cake, Color(0xFFE91E63), "AGE FINDER", Screen.AgeCalculator),
+    UtilityTool("intruder_guard", "Intruder Guard", "Silent background selfie & siren alarm", "Utilities", Icons.Default.Security, Color(0xFFD32F2F), "SECURITY", Screen.IntruderGuard),
+    UtilityTool("file_encryptor", "File Encryptor", "Hardware AES-256 GCM locker", "Utilities", Icons.Default.EnhancedEncryption, Color(0xFF1E88E5), "KEYSTORE", Screen.FileEncryptor),
+    UtilityTool("hidden_locker", "Hidden Locker", "Secure sandbox file/photo vault", "Utilities", Icons.Default.FolderSpecial, Color(0xFFEC407A), "ENCRYPTEDFILE", Screen.HiddenLocker),
+    UtilityTool("steganography", "Steganography", "Hide secret message in image pixels", "Utilities", Icons.Default.Image, Color(0xFF43A047), "LSB BIT", Screen.Steganography),
+    UtilityTool("ai_enhancer", "AI Enhancer", "Offline AI face & photo restorer", "Utilities", Icons.Default.AutoAwesome, Color(0xFF00ACC1), "REMINI", Screen.ImageEnhancer),
+    UtilityTool("watermark_studio", "Watermark Studio", "Add text watermarks & photo filter matrix", "Utilities", Icons.Default.Brush, Color(0xFF7B1FA2), "STUDIO", Screen.WatermarkStudio),
+    UtilityTool("bg_eraser", "Background Eraser", "AI background remover with precise brush refine", "Utilities", Icons.Default.FilterFrames, Color(0xFFE91E63), "AI SEGMENT", Screen.BackgroundEraser),
+
+    // 🎓 Study & Health
+    UtilityTool("notes", "Lecture Notes", "Organize lecture notes & study notes", "Study", Icons.Default.Book, Color(0xFFF57C00), "OFFLINE", Screen.Notes),
+    UtilityTool("timer", "Pomodoro Timer", "Focus study timer sessions & analytics", "Study", Icons.Default.Timer, Color(0xFFE64A19), "FOCUS", Screen.StudyTimer),
+    UtilityTool("timetable", "Lesson Calendar", "Track school subjects & timetables", "Study", Icons.Default.Schedule, Color(0xFF1976D2), "AGENDA", Screen.Timetable),
+    UtilityTool("bmi", "BMI & Health", "Water logging & fitness calculator", "Study", Icons.Default.FitnessCenter, Color(0xFF43A047), "WELLNESS", Screen.BmiCalculator),
+    UtilityTool("gpa", "GPA Calculator", "Calculate Semester GPA & CGPA instantly", "Study", Icons.Default.School, Color(0xFF9C27B0), "GPA CALC", Screen.GpaCalculator),
+    UtilityTool("islamic", "Islamic Library", "Read Manzil Arabic & other books in HD", "Study", Icons.Default.Book, Color(0xFF198754), "MANZIL HD", Screen.IslamicHub),
+
+    // 🩺 Medical / Clinical
+    UtilityTool("iv_calc", "IV Infusion Rate", "IV fluid flow & drop rates tracker", "Medical", Icons.Default.WaterDrop, Color(0xFF0288D1), "NURSING", Screen.IvCalculator),
+    UtilityTool("dose_calc", "Drug Dosage Calc", "Standard patient body-weight dosages", "Medical", Icons.Default.MedicalServices, Color(0xFF00C853), "PHARMACY", Screen.DosageCalculator),
+    UtilityTool("gfr_calc", "GFR Renal Solver", "Cockcroft-Gault kidney clearance", "Medical", Icons.Default.Science, Color(0xFFFF9100), "CLINICAL", Screen.GfrCalculator),
+    UtilityTool("anatomy", "Anatomy Atlas", "Human systems, colorful study charts & quiz", "Medical", Icons.Default.AccessibilityNew, Color(0xFFE53935), "STUDY ATLAS", Screen.AnatomyAtlas),
+    UtilityTool("pharmacy_exam", "Pharmacy Exam", "Pakistan Category B pharmacy assistant prep", "Medical", Icons.Default.Quiz, Color(0xFF9C27B0), "EXAM PREP", Screen.PharmacyExam),
+    UtilityTool("hajj_prep", "Hajj Mission Prep", "Hajj Medical Mission NTS exam preparation", "Medical", Icons.Default.MedicalInformation, Color(0xFF009688), "NTS EXAM", Screen.HajjMedicalPrep)
+)
+
+@Composable
+fun HDDesignToolButton(
+    tool: UtilityTool,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .testTag("hd_tool_${tool.id}")
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, tool.color.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            tool.color.copy(alpha = 0.05f),
+                            Color.Transparent
+                        )
+                    )
+                )
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Colored icon box
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(tool.color.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = tool.icon,
+                        contentDescription = tool.label,
+                        tint = tool.color,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                
+                // Cute technical badge
+                if (tool.badge != null) {
+                    Box(
+                        modifier = Modifier
+                            .background(tool.color.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = tool.badge,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = tool.color,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(10.dp))
+            
+            Text(
+                text = tool.label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1
+            )
+            
+            Spacer(modifier = Modifier.height(2.dp))
+            
+            Text(
+                text = tool.description,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                maxLines = 2,
+                lineHeight = 13.sp,
+                modifier = Modifier.height(26.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun IslamicLibraryHeroButton(
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "islamic_pulse")
+    
+    // Smooth pulsing scale effect between 0.98f and 1.02f
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    
+    // Shining gold glow translation
+    val shimmerTranslate by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F5132)), // Beautiful Emerald Green background
+        border = BorderStroke(1.5.dp, Color(0xFFD4AF37)), // Glowing gold border
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF0F5132),
+                            Color(0xFF198754),
+                            Color(0xFF0F5132)
+                        )
+                    )
+                )
+                .padding(18.dp)
+        ) {
+            // Shiny highlight shimmer overlay
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0f),
+                        Color.White.copy(alpha = 0.08f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    start = androidx.compose.ui.geometry.Offset(shimmerTranslate - 300f, 0f),
+                    end = androidx.compose.ui.geometry.Offset(shimmerTranslate, size.height)
+                )
+                drawRect(brush = brush)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Golden Circle with Book/Quran Icon
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .background(Color(0xFFD4AF37).copy(alpha = 0.15f), CircleShape)
+                            .border(1.5.dp, Color(0xFFD4AF37), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MenuBook,
+                            contentDescription = "Quran Icon",
+                            tint = Color(0xFFD4AF37),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(14.dp))
+                    
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Islamic Library & Books",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFD4AF37), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "MANZIL HD",
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F5132)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Complete Protection Verses & Ruqyah",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+                
+                // Beautiful Forward Gold Arrow
+                Icon(
+                    imageVector = Icons.Default.ArrowForwardIos,
+                    contentDescription = "Open Library",
+                    tint = Color(0xFFD4AF37),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DashboardScreen(
+    viewModel: StudentKitViewModel,
+    modifier: Modifier = Modifier
+) {
+    val expenses by viewModel.expenses.collectAsState()
+    val income by viewModel.income.collectAsState()
+    val bills by viewModel.unpaidBills.collectAsState()
+    val savingsGoals by viewModel.savingsGoals.collectAsState()
+    val timetable by viewModel.timetableClasses.collectAsState()
+
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+    var showAllToolsDialog by remember { mutableStateOf(false) }
+
+    val isDarkThemeSetting by viewModel.isDarkTheme.collectAsState()
+    var showThemeMenu by remember { mutableStateOf(false) }
+
+    // Welcomes, dates, Islamic dates
+    val calendar = Calendar.getInstance()
+    val hour = calendar.get(Calendar.HOUR_OF_DAY)
+    val greeting = when {
+        hour < 12 -> "Good Morning, Student!"
+        hour < 17 -> "Good Afternoon, Student!"
+        else -> "Good Evening, Student!"
+    }
+
+    val df = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
+    val formattedDate = df.format(Date())
+
+    // Simulated Hijri Date (Pakistani Students standard calibration)
+    val hijriDate = "27 Dhul-Hijjah 1447 AH"
+
+    // Card totals calculations
+    val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    val thisMonthStr = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date())
+
+    val todayExpense = expenses.filter { it.date.startsWith(todayStr) }.sumOf { it.amount }
+    val totalMonthIncome = income.filter { it.date.startsWith(thisMonthStr) }.sumOf { it.amount }
+    val totalMonthExpense = expenses.filter { it.date.startsWith(thisMonthStr) }.sumOf { it.amount }
+    val netBalance = totalMonthIncome - totalMonthExpense
+
+    val activeGoalsCount = savingsGoals.count { it.currentAmount < it.targetAmount }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = "StudentKit",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "All-in-One Utility App",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.navigateTo(Screen.IslamicHub) }
+                    ) {
+                        Icon(Icons.Default.MenuBook, contentDescription = "Islamic Library", tint = Color(0xFF198754))
+                    }
+                    IconButton(
+                        onClick = { showAllToolsDialog = true },
+                        modifier = Modifier.testTag("notes_shortcut")
+                    ) {
+                        Icon(Icons.Default.Notes, contentDescription = "View All Services")
+                    }
+                    IconButton(
+                        onClick = { viewModel.navigateTo(Screen.StudyTimer) },
+                        modifier = Modifier.testTag("timer_shortcut")
+                    ) {
+                        Icon(Icons.Default.Timer, contentDescription = "Focus Timer")
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { showThemeMenu = true },
+                            modifier = Modifier.testTag("theme_toggle_button")
+                        ) {
+                            val themeIcon = when (isDarkThemeSetting) {
+                                true -> Icons.Default.DarkMode
+                                false -> Icons.Default.LightMode
+                                null -> Icons.Default.BrightnessAuto
+                            }
+                            val themeTint = when (isDarkThemeSetting) {
+                                true -> Color(0xFFFFD54F)
+                                false -> Color(0xFFFFB300)
+                                null -> MaterialTheme.colorScheme.primary
+                            }
+                            Icon(
+                                imageVector = themeIcon,
+                                contentDescription = "Change Theme",
+                                tint = themeTint
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showThemeMenu,
+                            onDismissRequest = { showThemeMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Light Mode") },
+                                onClick = {
+                                    viewModel.setDarkTheme(false)
+                                    showThemeMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.LightMode,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFFB300)
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (isDarkThemeSetting == false) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Dark Mode") },
+                                onClick = {
+                                    viewModel.setDarkTheme(true)
+                                    showThemeMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.DarkMode,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFFD54F)
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (isDarkThemeSetting == true) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("System Default") },
+                                onClick = {
+                                    viewModel.setDarkTheme(null)
+                                    showThemeMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.BrightnessAuto,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (isDarkThemeSetting == null) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        },
+        modifier = modifier
+    ) { innerPadding ->
+        if (showAllToolsDialog) {
+            AllServicesDrawerDialog(
+                viewModel = viewModel,
+                onDismiss = { showAllToolsDialog = false }
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            // Header Welcome Greeting
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.secondary
+                            )
+                        )
+                    )
+                    .padding(20.dp)
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = greeting,
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = formattedDate,
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "🕌 $hijriDate",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Quick Stats Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Today Expense
+                StatCard(
+                    title = "Today's Cost",
+                    value = "Rs. ${String.format("%.0f", todayExpense)}",
+                    icon = Icons.Default.TrendingDown,
+                    iconColor = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Month Balance
+                StatCard(
+                    title = "Month Savings",
+                    value = "Rs. ${String.format("%.0f", netBalance)}",
+                    icon = if (netBalance >= 0) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                    iconColor = if (netBalance >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1.2f)
+                )
+
+                // Active Goals
+                StatCard(
+                    title = "Active Goals",
+                    value = "$activeGoalsCount",
+                    icon = Icons.Default.Flag,
+                    iconColor = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(0.9f)
+                )
+            }
+
+            // Beautiful Animated Islamic Library CTA
+            IslamicLibraryHeroButton(
+                onClick = { viewModel.navigateTo(Screen.IslamicHub) }
+            )
+
+            // Modern Search & Utilities Portal (Replaces old Quick Action Grid)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Smart Utilities Portal",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                // Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("utility_search_bar"),
+                    placeholder = { Text("Search 23+ real tools (e.g., Zakat, CV, OCR)...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.primary) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                    )
+                )
+
+                // Category Chips Selector
+                val categoryIcons = mapOf(
+                    "All" to "📱 All",
+                    "Finance" to "🕌 Finance",
+                    "Documents" to "📄 Docs",
+                    "Utilities" to "⚙️ Tools",
+                    "Study" to "🎓 Study",
+                    "Medical" to "🩺 Medical"
+                )
+                val categoriesList = listOf("All", "Finance", "Documents", "Utilities", "Study", "Medical")
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    categoriesList.forEach { category ->
+                        val isSelected = selectedCategory == category
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedCategory = category },
+                            label = {
+                                Text(
+                                    text = categoryIcons[category] ?: category,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = Color.White,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                }
+
+                // Filtering of tools in real-time
+                val filteredTools = allToolsList.filter { tool ->
+                    (selectedCategory == "All" || tool.category == selectedCategory) &&
+                    (tool.label.contains(searchQuery, ignoreCase = true) ||
+                     tool.description.contains(searchQuery, ignoreCase = true) ||
+                     tool.badge?.contains(searchQuery, ignoreCase = true) == true)
+                }
+
+                if (filteredTools.isEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = "No matching utilities found",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Try typing another keyword (e.g., PDF, Zakat, Cameti, Timer)",
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    val columns = 2
+                    val chunkedTools = filteredTools.chunked(columns)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        chunkedTools.forEach { rowTools ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowTools.forEach { tool ->
+                                    HDDesignToolButton(
+                                        tool = tool,
+                                        onClick = { viewModel.navigateTo(tool.screen) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                if (rowTools.size < columns) {
+                                    repeat(columns - rowTools.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Timetable Snippet (Today's Next Class)
+            val currentDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) // 1=Sun, 2=Mon...
+            // Map Sunday to 7, Monday to 1, etc.
+            val adjustedDayNum = when (currentDayOfWeek) {
+                Calendar.MONDAY -> 1
+                Calendar.TUESDAY -> 2
+                Calendar.WEDNESDAY -> 3
+                Calendar.THURSDAY -> 4
+                Calendar.FRIDAY -> 5
+                Calendar.SATURDAY -> 6
+                Calendar.SUNDAY -> 7
+                else -> 1
+            }
+
+            val todaysClasses = timetable.filter { it.dayOfWeek == adjustedDayNum }
+            Text(
+                text = "Today's Classes",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            if (todaysClasses.isEmpty()) {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Weekend, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "No classes scheduled for today! Enjoy your day.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(todaysClasses) { classItem ->
+                        Card(
+                            elevation = CardDefaults.cardElevation(2.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (!classItem.color.isNullOrEmpty()) {
+                                    try { Color(android.graphics.Color.parseColor(classItem.color)) } catch (e: Exception) { MaterialTheme.colorScheme.surface }
+                                } else {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                }.copy(alpha = 0.2f)
+                            ),
+                            modifier = Modifier
+                                .width(220.dp)
+                                .clickable { viewModel.navigateTo(Screen.Timetable) }
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = classItem.subject,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${classItem.startTime} - ${classItem.endTime}",
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                if (!classItem.teacher.isNullOrEmpty() || !classItem.room.isNullOrEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(text = classItem.teacher ?: "", fontSize = 11.sp, maxLines = 1)
+                                        Text(
+                                            text = "Room: ${classItem.room ?: "N/A"}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Upcoming Bills
+            val upcomingBills = bills.filter { it.isPaid == 0 }.take(3)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Upcoming Bills",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                TextButton(onClick = { viewModel.navigateTo(Screen.UtilityBills) }) {
+                    Text("View All", fontSize = 12.sp)
+                }
+            }
+
+            if (upcomingBills.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "🥳 Standard alert: All clear! No unsettled utility bills.",
+                        textAlign = TextAlign.Center,
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    upcomingBills.forEach { bill ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                                .clickable { viewModel.navigateTo(Screen.UtilityBills) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Constants.getCategoryIcon(bill.category),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(text = bill.name, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text(text = "Due: ${bill.dueDate}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                }
+                            }
+                            Text(text = "Rs. ${bill.amount}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Goals progress
+            if (savingsGoals.isNotEmpty()) {
+                Text(
+                    text = "Savings Progress",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                savingsGoals.take(2).forEach { goal ->
+                    val progress = if (goal.targetAmount > 0) (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f) else 0f
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(text = goal.title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(
+                                    text = "${String.format("%.0f", goal.currentAmount)} / ${String.format("%.0f", goal.targetAmount)} Rs.",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LinearProgressIndicator(
+                                progress = progress,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = MaterialTheme.colorScheme.secondary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StatCard(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    iconColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        elevation = CardDefaults.cardElevation(2.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = value,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = title,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@Composable
+fun QuickActionItem(
+    label: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit,
+    width: androidx.compose.ui.unit.Dp,
+    testTag: String
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(width)
+            .clickable(onClick = onClick)
+            .testTag(testTag)
+            .padding(vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(color.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+    }
+}

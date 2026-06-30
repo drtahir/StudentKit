@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-  namespace = "com.studentkit.buner"
+  namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.studentkit.buner"
+    applicationId = "com.aistudio.studentkit.kxmpzq"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
@@ -25,7 +25,7 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "studentkit"
+      keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
@@ -54,6 +54,9 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+  aaptOptions {
+    noCompress("tflite")
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
@@ -93,9 +96,6 @@ dependencies {
   // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
-  implementation(libs.firebase.firestore)
-  implementation("androidx.security:security-crypto:1.1.0-alpha06")
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0")
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
@@ -104,7 +104,12 @@ dependencies {
   // implementation(libs.play.services.location)
   implementation(libs.play.services.code.scanner)
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+  implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+  implementation("com.google.mlkit:face-detection:16.1.7")
   implementation(libs.retrofit)
+  implementation(libs.zxing.core)
+  implementation(libs.androidx.security.crypto)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
