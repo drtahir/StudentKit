@@ -88,4 +88,30 @@ class StudentKitRepository(private val dao: StudentKitDao) {
     suspend fun insertIntruderLog(log: IntruderLog) = dao.insertIntruderLog(log)
     suspend fun deleteIntruderLogById(id: String) = dao.deleteIntruderLogById(id)
     suspend fun clearAllIntruderLogs() = dao.clearAllIntruderLogs()
+
+    // --- PIN VAULT ---
+    val allPinVaultEntries: Flow<List<PinVaultEntry>> = dao.getAllPinVaultEntries()
+    suspend fun insertPinVaultEntry(entry: PinVaultEntry) = dao.insertPinVaultEntry(entry)
+    suspend fun deletePinVaultEntryById(id: String) = dao.deletePinVaultEntryById(id)
+
+    // --- PHOTO VAULT ---
+    val allPhotoVaultEntries: Flow<List<PhotoVaultEntry>> = dao.getAllPhotoVaultEntries()
+    suspend fun insertPhotoVaultEntry(entry: PhotoVaultEntry) = dao.insertPhotoVaultEntry(entry)
+    suspend fun deletePhotoVaultEntryById(id: String) = dao.deletePhotoVaultEntryById(id)
+
+    // --- PRIVATE NOTES ---
+    val allPrivateNoteEntries: Flow<List<PrivateNoteEntry>> = dao.getAllPrivateNoteEntries()
+    suspend fun insertPrivateNoteEntry(entry: PrivateNoteEntry) = dao.insertPrivateNoteEntry(entry)
+    suspend fun deletePrivateNoteEntryById(id: String) = dao.deletePrivateNoteEntryById(id)
+
+    // --- WIFI MONITOR ---
+    val allWifiDevices: Flow<List<WifiDevice>> = dao.getAllWifiDevices()
+    suspend fun insertWifiDevice(device: WifiDevice) = dao.insertWifiDevice(device)
+    suspend fun renameWifiDevice(mac: String, customName: String?, isKnown: Int) = dao.renameWifiDevice(mac, customName, isKnown)
+    suspend fun getWifiDeviceByMac(mac: String): WifiDevice? = dao.getWifiDeviceByMac(mac)
+    suspend fun deleteWifiDeviceByMac(mac: String) = dao.deleteWifiDeviceByMac(mac)
+
+    val allSpeedTestHistory: Flow<List<SpeedTestHistory>> = dao.getAllSpeedTestHistory()
+    suspend fun insertSpeedTestHistory(history: SpeedTestHistory) = dao.insertSpeedTestHistory(history)
+    suspend fun clearSpeedTestHistory() = dao.clearSpeedTestHistory()
 }

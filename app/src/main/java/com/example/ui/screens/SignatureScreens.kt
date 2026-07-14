@@ -307,7 +307,10 @@ fun SignaturePadScreen(viewModel: StudentKitViewModel) {
                                 Toast.makeText(context, "Signature saved to Stamp Studio cache!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A)),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(Icons.Outlined.Save, contentDescription = "Save")

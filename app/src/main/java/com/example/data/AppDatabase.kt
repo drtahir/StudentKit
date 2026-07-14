@@ -206,6 +206,64 @@ interface StudentKitDao {
 
     @Query("DELETE FROM intruder_logs")
     suspend fun clearAllIntruderLogs()
+
+    // --- PIN VAULT ---
+    @Query("SELECT * FROM pin_vault ORDER BY created_at DESC")
+    fun getAllPinVaultEntries(): Flow<List<PinVaultEntry>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPinVaultEntry(entry: PinVaultEntry)
+
+    @Query("DELETE FROM pin_vault WHERE id = :id")
+    suspend fun deletePinVaultEntryById(id: String)
+
+
+    // --- PHOTO VAULT ---
+    @Query("SELECT * FROM photo_vault ORDER BY created_at DESC")
+    fun getAllPhotoVaultEntries(): Flow<List<PhotoVaultEntry>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPhotoVaultEntry(entry: PhotoVaultEntry)
+
+    @Query("DELETE FROM photo_vault WHERE id = :id")
+    suspend fun deletePhotoVaultEntryById(id: String)
+
+
+    // --- PRIVATE NOTES ---
+    @Query("SELECT * FROM private_notes ORDER BY created_at DESC")
+    fun getAllPrivateNoteEntries(): Flow<List<PrivateNoteEntry>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPrivateNoteEntry(entry: PrivateNoteEntry)
+
+    @Query("DELETE FROM private_notes WHERE id = :id")
+    suspend fun deletePrivateNoteEntryById(id: String)
+
+    // --- WIFI DEVICES ---
+    @Query("SELECT * FROM wifi_devices ORDER BY last_seen DESC")
+    fun getAllWifiDevices(): Flow<List<WifiDevice>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWifiDevice(device: WifiDevice)
+
+    @Query("UPDATE wifi_devices SET customName = :customName, is_known = :isKnown WHERE macAddress = :macAddress")
+    suspend fun renameWifiDevice(macAddress: String, customName: String?, isKnown: Int)
+
+    @Query("SELECT * FROM wifi_devices WHERE macAddress = :macAddress")
+    suspend fun getWifiDeviceByMac(macAddress: String): WifiDevice?
+
+    @Query("DELETE FROM wifi_devices WHERE macAddress = :macAddress")
+    suspend fun deleteWifiDeviceByMac(macAddress: String)
+
+    // --- SPEED TEST HISTORY ---
+    @Query("SELECT * FROM speed_test_history ORDER BY timestamp DESC")
+    fun getAllSpeedTestHistory(): Flow<List<SpeedTestHistory>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSpeedTestHistory(history: SpeedTestHistory)
+
+    @Query("DELETE FROM speed_test_history")
+    suspend fun clearSpeedTestHistory()
 }
 
 @Database(
@@ -224,9 +282,14 @@ interface StudentKitDao {
         TimetableEntry::class,
         PasswordEntry::class,
         TempPdfImage::class,
-        IntruderLog::class
+        IntruderLog::class,
+        PinVaultEntry::class,
+        PhotoVaultEntry::class,
+        PrivateNoteEntry::class,
+        WifiDevice::class,
+        SpeedTestHistory::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

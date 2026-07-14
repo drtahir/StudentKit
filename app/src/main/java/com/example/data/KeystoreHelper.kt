@@ -120,4 +120,39 @@ object KeystoreHelper {
             return inputStream.readBytes()
         }
     }
+
+    /**
+     * Securely encrypt a String using hardware-backed AES-256-GCM.
+     */
+    fun encryptString(plainText: String, alias: String = FILE_ENCRYPT_ALIAS): String {
+        val secretKey = getOrCreateHardwareKey(alias)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        val encryptedBytes = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+        val combined = ByteArray(1 + iv.size + encryptedBytes.size)
+        combined[0] = iv.size.toByte()
+        System.arraycopy(iv, 0, combined, 1, iv.size)
+        System.arraycopy(encryptedBytes, 0, combined, 1 + iv.size, encryptedBytes.size)
+        return android.util.Base64.encodeToString(combined, android.util.Base64.NO_WRAP)
+    }
+
+    /**
+     * Securely decrypt a String using hardware-backed AES-256-GCM.
+     */
+    fun decryptString(encryptedBase64: String, alias: String = FILE_ENCRYPT_ALIAS): String {
+        val secretKey = getOrCreateHardwareKey(alias)
+        val combined = android.util.Base64.decode(encryptedBase64, android.util.Base64.NO_WRAP)
+        val ivSize = combined[0].toInt()
+        val iv = ByteArray(ivSize)
+        System.arraycopy(combined, 1, iv, 0, ivSize)
+        val cipherBytes = ByteArray(combined.size - 1 - ivSize)
+        System.arraycopy(combined, 1 + ivSize, cipherBytes, 0, cipherBytes.size)
+
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
+        val decryptedBytes = cipher.doFinal(cipherBytes)
+        return String(decryptedBytes, Charsets.UTF_8)
+    }
 }

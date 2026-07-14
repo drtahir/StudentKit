@@ -60,6 +60,18 @@ sealed class Screen {
     object HiddenLocker : Screen()
     object Steganography : Screen()
     object ImageEnhancer : Screen()
+    
+    // --- SECURITY SUITE ---
+    object SecurityHub : Screen()
+    object PinVault : Screen()
+    object AppLock : Screen()
+    object CalculatorVault : Screen()
+    object PhotoVault : Screen()
+    object PrivateNotes : Screen()
+    object SecureDelete : Screen()
+    object PermissionAuditor : Screen()
+    object WifiScanner : Screen()
+    object UssdCheck : Screen()
 }
 
 class StudentKitViewModel(application: Application) : AndroidViewModel(application) {
@@ -148,6 +160,23 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
 
     // --- INTRUDER LOGS ---
     val intruderLogs: StateFlow<List<IntruderLog>> = repository.allIntruderLogs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- SECURITY FLOWS ---
+    val pinVaultEntries: StateFlow<List<PinVaultEntry>> = repository.allPinVaultEntries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val photoVaultEntries: StateFlow<List<PhotoVaultEntry>> = repository.allPhotoVaultEntries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val privateNoteEntries: StateFlow<List<PrivateNoteEntry>> = repository.allPrivateNoteEntries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- WIFI MONITOR FLOWS ---
+    val wifiDevices: StateFlow<List<WifiDevice>> = repository.allWifiDevices
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val speedTestHistory: StateFlow<List<SpeedTestHistory>> = repository.allSpeedTestHistory
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
 
@@ -532,13 +561,15 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- INTRUDER LOG OPERATIONS ---
-    fun addIntruderLog(photoPath: String?, status: String, notes: String? = null) {
+    fun addIntruderLog(photoPath: String?, status: String, notes: String? = null, latitude: Double? = null, longitude: Double? = null) {
         viewModelScope.launch {
             val log = IntruderLog(
                 id = UUID.randomUUID().toString(),
                 timestamp = System.currentTimeMillis(),
                 photoPath = photoPath,
                 attemptStatus = status,
+                latitude = latitude,
+                longitude = longitude,
                 notes = notes
             )
             repository.insertIntruderLog(log)
@@ -554,6 +585,99 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     fun clearAllIntruderLogs() {
         viewModelScope.launch {
             repository.clearAllIntruderLogs()
+        }
+    }
+
+    // --- SECURITY SUITE: PIN VAULT ---
+    fun addPinVaultEntry(title: String, plainPin: String, category: String, note: String?) {
+        viewModelScope.launch {
+            val id = UUID.randomUUID().toString()
+            val encryptedPin = KeystoreHelper.encryptString(plainPin)
+            val createdAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+            repository.insertPinVaultEntry(PinVaultEntry(id, title, encryptedPin, category, note, createdAt))
+        }
+    }
+
+    fun deletePinVaultEntry(id: String) {
+        viewModelScope.launch {
+            repository.deletePinVaultEntryById(id)
+        }
+    }
+
+    // --- SECURITY SUITE: PHOTO VAULT ---
+    fun addPhotoVaultEntry(fileName: String, encryptedFilePath: String, originalFilePath: String, mimeType: String, isVideo: Int) {
+        viewModelScope.launch {
+            val id = UUID.randomUUID().toString()
+            val createdAt = System.currentTimeMillis()
+            repository.insertPhotoVaultEntry(PhotoVaultEntry(id, fileName, encryptedFilePath, originalFilePath, mimeType, createdAt, isVideo))
+        }
+    }
+
+    fun deletePhotoVaultEntry(id: String) {
+        viewModelScope.launch {
+            repository.deletePhotoVaultEntryById(id)
+        }
+    }
+
+    // --- SECURITY SUITE: PRIVATE NOTES ---
+    fun addPrivateNoteEntry(title: String, content: String, color: String?, isDecoy: Int = 0) {
+        viewModelScope.launch {
+            val id = UUID.randomUUID().toString()
+            val encryptedTitle = KeystoreHelper.encryptString(title)
+            val encryptedContent = KeystoreHelper.encryptString(content)
+            val createdAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+            repository.insertPrivateNoteEntry(PrivateNoteEntry(id, encryptedTitle, encryptedContent, color, createdAt, isDecoy))
+        }
+    }
+
+    fun updatePrivateNoteEntry(id: String, title: String, content: String, color: String?, createdAt: String, isDecoy: Int) {
+        viewModelScope.launch {
+            val encryptedTitle = KeystoreHelper.encryptString(title)
+            val encryptedContent = KeystoreHelper.encryptString(content)
+            repository.insertPrivateNoteEntry(PrivateNoteEntry(id, encryptedTitle, encryptedContent, color, createdAt, isDecoy))
+        }
+    }
+
+    fun deletePrivateNoteEntry(id: String) {
+        viewModelScope.launch {
+            repository.deletePrivateNoteEntryById(id)
+        }
+    }
+
+    // --- WIFI MONITOR OPERATIONS ---
+    fun addWifiDevice(device: WifiDevice) {
+        viewModelScope.launch {
+            repository.insertWifiDevice(device)
+        }
+    }
+
+    fun renameWifiDevice(mac: String, customName: String?, isKnown: Int) {
+        viewModelScope.launch {
+            repository.renameWifiDevice(mac, customName, isKnown)
+        }
+    }
+
+    fun deleteWifiDevice(mac: String) {
+        viewModelScope.launch {
+            repository.deleteWifiDeviceByMac(mac)
+        }
+    }
+
+    fun addSpeedTestHistory(download: Double, upload: Double) {
+        viewModelScope.launch {
+            val history = SpeedTestHistory(
+                id = UUID.randomUUID().toString(),
+                timestamp = System.currentTimeMillis(),
+                downloadSpeedMbps = download,
+                uploadSpeedMbps = upload
+            )
+            repository.insertSpeedTestHistory(history)
+        }
+    }
+
+    fun clearSpeedTestHistory() {
+        viewModelScope.launch {
+            repository.clearSpeedTestHistory()
         }
     }
 }

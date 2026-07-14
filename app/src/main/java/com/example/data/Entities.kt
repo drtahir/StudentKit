@@ -164,3 +164,56 @@ data class IntruderLog(
     val notes: String? = null
 )
 
+@Entity(tableName = "pin_vault")
+data class PinVaultEntry(
+    @PrimaryKey val id: String,
+    val title: String,
+    @ColumnInfo(name = "pin_encrypted") val pinEncrypted: String,
+    val category: String, // "ATM", "WiFi", "Social Media", "Locker", "Custom"
+    val note: String?,
+    @ColumnInfo(name = "created_at") val createdAt: String
+)
+
+@Entity(tableName = "photo_vault")
+data class PhotoVaultEntry(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "file_name") val fileName: String,
+    @ColumnInfo(name = "encrypted_file_path") val encryptedFilePath: String,
+    @ColumnInfo(name = "original_file_path") val originalFilePath: String,
+    @ColumnInfo(name = "mime_type") val mimeType: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "is_video") val isVideo: Int = 0
+)
+
+@Entity(tableName = "private_notes")
+data class PrivateNoteEntry(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "title_encrypted") val titleEncrypted: String,
+    @ColumnInfo(name = "content_encrypted") val contentEncrypted: String,
+    val color: String?,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "is_decoy") val isDecoy: Int = 0
+)
+
+@Entity(tableName = "wifi_devices")
+data class WifiDevice(
+    @PrimaryKey val macAddress: String,
+    val ipAddress: String,
+    val hostname: String?,
+    val manufacturer: String?,
+    val customName: String?,
+    @ColumnInfo(name = "first_seen") val firstSeen: Long,
+    @ColumnInfo(name = "last_seen") val lastSeen: Long,
+    @ColumnInfo(name = "seen_count") val seenCount: Int,
+    @ColumnInfo(name = "is_known") val isKnown: Int = 0 // 1 = known, 0 = unknown/new
+)
+
+@Entity(tableName = "speed_test_history")
+data class SpeedTestHistory(
+    @PrimaryKey val id: String,
+    val timestamp: Long,
+    @ColumnInfo(name = "download_speed") val downloadSpeedMbps: Double,
+    @ColumnInfo(name = "upload_speed") val uploadSpeedMbps: Double
+)
+
+

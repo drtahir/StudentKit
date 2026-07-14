@@ -467,7 +467,10 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                             Toast.makeText(context, "Save failed", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1.3f)
                 ) {

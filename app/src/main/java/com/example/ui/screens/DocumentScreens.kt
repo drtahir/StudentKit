@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.sp
 import com.example.viewmodel.StudentKitViewModel
 import com.example.data.*
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -51,6 +53,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1921,6 +1926,7 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
     
     // Editor Modes
     var activeTabMode by remember { mutableStateOf("editor") } // "editor" vs "preview"
+    var isFocusMode by remember { mutableStateOf(false) }
 
     var selectedCategoryFilter by remember { mutableStateOf("All") }
     var presetSearchQuery by remember { mutableStateOf("") }
@@ -3816,6 +3822,944 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                 }
             }
         }
+
+        // ---------------------------------------------------------------------
+        // IMMERSIVE FULL-SCREEN DATA ENTRY DIALOG / WIZARD MODE (DISABLED)
+        // ---------------------------------------------------------------------
+        if (false) {
+            Dialog(
+                onDismissRequest = { isFocusMode = false },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false
+                )
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    BackHandler {
+                        isFocusMode = false
+                    }
+                    
+                    val steps = listOf(
+                        "basic" to "Personal Profile",
+                        "work" to "Work History",
+                        "edu" to "Academic Credentials",
+                        "projects" to "Technical Projects",
+                        "skills" to "Skills & Languages",
+                        "theme" to "Style & Theme"
+                    )
+                    
+                    val currentStepIndex = steps.indexOfFirst { it.first == selectedEditorSection }.coerceIn(0, 5)
+                    val currentStep = steps[currentStepIndex]
+                    
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                    ) {
+                        // Dialog Header Toolbar
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                            ),
+                            shape = RoundedCornerShape(0.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = { isFocusMode = false },
+                                        modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Minimize Editor",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Elite CV Builder",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 16.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "${currentStep.second} (Step ${currentStepIndex + 1} of 6)",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                                
+                                // Preview Button
+                                Button(
+                                    onClick = {
+                                        isFocusMode = false
+                                        activeTabMode = "preview"
+                                    },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Visibility, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Preview CV", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        
+                        // Linear Progress Indicator
+                        LinearProgressIndicator(
+                            progress = { (currentStepIndex + 1).toFloat() / 6f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        )
+                        
+                        // Horizontal Steps Tracker
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f))
+                                .padding(vertical = 10.dp, horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            steps.forEachIndexed { idx, (secId, secLabel) ->
+                                val isSel = selectedEditorSection == secId
+                                val isDone = idx < currentStepIndex
+                                
+                                ElevatedFilterChip(
+                                    selected = isSel,
+                                    onClick = { selectedEditorSection = secId },
+                                    label = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            if (isDone) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = "Done",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(14.dp)
+                                                        .background(
+                                                            if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                                            CircleShape
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = (idx + 1).toString(),
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = secLabel,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        
+                        // Scrollable Spacious Form Fields
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f)
+                                .background(MaterialTheme.colorScheme.background)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(18.dp)
+                        ) {
+                            // Helpful tip Card
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.15f)
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = when (currentStep.first) {
+                                            "basic" -> Icons.Default.Person
+                                            "work" -> Icons.Default.Work
+                                            "edu" -> Icons.Default.School
+                                            "projects" -> Icons.Default.Code
+                                            "skills" -> Icons.Default.Settings
+                                            else -> Icons.Default.Palette
+                                        },
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = when (currentStep.first) {
+                                            "basic" -> "Fill out your official profile details and upload a professional portrait. The system automatically formats your contact header."
+                                            "work" -> "Detail your key employment tenures. Click '+ Add Job' to build your chronological career history."
+                                            "edu" -> "Add your degrees, schools, and grades to present academic strength."
+                                            "projects" -> "List impressive technical projects, open source, or freelance works to highlight hands-on capabilities."
+                                            "skills" -> "List core technologies and spoken languages separated by commas to compile clean dynamic visual chips."
+                                            else -> "Select from 30+ custom designer CV themes and typography grids optimized for modern job recruiting."
+                                        },
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+                            
+                            when (selectedEditorSection) {
+                                "basic" -> {
+                                    Text("Contact & Identity Details", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                    
+                                    val previewImgShape = when (photoFrameShape) {
+                                        "Rounded Square" -> RoundedCornerShape(12.dp)
+                                        "Square" -> androidx.compose.ui.graphics.RectangleShape
+                                        else -> CircleShape
+                                    }
+                                    
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.08f)),
+                                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(72.dp)
+                                                        .clip(previewImgShape)
+                                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                                        .border(2.dp, MaterialTheme.colorScheme.primary, previewImgShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (profilePicBitmap != null) {
+                                                        Image(
+                                                            bitmap = profilePicBitmap!!.asImageBitmap(),
+                                                            contentDescription = "Portrait Avatar preview",
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Icon(Icons.Default.AddAPhoto, "No Avatar", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                                    }
+                                                }
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("Professional Headshot Frame", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text("Upload portrait. Perfect crop formats auto-align.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                        Button(
+                                                            onClick = { profileImageLauncher.launch("image/*") },
+                                                            contentPadding = PaddingValues(horizontal = 14.dp),
+                                                            modifier = Modifier.height(32.dp)
+                                                        ) {
+                                                            Text("Choose Image", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                        if (profilePicBitmap != null) {
+                                                            OutlinedButton(
+                                                                onClick = { 
+                                                                    profilePicBitmap = null 
+                                                                    originalUploadedBitmap = null
+                                                                },
+                                                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                                                modifier = Modifier.height(32.dp)
+                                                            ) {
+                                                                Text("Remove", fontSize = 11.sp, color = Color.Red, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            Divider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                                            
+                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("Photo Frame Frame Profile Shape:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    listOf("Circle", "Rounded Square", "Square").forEach { shape ->
+                                                        val isSelected = photoFrameShape == shape
+                                                        ElevatedFilterChip(
+                                                            selected = isSelected,
+                                                            onClick = {
+                                                                photoFrameShape = shape
+                                                                if (originalUploadedBitmap != null) {
+                                                                    profilePicBitmap = cropBitmapToShape(originalUploadedBitmap!!, shape)
+                                                                    Toast.makeText(context, "Cropped to $shape!", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            },
+                                                            label = { Text(shape, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    OutlinedTextField(
+                                        value = fullName,
+                                        onValueChange = { fullName = it },
+                                        label = { Text("Full Name", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                                        modifier = Modifier.fillMaxWidth().testTag("fullNameInput"),
+                                        placeholder = { Text("E.g. Bilal Ahmed Khan") },
+                                        leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    
+                                    OutlinedTextField(
+                                        value = headline,
+                                        onValueChange = { headline = it },
+                                        label = { Text("Personal Professional Headline", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                                        modifier = Modifier.fillMaxWidth().testTag("headlineInput"),
+                                        placeholder = { Text("E.g. Full Stack Developer | Android Specialist") },
+                                        leadingIcon = { Icon(Icons.Default.Work, null, tint = MaterialTheme.colorScheme.primary) },
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    
+                                    OutlinedTextField(
+                                        value = email,
+                                        onValueChange = { email = it },
+                                        label = { Text("Official Email Address", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                                        modifier = Modifier.fillMaxWidth().testTag("emailInput"),
+                                        placeholder = { Text("E.g. bilal@company.com") },
+                                        leadingIcon = { Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        OutlinedTextField(
+                                            value = phone,
+                                            onValueChange = { phone = it },
+                                            label = { Text("Mobile Phone", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                                            modifier = Modifier.weight(1f).testTag("phoneInput"),
+                                            placeholder = { Text("+92 ...") },
+                                            leadingIcon = { Icon(Icons.Default.Phone, null, tint = MaterialTheme.colorScheme.primary) },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = location,
+                                            onValueChange = { location = it },
+                                            label = { Text("Location State", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                                            modifier = Modifier.weight(1f).testTag("locationInput"),
+                                            placeholder = { Text("Karachi, PK") },
+                                            leadingIcon = { Icon(Icons.Default.Place, null, tint = MaterialTheme.colorScheme.primary) },
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                    }
+                                    
+                                    OutlinedTextField(
+                                        value = summaryText,
+                                        onValueChange = { summaryText = it },
+                                        label = { Text("Professional Profile Summary", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                                        minLines = 4,
+                                        modifier = Modifier.fillMaxWidth().testTag("summaryInput"),
+                                        placeholder = { Text("Write a professional statement detailing core technical skills and career aspirations.") },
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
+                                
+                                "work" -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Professional Experience History", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                        Button(
+                                            onClick = { workExperiences.add(ResumeWorkHistory()) },
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Add Job", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    if (workExperiences.isEmpty()) {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Work, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(40.dp))
+                                                Text("No job records specified yet.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("Click the 'Add Job' button above to specify experiences.", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                                            }
+                                        }
+                                    } else {
+                                        workExperiences.forEachIndexed { index, exp ->
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                            ) {
+                                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(24.dp)
+                                                                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Text((index + 1).toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                            }
+                                                            Text("Work Experience Role", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
+                                                        }
+                                                        IconButton(
+                                                            onClick = { workExperiences.removeAt(index) },
+                                                            modifier = Modifier.background(Color.Red.copy(alpha = 0.1f), CircleShape).size(28.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Delete, "Remove Job", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                                        }
+                                                    }
+                                                    
+                                                    OutlinedTextField(
+                                                        value = exp.title,
+                                                        onValueChange = { workExperiences[index] = exp.copy(title = it) },
+                                                        label = { Text("Job Role / Internship Title") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = exp.company,
+                                                        onValueChange = { workExperiences[index] = exp.copy(company = it) },
+                                                        label = { Text("Company / Organization") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = exp.duration,
+                                                        onValueChange = { workExperiences[index] = exp.copy(duration = it) },
+                                                        label = { Text("Timeline Duration (E.g. Jun 2024 - Present)") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = exp.description,
+                                                        onValueChange = { workExperiences[index] = exp.copy(description = it) },
+                                                        label = { Text("Paragraph Summary of Accomplishments") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        minLines = 3,
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = exp.duty1,
+                                                        onValueChange = { workExperiences[index] = exp.copy(duty1 = it) },
+                                                        label = { Text("Achievement Bullet 1") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = exp.duty2,
+                                                        onValueChange = { workExperiences[index] = exp.copy(duty2 = it) },
+                                                        label = { Text("Achievement Bullet 2 (Optional)") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                "edu" -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Academic Credentials", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                        Button(
+                                            onClick = { academicList.add(ResumeAcademic()) },
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Add Degree", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    if (academicList.isEmpty()) {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(Icons.Default.School, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(40.dp))
+                                                Text("No academic degree records added.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("Add high school or university achievements above.", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                                            }
+                                        }
+                                    } else {
+                                        academicList.forEachIndexed { index, edu ->
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                            ) {
+                                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(24.dp)
+                                                                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Text((index + 1).toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                            }
+                                                            Text("Education Entry", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
+                                                        }
+                                                        IconButton(
+                                                            onClick = { academicList.removeAt(index) },
+                                                            modifier = Modifier.background(Color.Red.copy(alpha = 0.1f), CircleShape).size(28.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Delete, "Remove Academic", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                                        }
+                                                    }
+                                                    
+                                                    OutlinedTextField(
+                                                        value = edu.degree,
+                                                        onValueChange = { academicList[index] = edu.copy(degree = it) },
+                                                        label = { Text("Degree Title (E.g. BS Computer Science)") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = edu.school,
+                                                        onValueChange = { academicList[index] = edu.copy(school = it) },
+                                                        label = { Text("School / Board / University") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                        OutlinedTextField(
+                                                            value = edu.duration,
+                                                            onValueChange = { academicList[index] = edu.copy(duration = it) },
+                                                            label = { Text("Timeline Years (E.g. 2022 - 2026)") },
+                                                            modifier = Modifier.weight(1.2f),
+                                                            shape = RoundedCornerShape(8.dp)
+                                                        )
+                                                        OutlinedTextField(
+                                                            value = edu.grade,
+                                                            onValueChange = { academicList[index] = edu.copy(grade = it) },
+                                                            label = { Text("CGPA / Grade") },
+                                                            modifier = Modifier.weight(0.8f),
+                                                            shape = RoundedCornerShape(8.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                "projects" -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Portfolio & Technical Projects", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                        Button(
+                                            onClick = { projectsList.add(ResumeProject()) },
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Add Project", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    if (projectsList.isEmpty()) {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Code, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), modifier = Modifier.size(40.dp))
+                                                Text("No project profiles added yet.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("Outline projects to demonstrate hands-on technology stack exposure.", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                                            }
+                                        }
+                                    } else {
+                                        projectsList.forEachIndexed { index, proj ->
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                            ) {
+                                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(24.dp)
+                                                                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Text((index + 1).toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                            }
+                                                            Text("Project Profile Entry", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
+                                                        }
+                                                        IconButton(
+                                                            onClick = { projectsList.removeAt(index) },
+                                                            modifier = Modifier.background(Color.Red.copy(alpha = 0.1f), CircleShape).size(28.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Delete, "Remove Project", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                                        }
+                                                    }
+                                                    
+                                                    OutlinedTextField(
+                                                        value = proj.title,
+                                                        onValueChange = { projectsList[index] = proj.copy(title = it) },
+                                                        label = { Text("Project Name") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = proj.techStack,
+                                                        onValueChange = { projectsList[index] = proj.copy(techStack = it) },
+                                                        label = { Text("Technologies Used (comma separated list)") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = proj.url,
+                                                        onValueChange = { projectsList[index] = proj.copy(url = it) },
+                                                        label = { Text("Project Web URL (GitHub / Demo link)") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    
+                                                    OutlinedTextField(
+                                                        value = proj.impact,
+                                                        onValueChange = { projectsList[index] = proj.copy(impact = it) },
+                                                        label = { Text("Core Value / Impact Statement") },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                "skills" -> {
+                                    Text("Technical Competencies & Human Languages", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                    
+                                    OutlinedTextField(
+                                        value = skillsCsv,
+                                        onValueChange = { skillsCsv = it },
+                                        label = { Text("Professional Core Tech Skills (comma-separated list)") },
+                                        minLines = 4,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    Text("💡 Use commas to separate skills (e.g. Kotlin, Coroutines, Compose). The template turns them into beautiful dynamic pills on your CV sheet.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    
+                                    OutlinedTextField(
+                                        value = languagesCsv,
+                                        onValueChange = { languagesCsv = it },
+                                        label = { Text("Spoken Languages (comma list)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        placeholder = { Text("E.g. English (Fluent), Urdu (Native)") },
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                }
+                                
+                                "theme" -> {
+                                    Text("Tailor Resume Style & Layout", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                    
+                                    Text("Select Dynamic Accent Swatch Color:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    val colors = listOf(
+                                        Pair("Classic Royal Blue", "#1E3A8A"),
+                                        Pair("Creative Forest Teal", "#0F766E"),
+                                        Pair("Executive Charcoal", "#334155"),
+                                        Pair("Luxury Plum Purple", "#581C87"),
+                                        Pair("Deep Crimson Ruby", "#991B1B")
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        colors.forEach { (cName, hex) ->
+                                            val isSelHex = selectedAccentColorHex.equals(hex, ignoreCase = true)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(42.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(android.graphics.Color.parseColor(hex)))
+                                                    .border(
+                                                        3.5.dp,
+                                                        if (isSelHex) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                                        CircleShape
+                                                    )
+                                                    .clickable { selectedAccentColorHex = hex }
+                                            )
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text("Typography Style Class:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    val fontClasses = listOf("Sharp Sans-Serif", "Classic Serif", "Tech Monospace")
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        fontClasses.forEach { fn ->
+                                            val isSelected = selectedTypography == fn
+                                            ElevatedFilterChip(
+                                                selected = isSelected,
+                                                onClick = { selectedTypography = fn },
+                                                label = { Text(fn, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
+                                            )
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text("Select Premium Theme Grid Structure:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    
+                                    var fullscreenThemeFilter by remember { mutableStateOf("All") }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        val catOptions = listOf(
+                                            "All" to "🌐 All",
+                                            "Professional & ATS" to "💼 Corporate & ATS",
+                                            "Modern & Editorial" to "📰 Modern Editorial",
+                                            "Creative & Design" to "🎨 Creative & Arts"
+                                        )
+                                        catOptions.forEach { (catId, catLabel) ->
+                                            val isSel = fullscreenThemeFilter == catId
+                                            ElevatedFilterChip(
+                                                selected = isSel,
+                                                onClick = { fullscreenThemeFilter = catId },
+                                                label = { Text(catLabel, fontSize = 11.sp) }
+                                            )
+                                        }
+                                    }
+                                    
+                                    val allTemplates = listOf(
+                                        "Silicon Valley ATS Standard",
+                                        "Academic Curriculum Vitae (Multi-Page)",
+                                        "Executive Portfolio Chronological (Multi-Page)",
+                                        "Zurich Clean Minimalist",
+                                        "Stockholm Pro Corporate",
+                                        "Toronto Compact Executive",
+                                        "Vienna Traditional Classic",
+                                        "Tokyo Minimalist Zen",
+                                        "Geneva Swiss Precision",
+                                        "Federal Compliance Uniform",
+                                        "London Legal Standard",
+                                        "Boston Ivy Scholar",
+                                        "New York Metro Grid",
+                                        "London Modern Editorial",
+                                        "Dublin Tech Agile",
+                                        "Berlin Industrial Tech",
+                                        "Singapore Global Hub",
+                                        "Nordic Pine Birch",
+                                        "Austin Tech Horizon",
+                                        "Modern Blue Grid",
+                                        "The Ivy League Serif",
+                                        "Executive Slate Midnight",
+                                        "Paris Creative Chic",
+                                        "Sydney Golden Coast",
+                                        "Barcelona Vivid Sunset",
+                                        "Milan Deluxe Couture",
+                                        "Dubai Royal Platinum",
+                                        "San Francisco StartUp",
+                                        "Chicago Urban Accent",
+                                        "Creative Emerald Garden"
+                                    )
+                                    
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 280.dp)
+                                            .verticalScroll(rememberScrollState())
+                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
+                                            .padding(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        allTemplates.forEach { tmName ->
+                                            val conf = getTemplateStyleConfig(tmName)
+                                            if (fullscreenThemeFilter == "All" || conf.category == fullscreenThemeFilter) {
+                                                val isSelected = selectedTemplateTheme == tmName
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { selectedTemplateTheme = tmName },
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else Color.Transparent
+                                                    )
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        RadioButton(
+                                                            selected = isSelected,
+                                                            onClick = { selectedTemplateTheme = tmName }
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                Text(tmName, fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                                                Spacer(modifier = Modifier.width(6.dp))
+                                                                val badgeLabel = when (conf.category) {
+                                                                    "Professional & ATS" -> "ATS"
+                                                                    "Modern & Editorial" -> "EDITORIAL"
+                                                                    else -> "CREATIVE"
+                                                                }
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                ) {
+                                                                    Text(badgeLabel, fontSize = 7.5.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold)
+                                                                }
+                                                            }
+                                                            Text(conf.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Full Screen Form Footer
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shadowElevation = 8.dp,
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (currentStepIndex > 0) {
+                                OutlinedButton(
+                                    onClick = {
+                                        selectedEditorSection = steps[currentStepIndex - 1].first
+                                    },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.ArrowBack, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Back", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Box(modifier = Modifier.size(1.dp))
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    if (currentStepIndex < 5) {
+                                        selectedEditorSection = steps[currentStepIndex + 1].first
+                                    } else {
+                                        isFocusMode = false
+                                        activeTabMode = "preview"
+                                        Toast.makeText(context, "All steps completed! Check your premium live layout.", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                val label = if (currentStepIndex < 5) "Next Section" else "Finish & View Preview"
+                                val icon = if (currentStepIndex < 5) Icons.Default.ArrowForward else Icons.Default.Done
+                                Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(icon, null, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -5132,6 +6076,157 @@ fun DocumentScannerScreen(viewModel: StudentKitViewModel) {
     }
 }
 
+// Helper to create a temporary image file URI for real camera scans
+fun createDocumentTempImageUri(context: Context): Uri? {
+    return try {
+        val cacheDir = context.cacheDir
+        val tempFile = File.createTempFile("doc_scan_", ".jpg", cacheDir).apply {
+            createNewFile()
+        }
+        FileProvider.getUriForFile(context, "com.example.fileprovider", tempFile)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+// Helper to generate a gorgeous mock paper document bitmap dynamically if no physical camera or image is uploaded
+fun createMockPaperDocument(preset: String): Bitmap {
+    val width = 600
+    val height = 850
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint().apply { isAntiAlias = true }
+
+    // White/ivory paper background
+    val bgColor = if (preset == "Whiteboard Boost") android.graphics.Color.WHITE else android.graphics.Color.parseColor("#FFFDF9")
+    paint.color = bgColor
+    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+
+    // Subtle page border
+    paint.color = android.graphics.Color.parseColor("#E2E8F0")
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 3f
+    canvas.drawRect(12f, 12f, width.toFloat() - 12f, height.toFloat() - 12f, paint)
+    paint.style = Paint.Style.FILL
+
+    // Title Section
+    paint.color = android.graphics.Color.parseColor("#0F172A")
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    paint.textSize = 22f
+
+    val title = when (preset) {
+        "Handwritten Notes" -> "MATH LECT NOTES - STUDY KIT"
+        "Whiteboard Boost" -> "ALGORITHM WHITEBOARD SESSION"
+        "Receipt" -> "OFFICIAL BOOKSTORE RECEIPT"
+        "ID Card Scan" -> "CITIZEN ID CARD PHOTOCOPY CERTIFICATE"
+        "Business Card" -> "EXECUTIVE NETWORKING CARD"
+        else -> "ACADEMIC CALCULUS ASSIGNMENT"
+    }
+    canvas.drawText(title, 40f, 75f, paint)
+
+    // Subtitle
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+    paint.textSize = 12f
+    paint.color = android.graphics.Color.parseColor("#64748B")
+    val subtitle = "Status: Certified High-Res Document Scan | System Date: June 2026"
+    canvas.drawText(subtitle, 40f, 105f, paint)
+
+    // Separator line
+    paint.color = android.graphics.Color.parseColor("#CBD5E1")
+    canvas.drawLine(40f, 122f, width - 40f, 122f, paint)
+
+    // Text lines simulating a scanned document page
+    paint.color = android.graphics.Color.parseColor("#334155")
+    paint.textSize = 13f
+    val lines = when (preset) {
+        "Handwritten Notes" -> listOf(
+            "Topic: Advanced Integration & Derivatives",
+            "1. Calculus homework solutions can be computed using standard rules.",
+            "2. Ensure all limits of integration are explicitly evaluated.",
+            "3. Formulas: integral( u dv ) = u*v - integral( v du ).",
+            "4. Important reminder for the final exam: Show all steps!",
+            "   - Verify continuity on the interval before taking derivatives.",
+            "   - Cross-check results with standard textbook tables."
+        )
+        "Whiteboard Boost" -> listOf(
+            "Graph Theory: Dijkstra's Shortest Path Algorithm",
+            "Initialize distance array: dist[v] = infinity, dist[source] = 0.",
+            "Create min-priority queue Q and insert all vertices.",
+            "While Q is not empty:",
+            "   u = vertex in Q with min dist[u]",
+            "   remove u from Q",
+            "   for each neighbor v of u: relax(u, v, weight)"
+        )
+        "Receipt" -> listOf(
+            "TRANS-GLOBAL ACADEMIC BOOKSTORE CO.",
+            "Merchant ID: #98231-A | Terminal: SEC-04",
+            "----------------------------------------------",
+            "1x College Physics Textbook (12th Ed)   $145.00",
+            "1x Engineering Graphing Calculator      $110.00",
+            "1x Premium Leather Study Notebook        $24.50",
+            "----------------------------------------------",
+            "SUBTOTAL:                               $279.50",
+            "TAX (8.5%):                              $23.75",
+            "TOTAL PAID:                             $303.25"
+        )
+        "Business Card" -> listOf(
+            "DR. ALEX CARTER, PhD",
+            "Dean of Computer Science & Applied Mathematics",
+            "---------------------------------------------------",
+            "Email: alex.carter@university-global.edu",
+            "Tel: +1 (555) 019-2834 | Fax: +1 (555) 019-2835",
+            "Office: Science Building, Suite 402B",
+            "Website: cs.university-global.edu/carter"
+        )
+        else -> listOf(
+            "Calculus Homework Assignment No 3.",
+            "Name: Alex Carter. Course: Calculus II.",
+            "Problem: Find the area under the curve y = x^2 from x=0 to x=3.",
+            "Solution:",
+            "  The definite integral is: integral_{0}^{3} x^2 dx",
+            "  Anti-derivative F(x) = (x^3)/3",
+            "  Evaluating from 0 to 3: F(3) - F(0)",
+            "  F(3) = 27 / 3 = 9. F(0) = 0.",
+            "  The required area is exactly 9 square units."
+        )
+    }
+
+    var y = 165f
+    for (line in lines) {
+        if (line.startsWith("Topic:") || line.startsWith("DR.") || line.startsWith("TRANS-")) {
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        } else {
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        canvas.drawText(line, 40f, y, paint)
+        y += 32f
+    }
+
+    // Add a beautiful blue decorative official stamp
+    paint.color = android.graphics.Color.parseColor("#803B82F6") // Semi-transparent blue
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 3f
+    canvas.drawCircle(width - 100f, height - 120f, 45f, paint)
+    paint.textSize = 10f
+    paint.style = Paint.Style.FILL
+    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    canvas.drawText("STUDENT KIT", width - 140f, height - 125f, paint)
+    canvas.drawText("VERIFIED COPY", width - 140f, height - 110f, paint)
+
+    return bitmap
+}
+
+// Dynamic Document Loading: supports real files and beautiful simulated fallbacks
+fun loadDocumentBitmapFromUri(context: Context, uri: Uri, preset: String): Bitmap {
+    return try {
+        context.contentResolver.openInputStream(uri).use { stream ->
+            BitmapFactory.decodeStream(stream) ?: throw Exception("Null decoded bitmap")
+        }
+    } catch (e: Exception) {
+        createMockPaperDocument(preset)
+    }
+}
+
 // -------------------------------------------------------------
 // CAMERA SCANNER TAB LAYER
 // -------------------------------------------------------------
@@ -5155,6 +6250,16 @@ fun CameraScannerTab(
     ) { uri: Uri? ->
         if (uri != null) {
             activeBatch.add(ScannedPage(uri = uri, preset = selectedPreset))
+        }
+    }
+
+    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        if (success && tempCameraUri != null) {
+            activeBatch.add(ScannedPage(uri = tempCameraUri!!, preset = selectedPreset))
+            Toast.makeText(context, "📸 Captured document page successfully!", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -5283,14 +6388,8 @@ fun CameraScannerTab(
                 val boxHeight = maxHeight
 
                 // Display base scanned image with dynamic Compose filter matrix applied
-                val imageBmp = remember(page.uri) {
-                    try {
-                        context.contentResolver.openInputStream(page.uri).use { stream ->
-                            BitmapFactory.decodeStream(stream)
-                        }
-                    } catch (e: Exception) {
-                        null
-                    }
+                val imageBmp = remember(page.uri, page.preset) {
+                    loadDocumentBitmapFromUri(context, page.uri, page.preset)
                 }
 
                 if (imageBmp != null) {
@@ -5861,16 +6960,40 @@ fun CameraScannerTab(
                     }
                 }
 
-                // Import from gallery alternatively
-                Button(
-                    onClick = { galleryLauncher.launch("image/*") },
+                // Import from gallery or launch real camera
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Import Photo from Device Gallery")
+                    Button(
+                        onClick = {
+                            val uri = createDocumentTempImageUri(context)
+                            if (uri != null) {
+                                tempCameraUri = uri
+                                cameraLauncher.launch(uri)
+                            } else {
+                                Toast.makeText(context, "Failed to initialize camera storage.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("📸 Real Camera Scan", fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = { galleryLauncher.launch("image/*") },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Import Gallery", fontSize = 12.sp)
+                    }
                 }
             } else {
                 // --- BATCH SCANNED PAGES LIST ---
@@ -5888,15 +7011,37 @@ fun CameraScannerTab(
                             Text("📑 Batch Scanning Session", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Text("${activeBatch.size} pages captured currently", fontSize = 11.sp, color = Color.Gray)
                         }
-                        Button(
-                            onClick = {
-                                val mockUri = Uri.parse("android.resource://" + context.packageName + "/" + System.currentTimeMillis())
-                                activeBatch.add(ScannedPage(uri = mockUri, preset = selectedPreset))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Button(
+                                onClick = {
+                                    val uri = createDocumentTempImageUri(context)
+                                    if (uri != null) {
+                                        tempCameraUri = uri
+                                        cameraLauncher.launch(uri)
+                                    } else {
+                                        Toast.makeText(context, "Failed to initialize camera storage.", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Real Cam", fontSize = 11.sp)
                             }
-                        ) {
-                            Icon(Icons.Default.Add, null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Scan Next Page")
+
+                            FilledTonalButton(
+                                onClick = {
+                                    val mockUri = Uri.parse("simulated_doc_" + System.currentTimeMillis())
+                                    activeBatch.add(ScannedPage(uri = mockUri, preset = selectedPreset))
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Sim Scan", fontSize = 11.sp)
+                            }
                         }
                     }
                 }

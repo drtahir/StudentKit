@@ -75,6 +75,8 @@ fun IslamicHubScreen(
     var showNamazReader by remember { mutableStateOf(false) }
     var showJanazaReader by remember { mutableStateOf(false) }
     var showTaziyatReader by remember { mutableStateOf(false) }
+    var showNawawiReader by remember { mutableStateOf(false) }
+    var showHisnulReader by remember { mutableStateOf(false) }
 
     if (showManzilReader) {
         ManzilReaderScreen(viewModel = viewModel, onBack = { showManzilReader = false })
@@ -84,6 +86,10 @@ fun IslamicHubScreen(
         JanazaReaderScreen(viewModel = viewModel, onBack = { showJanazaReader = false })
     } else if (showTaziyatReader) {
         TaziyatReaderScreen(viewModel = viewModel, onBack = { showTaziyatReader = false })
+    } else if (showNawawiReader) {
+        NawawiHadithReaderScreen(viewModel = viewModel, onBack = { showNawawiReader = false })
+    } else if (showHisnulReader) {
+        HisnulMuslimReaderScreen(viewModel = viewModel, onBack = { showHisnulReader = false })
     } else {
         Scaffold(
             topBar = {
@@ -160,6 +166,17 @@ fun IslamicHubScreen(
                 type = "Condolences"
             ),
             IslamicBook(
+                id = "nawawi",
+                title = "40 Hadith Nawawi",
+                arabicTitle = "الأربعون النووية",
+                subtitle = "Arabic-English-Urdu combined",
+                description = "Forty foundational sayings of the Prophet (PBUH) compiled by Imam an-Nawawi, containing essential guides for faith and practice in full trilingual formatting.",
+                pages = 42,
+                isAvailable = true,
+                accentColor = Color(0xFFE65100),
+                type = "Hadith Collection"
+            ),
+            IslamicBook(
                 id = "quran",
                 title = "Quran Majeed",
                 arabicTitle = "القرآن الكريم",
@@ -188,7 +205,7 @@ fun IslamicHubScreen(
                 subtitle = "Fortress of the Muslim",
                 description = "Daily supplications (Duas) and remembrances (Azkar) for every occasion compiled from the Sunnah of Prophet Muhammad (PBUH).",
                 pages = 132,
-                isAvailable = false,
+                isAvailable = true,
                 accentColor = Color(0xFF00897B),
                 type = "Supplications & Duas"
             )
@@ -348,6 +365,10 @@ fun IslamicHubScreen(
                                     showJanazaReader = true
                                 } else if (book.id == "dua_taziyat") {
                                     showTaziyatReader = true
+                                } else if (book.id == "nawawi") {
+                                    showNawawiReader = true
+                                } else if (book.id == "hisnul_muslim") {
+                                    showHisnulReader = true
                                 }
                             }
                         }

@@ -75,6 +75,9 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
             is Screen.GpaCalculator, is Screen.IvCalculator, is Screen.DosageCalculator,
             is Screen.GfrCalculator, is Screen.AnatomyAtlas, is Screen.PharmacyExam, is Screen.HajjMedicalPrep,
             is Screen.IslamicHub -> 4
+            is Screen.SecurityHub, is Screen.PinVault, is Screen.AppLock, is Screen.CalculatorVault,
+            is Screen.PhotoVault, is Screen.PrivateNotes, is Screen.SecureDelete, is Screen.PermissionAuditor,
+            is Screen.WifiScanner, is Screen.UssdCheck -> 5
         }
     }
 
@@ -138,6 +141,16 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                     icon = { Icon(Icons.Default.Book, contentDescription = "Study & Health") },
                     label = { Text("Study", fontSize = 11.sp) },
                     modifier = Modifier.testTag("nav_study")
+                )
+                NavigationBarItem(
+                    selected = selectedTabItem == 5,
+                    onClick = {
+                        selectedTabItem = 5
+                        viewModel.navigateTo(Screen.SecurityHub)
+                    },
+                    icon = { Icon(Icons.Default.Security, contentDescription = "Security") },
+                    label = { Text("Security", fontSize = 11.sp) },
+                    modifier = Modifier.testTag("nav_security")
                 )
                 }
             }
@@ -216,9 +229,7 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                         }
                     }
                     is Screen.CvBuilder -> DocumentHubScreen(viewModel = viewModel, title = "CV Resume Builder") {
-                        DocumentSubChoicesHub(viewModel = viewModel, activeSelection = "CV Builder") {
-                            CvBuilderScreen(viewModel = viewModel)
-                        }
+                        CvBuilderScreen(viewModel = viewModel)
                     }
                     is Screen.DocumentScanner -> DocumentHubScreen(viewModel = viewModel, title = "Document Edge Scanner") {
                         DocumentSubChoicesHub(viewModel = viewModel, activeSelection = "Edge Scan") {
@@ -387,6 +398,18 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                             AgeCalculatorScreen(viewModel = viewModel)
                         }
                     }
+
+                    // --- SECURITY SUITE ---
+                    is Screen.SecurityHub -> SecurityHubScreen(viewModel = viewModel)
+                    is Screen.PinVault -> PinVaultScreen(viewModel = viewModel)
+                    is Screen.AppLock -> AppLockScreen(viewModel = viewModel)
+                    is Screen.CalculatorVault -> CalculatorVaultScreen(viewModel = viewModel)
+                    is Screen.PhotoVault -> PhotoVaultScreen(viewModel = viewModel)
+                    is Screen.PrivateNotes -> PrivateNotesScreen(viewModel = viewModel)
+                    is Screen.SecureDelete -> SecureDeleteScreen(viewModel = viewModel)
+                    is Screen.PermissionAuditor -> PermissionAuditorScreen(viewModel = viewModel)
+                    is Screen.WifiScanner -> WifiScannerScreen(viewModel = viewModel)
+                    is Screen.UssdCheck -> UssdCheckScreen(viewModel = viewModel)
                 }
             }
         }
