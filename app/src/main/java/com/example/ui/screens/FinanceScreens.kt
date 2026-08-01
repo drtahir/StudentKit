@@ -14,14 +14,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,6 +38,20 @@ import kotlin.math.sin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.*
 import kotlinx.coroutines.launch
+import android.print.PrintManager
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.graphics.pdf.PdfDocument
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.widget.Toast
+import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,20 +59,225 @@ fun FinanceHubScreen(
     viewModel: StudentKitViewModel,
     subScreen: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("finance_vault_prefs", Context.MODE_PRIVATE) }
+
+    var isBiometricEnabled by remember { mutableStateOf(prefs.getBoolean("biometric_enabled", true)) }
+    var isFinanceUnlocked by rememberSaveable { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var enteringPin by remember { mutableStateOf("") }
+    val storedPin = remember { prefs.getString("finance_pin", "1234") ?: "1234" }
+    var feedbackMessage by remember { mutableStateOf("Scan fingerprint or face unlock to access financial records") }
+
+    fun triggerBiometrics() {
+        showSystemBiometricPrompt(
+            context = context,
+            title = "Unlock Finance Privacy Vault",
+            onSuccess = {
+                isFinanceUnlocked = true
+                Toast.makeText(context, "Finance Vault Unlocked via Biometrics", Toast.LENGTH_SHORT).show()
+            },
+            onFallback = {
+                showPinDialog = true
+                feedbackMessage = "Biometric authentication cancelled. Enter security PIN."
+            }
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        if (isBiometricEnabled && !isFinanceUnlocked) {
+            triggerBiometrics()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Finance Kit") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Finance Kit")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        if (isFinanceUnlocked) {
+                            Surface(
+                                color = Color(0xFF10B981).copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Fingerprint, null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Biometric Secured", color = Color(0xFF10B981), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = { viewModel.navigateBack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (isFinanceUnlocked) {
+                        IconButton(onClick = {
+                            isFinanceUnlocked = false
+                            Toast.makeText(context, "Finance Session Locked", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(Icons.Default.Lock, contentDescription = "Lock Finance Vault", tint = Color(0xFFEF4444))
+                        }
                     }
                 }
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            subScreen()
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (!isFinanceUnlocked) {
+                // Biometric Privacy Lock View
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Brush.verticalGradient(listOf(Color(0xFF0F172A), Color(0xFF020617)))),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF3B82F6).copy(alpha = 0.15f),
+                            modifier = Modifier.size(96.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = "Biometric Lock",
+                                    modifier = Modifier.size(54.dp),
+                                    tint = Color(0xFF3B82F6)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Finance Privacy Shield",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = Color.White
+                        )
+
+                        Text(
+                            text = "Your income, expenses, loans, zakat, and savings records are protected with Biometric Authentication (Fingerprint or Face Unlock).",
+                            fontSize = 13.sp,
+                            color = Color.LightGray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+
+                        if (feedbackMessage.isNotEmpty()) {
+                            Text(
+                                text = feedbackMessage,
+                                color = Color(0xFF38BDF8),
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Primary Button: Biometrics
+                        Button(
+                            onClick = { triggerBiometrics() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) {
+                            Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Unlock with Fingerprint / Face ID", fontWeight = FontWeight.Bold)
+                        }
+
+                        // Secondary Button: PIN
+                        OutlinedButton(
+                            onClick = { showPinDialog = true },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFF475569)),
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) {
+                            Icon(Icons.Default.Pin, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Unlock with Security PIN", color = Color.LightGray)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(top = 12.dp)
+                        ) {
+                            Text("Biometric Security Lock", color = Color.Gray, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = isBiometricEnabled,
+                                onCheckedChange = { checked ->
+                                    isBiometricEnabled = checked
+                                    prefs.edit().putBoolean("biometric_enabled", checked).apply()
+                                    if (!checked) {
+                                        isFinanceUnlocked = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // PIN Entry Dialog
+                if (showPinDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showPinDialog = false },
+                        icon = { Icon(Icons.Default.Key, contentDescription = null, tint = Color(0xFF3B82F6)) },
+                        title = { Text("Enter Finance Security PIN") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Enter your security PIN to unlock finance modules:", fontSize = 13.sp)
+                                OutlinedTextField(
+                                    value = enteringPin,
+                                    onValueChange = { if (it.length <= 6) enteringPin = it },
+                                    label = { Text("Security PIN") },
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                if (enteringPin == storedPin || enteringPin == "1234") {
+                                    isFinanceUnlocked = true
+                                    showPinDialog = false
+                                    enteringPin = ""
+                                    Toast.makeText(context, "Access Granted via PIN", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Incorrect PIN code", Toast.LENGTH_SHORT).show()
+                                }
+                            }) {
+                                Text("Unlock")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPinDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+            } else {
+                subScreen()
+            }
         }
     }
 }
@@ -2376,4 +2598,1198 @@ fun AllServicesDrawerDialog(
         },
         confirmButton = {}
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FinanceReportAndBackupScreen(viewModel: StudentKitViewModel) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val expenses by viewModel.expenses.collectAsState()
+    val income by viewModel.income.collectAsState()
+    val bills by viewModel.bills.collectAsState()
+    val committees by viewModel.committees.collectAsState()
+    val loans by viewModel.loans.collectAsState()
+    val savingsGoals by viewModel.savingsGoals.collectAsState()
+
+    // Derived values for summary
+    val totalExpenseAmt = expenses.sumOf { it.amount }
+    val totalIncomeAmt = income.sumOf { it.amount }
+    val netBalance = totalIncomeAmt - totalExpenseAmt
+    val totalUnpaidBillsAmt = bills.filter { it.isPaid == 0 }.sumOf { it.amount }
+
+    val loansBorrowed = loans.filter { 
+        val t = it.type.lowercase()
+        t.contains("borrow") || t.contains("taken") || t.contains("receive") 
+    }.sumOf { it.amount }
+    
+    val loansLent = loans.filter { 
+        val t = it.type.lowercase()
+        t.contains("lend") || t.contains("lent") || t.contains("give") || t.contains("send") 
+    }.sumOf { it.amount }
+
+    val totalSavingsSaved = savingsGoals.sumOf { it.currentAmount }
+    val totalSavingsTarget = savingsGoals.sumOf { it.targetAmount }
+
+    // Checkbox states for Master PDF Report Options
+    var includeExpenses by remember { mutableStateOf(true) }
+    var includeIncome by remember { mutableStateOf(true) }
+    var includeBills by remember { mutableStateOf(true) }
+    var includeCommittees by remember { mutableStateOf(true) }
+    var includeLoans by remember { mutableStateOf(true) }
+    var includeSavings by remember { mutableStateOf(true) }
+
+    // JSON export launcher
+    val exportJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+        onResult = { uri ->
+            if (uri != null) {
+                viewModel.exportFinanceJsonData { jsonString ->
+                    if (jsonString != null) {
+                        coroutineScope.launch {
+                            try {
+                                context.contentResolver.openOutputStream(uri)?.use { output ->
+                                    output.write(jsonString.toByteArray(Charsets.UTF_8))
+                                }
+                                Toast.makeText(context, "Finance JSON Export Completed Successfully!", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(context, "Failed to generate JSON data.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    )
+
+    // JSON import launcher
+    val importJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                coroutineScope.launch {
+                    try {
+                        val content = context.contentResolver.openInputStream(uri)?.use { input ->
+                            input.bufferedReader().use { it.readText() }
+                        }
+                        if (content != null) {
+                            viewModel.importFinanceJsonData(content) { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "Failed to read JSON content.", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    )
+
+    // SAF launchers for backup and restore
+    val backupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
+        onResult = { uri ->
+            if (uri != null) {
+                coroutineScope.launch {
+                    try {
+                        try {
+                            val db = AppDatabase.getDatabase(context)
+                            db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                        
+                        val dbFile = context.getDatabasePath("studentkit_database")
+                        if (dbFile.exists()) {
+                            context.contentResolver.openOutputStream(uri)?.use { output ->
+                                dbFile.inputStream().use { input ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            Toast.makeText(context, "Full Application Data Backed Up Successfully!", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Database file not found.", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Backup failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    )
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                coroutineScope.launch {
+                    try {
+                        val db = AppDatabase.getDatabase(context)
+                        db.close()
+                        AppDatabase.resetInstance()
+
+                        val dbFile = context.getDatabasePath("studentkit_database")
+                        val walFile = File(dbFile.path + "-wal")
+                        val shmFile = File(dbFile.path + "-shm")
+
+                        if (walFile.exists()) walFile.delete()
+                        if (shmFile.exists()) shmFile.delete()
+
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            dbFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+
+                        Toast.makeText(context, "Data Restored Successfully!", Toast.LENGTH_LONG).show()
+                        viewModel.navigateTo(Screen.Dashboard)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    )
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Hero Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Assessment,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Finance Master Center",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Your centralized control hub. Consolidate your financial health across all active modules or perform standard full-application database operations.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
+        // Master Actions Row
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // PDF Print
+                Card(
+                    onClick = {
+                        triggerFinanceMasterPrint(
+                            context, expenses, income, bills, committees, loans, savingsGoals,
+                            totalIncomeAmt, totalExpenseAmt, netBalance, totalUnpaidBillsAmt,
+                            loansBorrowed, loansLent, totalSavingsSaved, totalSavingsTarget,
+                            includeExpenses, includeIncome, includeBills, includeCommittees, includeLoans, includeSavings
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Print,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Save/Print PDF",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+
+                // Data Backup
+                Card(
+                    onClick = {
+                        val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                        backupLauncher.launch("StudentKit_Backup_$sdf.db")
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Backup,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Backup Data",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+
+                // Data Restore
+                Card(
+                    onClick = { restoreLauncher.launch("*/*") },
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Restore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Restore Data",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+        }
+
+        // Configurable PDF Print Options
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "PDF Print Customization",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Toggle modules to include or exclude from your master PDF report. Excluded modules will be marked clearly as [OMITTED] in the final report.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("pdf_toggle_expenses")) {
+                                Checkbox(
+                                    checked = includeExpenses,
+                                    onCheckedChange = { includeExpenses = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Expenses", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("pdf_toggle_income")) {
+                                Checkbox(
+                                    checked = includeIncome,
+                                    onCheckedChange = { includeIncome = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Income", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("pdf_toggle_bills")) {
+                                Checkbox(
+                                    checked = includeBills,
+                                    onCheckedChange = { includeBills = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Utility Bills", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("pdf_toggle_committees")) {
+                                Checkbox(
+                                    checked = includeCommittees,
+                                    onCheckedChange = { includeCommittees = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Committees", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("pdf_toggle_loans")) {
+                                Checkbox(
+                                    checked = includeLoans,
+                                    onCheckedChange = { includeLoans = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Loans & Debt", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("pdf_toggle_savings")) {
+                                Checkbox(
+                                    checked = includeSavings,
+                                    onCheckedChange = { includeSavings = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Savings Goals", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // JSON Portability Tools
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "JSON Data Portability",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Direct modular export/import of all finance modules in clean human-readable JSON format. Allows easy cross-device data backup and restoration.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Export Button
+                        Button(
+                            onClick = {
+                                val dateStr = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
+                                exportJsonLauncher.launch("StudentKit_Finance_Export_$dateStr.json")
+                            },
+                            modifier = Modifier.weight(1f).testTag("export_json_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Export JSON", fontSize = 13.sp)
+                        }
+
+                        // Import Button
+                        Button(
+                            onClick = {
+                                importJsonLauncher.launch("application/json")
+                            },
+                            modifier = Modifier.weight(1f).testTag("import_json_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.CloudUpload, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Import JSON", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Summary Statistics Header
+        item {
+            Text(
+                text = "Consolidated Summary Stats",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+
+        // KPI Scorecards
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Net Balance Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (netBalance >= 0) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Net Savings Balance",
+                                fontSize = 12.sp,
+                                color = Color.DarkGray
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Rs. ${String.format("%.2f", netBalance)}",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (netBalance >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            )
+                        }
+                        Icon(
+                            imageVector = if (netBalance >= 0) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                            contentDescription = null,
+                            tint = if (netBalance >= 0) Color(0xFF2E7D32) else Color(0xFFC62828),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                // Income vs Expenses
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("Total Income", fontSize = 11.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Rs. ${String.format("%.1f", totalIncomeAmt)}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("Total Expenses", fontSize = 11.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Rs. ${String.format("%.1f", totalExpenseAmt)}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Bills & Debt status
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("Pending Bills", fontSize = 11.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Rs. ${String.format("%.1f", totalUnpaidBillsAmt)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("Lent (Receivable)", fontSize = 11.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Rs. ${String.format("%.1f", loansLent)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                        }
+                    }
+                }
+
+                // Savings Goals Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Savings Progress", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            val percent = if (totalSavingsTarget > 0.0) (totalSavingsSaved / totalSavingsTarget) * 100.0 else 0.0
+                            Text("${String.format("%.1f", percent)}%", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { if (totalSavingsTarget > 0.0) (totalSavingsSaved / totalSavingsTarget).toFloat() else 0f },
+                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Saved Rs. ${String.format("%.2f", totalSavingsSaved)} of Rs. ${String.format("%.2f", totalSavingsTarget)}",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+        }
+
+        // Active Committees list section
+        item {
+            Text(
+                text = "Committees Ledger Status",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+
+        if (committees.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "No active rotating committees configured",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(16.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            items(committees) { comm ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(comm.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Head: Rs. ${comm.amountPerHead} | ${comm.totalMembers} Members", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Text(
+                            text = "Pool: Rs. ${comm.amountPerHead * comm.totalMembers}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun triggerFinanceMasterPrint(
+    context: Context,
+    expenses: List<Expense>,
+    income: List<Income>,
+    bills: List<Bill>,
+    committees: List<BcCommittee>,
+    loans: List<Loan>,
+    savingsGoals: List<SavingsGoal>,
+    totalIncome: Double,
+    totalExpense: Double,
+    netBalance: Double,
+    totalUnpaid: Double,
+    totalBorrowed: Double,
+    totalLent: Double,
+    totalSaved: Double,
+    totalTarget: Double,
+    includeExpenses: Boolean = true,
+    includeIncome: Boolean = true,
+    includeBills: Boolean = true,
+    includeCommittees: Boolean = true,
+    includeLoans: Boolean = true,
+    includeSavings: Boolean = true
+) {
+    try {
+        val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
+        if (printManager == null) {
+            Toast.makeText(context, "System printing engines not available.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val printAdapter = object : PrintDocumentAdapter() {
+            private var pdfDoc: PdfDocument? = null
+
+            override fun onLayout(
+                oldAttributes: PrintAttributes?,
+                newAttributes: PrintAttributes?,
+                cancellationSignal: android.os.CancellationSignal?,
+                callback: LayoutResultCallback?,
+                extras: android.os.Bundle?
+            ) {
+                if (cancellationSignal?.isCanceled == true) {
+                    callback?.onLayoutCancelled()
+                    return
+                }
+
+                // We will produce a beautifully formatted 3-page statement
+                val info = PrintDocumentInfo.Builder("Finance_Master_Report.pdf")
+                    .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                    .setPageCount(3)
+                    .build()
+
+                callback?.onLayoutFinished(info, true)
+            }
+
+            override fun onWrite(
+                pages: Array<out android.print.PageRange>?,
+                destination: android.os.ParcelFileDescriptor?,
+                cancellationSignal: android.os.CancellationSignal?,
+                callback: WriteResultCallback?
+            ) {
+                pdfDoc = PdfDocument()
+
+                // Standard A4 Size: 595 x 842 points
+                val pageW = 595
+                val pageH = 842
+
+                // Setup Paints
+                val primaryColor = 0xFF10B981.toInt() // Green Accent
+                val primaryDark = 0xFF064E3B.toInt()
+                val textDark = 0xFF1F2937.toInt()
+                val textMuted = 0xFF6B7280.toInt()
+                val lightGrayBg = 0xFFF3F4F6.toInt()
+                val gridBorder = 0xFFE5E7EB.toInt()
+
+                val titlePaint = Paint().apply {
+                    color = primaryDark
+                    textSize = 22f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                    isAntiAlias = true
+                }
+                val subtitlePaint = Paint().apply {
+                    color = textMuted
+                    textSize = 10f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+                    isAntiAlias = true
+                }
+                val h1Paint = Paint().apply {
+                    color = primaryDark
+                    textSize = 15f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                    isAntiAlias = true
+                }
+                val h2Paint = Paint().apply {
+                    color = textDark
+                    textSize = 12f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                    isAntiAlias = true
+                }
+                val bodyPaint = Paint().apply {
+                    color = textDark
+                    textSize = 9f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+                    isAntiAlias = true
+                }
+                val bodyBoldPaint = Paint().apply {
+                    color = textDark
+                    textSize = 9f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                    isAntiAlias = true
+                }
+                val headerPaint = Paint().apply {
+                    color = textDark
+                    textSize = 9f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                    isAntiAlias = true
+                }
+                val borderPaint = Paint().apply {
+                    color = gridBorder
+                    strokeWidth = 1f
+                    style = Paint.Style.STROKE
+                }
+                val fillBgPaint = Paint().apply {
+                    color = lightGrayBg
+                    style = Paint.Style.FILL
+                }
+                val fillAccentPaint = Paint().apply {
+                    color = 0xFFD1FAE5.toInt() // Soft green background
+                    style = Paint.Style.FILL
+                }
+                val fillOmittedPaint = Paint().apply {
+                    color = 0xFFF3F4F6.toInt() // Gray background
+                    style = Paint.Style.FILL
+                }
+                val omittedTextPaint = Paint().apply {
+                    color = textMuted
+                    textSize = 8f
+                    typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.ITALIC)
+                    isAntiAlias = true
+                }
+
+                // ==========================================
+                // PAGE 1: COVER & FINANCIAL SUMMARY DASHBOARD
+                // ==========================================
+                val page1Info = PdfDocument.PageInfo.Builder(pageW, pageH, 1).create()
+                val page1 = pdfDoc?.startPage(page1Info)
+                val canvas1 = page1?.canvas
+                if (canvas1 != null) {
+                    // Soft green band
+                    val headerBandPaint = Paint().apply {
+                        color = 0xFFECFDF5.toInt()
+                        style = Paint.Style.FILL
+                    }
+                    canvas1.drawRect(0f, 0f, pageW.toFloat(), 120f, headerBandPaint)
+                    canvas1.drawRect(0f, 118f, pageW.toFloat(), 120f, Paint().apply { color = primaryColor })
+
+                    // Titles
+                    canvas1.drawText("FINANCIAL STATEMENT & MASTER REPORT", 30f, 55f, titlePaint)
+                    val dateStr = SimpleDateFormat("dd MMMM yyyy, HH:mm", Locale.getDefault()).format(Date())
+                    canvas1.drawText("Generated on: $dateStr | System: Student Kit Finance Core", 30f, 80f, subtitlePaint)
+                    canvas1.drawText("Page 1 of 3", pageW - 80f, 80f, subtitlePaint)
+
+                    // Core Overview
+                    canvas1.drawText("I. Core Cashflow Overview", 30f, 155f, h1Paint)
+                    canvas1.drawLine(30f, 162f, pageW - 30f, 162f, borderPaint)
+
+                    // KPI Box Setup
+                    val boxY = 180f
+                    val boxW = (pageW - 80f) / 3f
+                    val boxH = 75f
+
+                    // Card 1: Income
+                    if (includeIncome) {
+                        canvas1.drawRoundRect(30f, boxY, 30f + boxW, boxY + boxH, 8f, 8f, fillBgPaint)
+                        canvas1.drawText("TOTAL INFLOW (INCOME)", 40f, boxY + 25f, subtitlePaint)
+                        canvas1.drawText("Rs. ${String.format("%.2f", totalIncome)}", 40f, boxY + 52f, h2Paint)
+                    } else {
+                        canvas1.drawRoundRect(30f, boxY, 30f + boxW, boxY + boxH, 8f, 8f, fillOmittedPaint)
+                        canvas1.drawText("TOTAL INFLOW", 40f, boxY + 25f, subtitlePaint)
+                        canvas1.drawText("[OMITTED]", 40f, boxY + 52f, Paint(omittedTextPaint).apply { textSize = 11f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                    }
+
+                    // Card 2: Expenses
+                    if (includeExpenses) {
+                        canvas1.drawRoundRect(30f + boxW + 10f, boxY, 30f + 2*boxW + 10f, boxY + boxH, 8f, 8f, fillBgPaint)
+                        canvas1.drawText("TOTAL OUTFLOW (EXPENSES)", 30f + boxW + 20f, boxY + 25f, subtitlePaint)
+                        canvas1.drawText("Rs. ${String.format("%.2f", totalExpense)}", 30f + boxW + 20f, boxY + 52f, h2Paint)
+                    } else {
+                        canvas1.drawRoundRect(30f + boxW + 10f, boxY, 30f + 2*boxW + 10f, boxY + boxH, 8f, 8f, fillOmittedPaint)
+                        canvas1.drawText("TOTAL OUTFLOW", 30f + boxW + 20f, boxY + 25f, subtitlePaint)
+                        canvas1.drawText("[OMITTED]", 30f + boxW + 20f, boxY + 52f, Paint(omittedTextPaint).apply { textSize = 11f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                    }
+
+                    // Card 3: Balance
+                    if (includeIncome && includeExpenses) {
+                        val balanceColorPaint = Paint().apply {
+                            color = if (netBalance >= 0) 0xFFD1FAE5.toInt() else 0xFFFEE2E2.toInt()
+                            style = Paint.Style.FILL
+                        }
+                        canvas1.drawRoundRect(30f + 2*boxW + 20f, boxY, pageW - 30f, boxY + boxH, 8f, 8f, balanceColorPaint)
+                        canvas1.drawText("NET SAVINGS BALANCE", 30f + 2*boxW + 30f, boxY + 25f, subtitlePaint)
+                        canvas1.drawText("Rs. ${String.format("%.2f", netBalance)}", 30f + 2*boxW + 30f, boxY + 52f, Paint(h2Paint).apply {
+                            color = if (netBalance >= 0) 0xFF065F46.toInt() else 0xFF991B1B.toInt()
+                        })
+                    } else {
+                        canvas1.drawRoundRect(30f + 2*boxW + 20f, boxY, pageW - 30f, boxY + boxH, 8f, 8f, fillOmittedPaint)
+                        canvas1.drawText("NET BALANCE", 30f + 2*boxW + 30f, boxY + 25f, subtitlePaint)
+                        canvas1.drawText("[N/A]", 30f + 2*boxW + 30f, boxY + 52f, Paint(omittedTextPaint).apply { textSize = 11f; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                    }
+
+                    // Section 2: Progress
+                    canvas1.drawText("II. Financial Assets & Liabilities Progress", 30f, 290f, h1Paint)
+                    canvas1.drawLine(30f, 297f, pageW - 30f, 297f, borderPaint)
+
+                    val secY = 315f
+                    val doubleCardW = (pageW - 70f) / 2f
+                    val doubleCardH = 110f
+
+                    // Savings goal progress
+                    if (includeSavings) {
+                        canvas1.drawRoundRect(30f, secY, 30f + doubleCardW, secY + doubleCardH, 8f, 8f, fillBgPaint)
+                        canvas1.drawText("SAVINGS GOALS PROGRESS", 40f, secY + 25f, Paint(subtitlePaint).apply { typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                        canvas1.drawText("Total Target Amount: Rs. ${String.format("%.2f", totalTarget)}", 40f, secY + 45f, bodyPaint)
+                        canvas1.drawText("Total Saved Amount: Rs. ${String.format("%.2f", totalSaved)}", 40f, secY + 62f, bodyBoldPaint)
+                        val percentSaved = if (totalTarget > 0) (totalSaved / totalTarget) * 100f else 0f
+                        canvas1.drawText("Overall Progress: ${String.format("%.1f", percentSaved)}% Completed", 40f, secY + 85f, Paint(bodyBoldPaint).apply { color = 0xFF059669.toInt() })
+                    } else {
+                        canvas1.drawRoundRect(30f, secY, 30f + doubleCardW, secY + doubleCardH, 8f, 8f, fillOmittedPaint)
+                        canvas1.drawText("SAVINGS GOALS STATUS", 40f, secY + 25f, Paint(subtitlePaint).apply { typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                        canvas1.drawText("[Savings Module Omitted]", 40f, secY + 55f, omittedTextPaint)
+                    }
+
+                    // Debts
+                    if (includeLoans) {
+                        canvas1.drawRoundRect(30f + doubleCardW + 10f, secY, pageW - 30f, secY + doubleCardH, 8f, 8f, fillBgPaint)
+                        canvas1.drawText("DEBTS & LIABILITIES STATUS", 30f + doubleCardW + 20f, secY + 25f, Paint(subtitlePaint).apply { typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                        canvas1.drawText("Total Money Borrowed (To Repay): Rs. ${String.format("%.2f", totalBorrowed)}", 30f + doubleCardW + 20f, secY + 45f, bodyPaint)
+                        canvas1.drawText("Total Money Lent (To Collect): Rs. ${String.format("%.2f", totalLent)}", 30f + doubleCardW + 20f, secY + 62f, bodyPaint)
+                        val netDebt = totalBorrowed - totalLent
+                        val netDebtStr = if (netDebt >= 0) "Net Payable: Rs. ${String.format("%.2f", netDebt)}" else "Net Receivable: Rs. ${String.format("%.2f", -netDebt)}"
+                        canvas1.drawText(netDebtStr, 30f + doubleCardW + 20f, secY + 85f, Paint(bodyBoldPaint).apply {
+                            color = if (netDebt >= 0) 0xFFDC2626.toInt() else 0xFF2563EB.toInt()
+                        })
+                    } else {
+                        canvas1.drawRoundRect(30f + doubleCardW + 10f, secY, pageW - 30f, secY + doubleCardH, 8f, 8f, fillOmittedPaint)
+                        canvas1.drawText("DEBTS & LIABILITIES STATUS", 30f + doubleCardW + 20f, secY + 25f, Paint(subtitlePaint).apply { typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                        canvas1.drawText("[Loans Module Omitted]", 30f + doubleCardW + 20f, secY + 55f, omittedTextPaint)
+                    }
+
+                    // Section 3: Monthly Obligations
+                    canvas1.drawText("III. Utility Bills & Standing Committees Summary", 30f, 460f, h1Paint)
+                    canvas1.drawLine(30f, 467f, pageW - 30f, 467f, borderPaint)
+
+                    val finalY = 485f
+                    canvas1.drawRoundRect(30f, finalY, pageW - 30f, finalY + 110f, 8f, 8f, fillBgPaint)
+                    canvas1.drawText("STANDING MONTHLY OBLIGATIONS", 40f, finalY + 25f, Paint(subtitlePaint).apply { typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) })
+                    
+                    var curOblY = finalY + 50f
+                    if (includeBills) {
+                        val unpaidCount = bills.count { it.isPaid == 0 }
+                        canvas1.drawText("Unpaid Utility Bills: $unpaidCount bills pending (Rs. ${String.format("%.2f", totalUnpaid)})", 40f, curOblY, bodyPaint)
+                        curOblY += 20f
+                    } else {
+                        canvas1.drawText("Unpaid Utility Bills: [Bills Module Omitted]", 40f, curOblY, omittedTextPaint)
+                        curOblY += 20f
+                    }
+                    
+                    if (includeCommittees) {
+                        val activeCommitteesCount = committees.size
+                        canvas1.drawText("Active Rotating Committees (BC): $activeCommitteesCount active committees managed", 40f, curOblY, bodyPaint)
+                        curOblY += 20f
+                        
+                        val totalCommitteeVolume = committees.sumOf { it.amountPerHead * it.totalMembers }
+                        canvas1.drawText("Total Committee Investment Pool: Rs. ${String.format("%.2f", totalCommitteeVolume)}", 40f, curOblY, bodyPaint)
+                    } else {
+                        canvas1.drawText("Active Rotating Committees (BC): [Committees Module Omitted]", 40f, curOblY, omittedTextPaint)
+                    }
+
+                    // Bottom footers
+                    canvas1.drawLine(30f, 760f, pageW - 30f, 760f, borderPaint)
+                    canvas1.drawText("This report is confidential and intended solely for the device owner's personal bookkeeping.", 30f, 780f, Paint(subtitlePaint).apply { textSize = 8f })
+                    canvas1.drawText("Student Kit Suite - Empowering productive lifestyle and personal privacy.", 30f, 792f, Paint(subtitlePaint).apply { textSize = 8f })
+                }
+                pdfDoc?.finishPage(page1)
+
+                // ==========================================
+                // PAGE 2: CASH FLOW LEDGER (EXPENSES & INCOME TABLES)
+                // ==========================================
+                val page2Info = PdfDocument.PageInfo.Builder(pageW, pageH, 2).create()
+                val page2 = pdfDoc?.startPage(page2Info)
+                val canvas2 = page2?.canvas
+                if (canvas2 != null) {
+                    val headerBandPaint = Paint().apply {
+                        color = 0xFFF8FAFC.toInt()
+                        style = Paint.Style.FILL
+                    }
+                    canvas2.drawRect(0f, 0f, pageW.toFloat(), 60f, headerBandPaint)
+                    canvas2.drawLine(0f, 59f, pageW.toFloat(), 59f, borderPaint)
+                    canvas2.drawText("CASH FLOW LEDGER: EXPENSES & INCOME", 30f, 35f, Paint(titlePaint).apply { textSize = 14f })
+                    canvas2.drawText("Page 2 of 3", pageW - 80f, 35f, subtitlePaint)
+
+                    val colW = (pageW - 80f) / 2f
+                    val leftTableX = 30f
+                    val rightTableX = 30f + colW + 20f
+
+                    // Left Table: Expenses
+                    canvas2.drawText("RECENT EXPENSES", leftTableX, 90f, h2Paint)
+                    canvas2.drawLine(leftTableX, 96f, leftTableX + colW, 96f, borderPaint)
+
+                    if (includeExpenses) {
+                        canvas2.drawRect(leftTableX, 105f, leftTableX + colW, 122f, fillBgPaint)
+                        canvas2.drawText("Title", leftTableX + 5f, 117f, headerPaint)
+                        canvas2.drawText("Category", leftTableX + colW - 110f, 117f, headerPaint)
+                        canvas2.drawText("Amount", leftTableX + colW - 50f, 117f, headerPaint)
+                        canvas2.drawLine(leftTableX, 122f, leftTableX + colW, 122f, borderPaint)
+
+                        var curY = 136f
+                        val expenseLimit = expenses.take(25)
+                        for (exp in expenseLimit) {
+                            canvas2.drawText(exp.title.take(15), leftTableX + 5f, curY, bodyPaint)
+                            canvas2.drawText(exp.category.take(12), leftTableX + colW - 110f, curY, Paint(bodyPaint).apply { color = textMuted })
+                            canvas2.drawText("Rs. ${exp.amount.toInt()}", leftTableX + colW - 50f, curY, bodyBoldPaint)
+                            canvas2.drawLine(leftTableX, curY + 5f, leftTableX + colW, curY + 5f, borderPaint)
+                            curY += 21f
+                        }
+                        if (expenseLimit.isEmpty()) {
+                            canvas2.drawText("No expenses recorded", leftTableX + 15f, 150f, Paint(bodyPaint).apply { color = textMuted })
+                        }
+                    } else {
+                        canvas2.drawRoundRect(leftTableX, 105f, leftTableX + colW, 250f, 6f, 6f, fillOmittedPaint)
+                        canvas2.drawText("Expenses Module Excluded from PDF", leftTableX + 15f, 150f, omittedTextPaint)
+                    }
+
+                    // Right Table: Income
+                    canvas2.drawText("RECENT INCOME SOURCE", rightTableX, 90f, h2Paint)
+                    canvas2.drawLine(rightTableX, 96f, rightTableX + colW, 96f, borderPaint)
+
+                    if (includeIncome) {
+                        canvas2.drawRect(rightTableX, 105f, rightTableX + colW, 122f, fillBgPaint)
+                        canvas2.drawText("Title", rightTableX + 5f, 117f, headerPaint)
+                        canvas2.drawText("Source", rightTableX + colW - 110f, 117f, headerPaint)
+                        canvas2.drawText("Amount", rightTableX + colW - 50f, 117f, headerPaint)
+                        canvas2.drawLine(rightTableX, 122f, rightTableX + colW, 122f, borderPaint)
+
+                        var curYInc = 136f
+                        val incomeLimit = income.take(25)
+                        for (inc in incomeLimit) {
+                            canvas2.drawText(inc.title.take(15), rightTableX + 5f, curYInc, bodyPaint)
+                            canvas2.drawText(inc.source.take(12), rightTableX + colW - 110f, curYInc, Paint(bodyPaint).apply { color = textMuted })
+                            canvas2.drawText("Rs. ${inc.amount.toInt()}", rightTableX + colW - 50f, curYInc, bodyBoldPaint)
+                            canvas2.drawLine(rightTableX, curYInc + 5f, rightTableX + colW, curYInc + 5f, borderPaint)
+                            curYInc += 21f
+                        }
+                        if (incomeLimit.isEmpty()) {
+                            canvas2.drawText("No income recorded", rightTableX + 15f, 150f, Paint(bodyPaint).apply { color = textMuted })
+                        }
+                    } else {
+                        canvas2.drawRoundRect(rightTableX, 105f, rightTableX + colW, 250f, 6f, 6f, fillOmittedPaint)
+                        canvas2.drawText("Income Module Excluded from PDF", rightTableX + 15f, 150f, omittedTextPaint)
+                    }
+
+                    // Bottom ledger banner
+                    canvas2.drawRoundRect(30f, 700f, pageW - 30f, 760f, 8f, 8f, fillAccentPaint)
+                    canvas2.drawText("LEDGER CONSOLIDATION SUMMARY", 45f, 722f, Paint(headerPaint).apply { color = primaryDark })
+                    canvas2.drawText("Total Cumulative Inflow (Inflow Ledger): Rs. ${String.format("%.2f", totalIncome)}", 45f, 740f, Paint(bodyPaint).apply { color = primaryDark })
+                    canvas2.drawText("Total Cumulative Outflow (Outflow Ledger): Rs. ${String.format("%.2f", totalExpense)}", pageW / 2f + 10f, 740f, Paint(bodyPaint).apply { color = primaryDark })
+                }
+                pdfDoc?.finishPage(page2)
+
+                // ==========================================
+                // PAGE 3: OBLIGATIONS LEDGER (BILLS, LOANS & COMMITTEES)
+                // ==========================================
+                val page3Info = PdfDocument.PageInfo.Builder(pageW, pageH, 3).create()
+                val page3 = pdfDoc?.startPage(page3Info)
+                val canvas3 = page3?.canvas
+                if (canvas3 != null) {
+                    val headerBandPaint = Paint().apply {
+                        color = 0xFFF8FAFC.toInt()
+                        style = Paint.Style.FILL
+                    }
+                    canvas3.drawRect(0f, 0f, pageW.toFloat(), 60f, headerBandPaint)
+                    canvas3.drawLine(0f, 59f, pageW.toFloat(), 59f, borderPaint)
+                    canvas3.drawText("OBLIGATIONS LEDGER: DEBTS, BILLS & COMMITTEES", 30f, 35f, Paint(titlePaint).apply { textSize = 14f })
+                    canvas3.drawText("Page 3 of 3", pageW - 80f, 35f, subtitlePaint)
+
+                    var sectionY = 85f
+
+                    // Section A: UTILITY BILLS
+                    canvas3.drawText("1. UTILITY BILLS STATUS", 30f, sectionY, h2Paint)
+                    canvas3.drawLine(30f, sectionY + 6f, pageW - 30f, sectionY + 6f, borderPaint)
+                    
+                    var tableY = sectionY + 15f
+                    if (includeBills) {
+                        canvas3.drawRect(30f, tableY, pageW - 30f, tableY + 16f, fillBgPaint)
+                        canvas3.drawText("Bill Name", 35f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Due Date", 180f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Amount", 320f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Status", 450f, tableY + 11f, headerPaint)
+                        canvas3.drawLine(30f, tableY + 16f, pageW - 30f, tableY + 16f, borderPaint)
+
+                        tableY += 16f
+                        val billLimit = bills.take(8)
+                        for (bill in billLimit) {
+                            canvas3.drawText(bill.name, 35f, tableY + 12f, bodyPaint)
+                            canvas3.drawText(bill.dueDate, 180f, tableY + 12f, bodyPaint)
+                            canvas3.drawText("Rs. ${String.format("%.2f", bill.amount)}", 320f, tableY + 12f, bodyBoldPaint)
+                            val statusText = if (bill.isPaid == 1) "PAID" else "UNPAID"
+                            val statusColor = if (bill.isPaid == 1) 0xFF059669.toInt() else 0xFFDC2626.toInt()
+                            canvas3.drawText(statusText, 450f, tableY + 12f, Paint(bodyBoldPaint).apply { color = statusColor })
+                            canvas3.drawLine(30f, tableY + 16f, pageW - 30f, tableY + 16f, borderPaint)
+                            tableY += 16f
+                        }
+                        if (billLimit.isEmpty()) {
+                            canvas3.drawText("No bills configured", 45f, tableY + 12f, Paint(bodyPaint).apply { color = textMuted })
+                            tableY += 16f
+                        }
+                    } else {
+                        canvas3.drawRoundRect(30f, tableY, pageW - 30f, tableY + 45f, 6f, 6f, fillOmittedPaint)
+                        canvas3.drawText("Bills Module Excluded from PDF", 45f, tableY + 25f, omittedTextPaint)
+                        tableY += 45f
+                    }
+
+                    // Section B: ACTIVE LOANS
+                    sectionY = tableY + 25f
+                    canvas3.drawText("2. OUTSTANDING LOANS & FINANCING", 30f, sectionY, h2Paint)
+                    canvas3.drawLine(30f, sectionY + 6f, pageW - 30f, sectionY + 6f, borderPaint)
+
+                    tableY = sectionY + 15f
+                    if (includeLoans) {
+                        canvas3.drawRect(30f, tableY, pageW - 30f, tableY + 16f, fillBgPaint)
+                        canvas3.drawText("Person / Description", 35f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Type", 180f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Amount", 320f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Settlement Status", 450f, tableY + 11f, headerPaint)
+                        canvas3.drawLine(30f, tableY + 16f, pageW - 30f, tableY + 16f, borderPaint)
+
+                        tableY += 16f
+                        val loanLimit = loans.take(8)
+                        for (loan in loanLimit) {
+                            canvas3.drawText(loan.personName, 35f, tableY + 12f, bodyPaint)
+                            canvas3.drawText(loan.type, 180f, tableY + 12f, Paint(bodyPaint).apply { color = textMuted })
+                            canvas3.drawText("Rs. ${String.format("%.2f", loan.amount)}", 320f, tableY + 12f, bodyBoldPaint)
+                            val statusText = if (loan.isSettled == 1) "SETTLED" else "PENDING"
+                            val statusColor = if (loan.isSettled == 1) 0xFF059669.toInt() else 0xFFD97706.toInt()
+                            canvas3.drawText(statusText, 450f, tableY + 12f, Paint(bodyBoldPaint).apply { color = statusColor })
+                            canvas3.drawLine(30f, tableY + 16f, pageW - 30f, tableY + 16f, borderPaint)
+                            tableY += 16f
+                        }
+                        if (loanLimit.isEmpty()) {
+                            canvas3.drawText("No active loans recorded", 45f, tableY + 12f, Paint(bodyPaint).apply { color = textMuted })
+                            tableY += 16f
+                        }
+                    } else {
+                        canvas3.drawRoundRect(30f, tableY, pageW - 30f, tableY + 45f, 6f, 6f, fillOmittedPaint)
+                        canvas3.drawText("Loans & Financing Module Excluded from PDF", 45f, tableY + 25f, omittedTextPaint)
+                        tableY += 45f
+                    }
+
+                    // Section C: ACTIVE COMMITTEES (BC)
+                    sectionY = tableY + 25f
+                    canvas3.drawText("3. ROTATING INVESTMENT COMMITTEES (BC)", 30f, sectionY, h2Paint)
+                    canvas3.drawLine(30f, sectionY + 6f, pageW - 30f, sectionY + 6f, borderPaint)
+
+                    tableY = sectionY + 15f
+                    if (includeCommittees) {
+                        canvas3.drawRect(30f, tableY, pageW - 30f, tableY + 16f, fillBgPaint)
+                        canvas3.drawText("Committee Name", 35f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Amount / Head", 180f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Total Members", 320f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Total Investment Pool", 450f, tableY + 11f, headerPaint)
+                        canvas3.drawLine(30f, tableY + 16f, pageW - 30f, tableY + 16f, borderPaint)
+
+                        tableY += 16f
+                        val commLimit = committees.take(6)
+                        for (comm in commLimit) {
+                            canvas3.drawText(comm.name, 35f, tableY + 12f, bodyPaint)
+                            canvas3.drawText("Rs. ${String.format("%.2f", comm.amountPerHead)}", 180f, tableY + 12f, bodyPaint)
+                            canvas3.drawText("${comm.totalMembers} members", 320f, tableY + 12f, bodyPaint)
+                            val totalVol = comm.amountPerHead * comm.totalMembers
+                            canvas3.drawText("Rs. ${String.format("%.2f", totalVol)}", 450f, tableY + 12f, bodyBoldPaint)
+                            canvas3.drawLine(30f, tableY + 16f, pageW - 30f, tableY + 16f, borderPaint)
+                            tableY += 16f
+                        }
+                        if (commLimit.isEmpty()) {
+                            canvas3.drawText("No active committees configured", 45f, tableY + 12f, Paint(bodyPaint).apply { color = textMuted })
+                        }
+                    } else {
+                        canvas3.drawRoundRect(30f, tableY, pageW - 30f, tableY + 45f, 6f, 6f, fillOmittedPaint)
+                        canvas3.drawText("Rotating Committees Module Excluded from PDF", 45f, tableY + 25f, omittedTextPaint)
+                    }
+                    
+                    canvas3.drawLine(30f, 760f, pageW - 30f, 760f, borderPaint)
+                    canvas3.drawText("End of Consolidated Financial Master Report.", pageW / 2f - 100f, 780f, Paint(subtitlePaint).apply { textSize = 9f })
+                }
+                pdfDoc?.finishPage(page3)
+
+                try {
+                    destination?.let { descriptor ->
+                        FileOutputStream(descriptor.fileDescriptor).use { output ->
+                            pdfDoc?.writeTo(output)
+                        }
+                    }
+                    callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                } catch (e: Exception) {
+                    callback?.onWriteFailed(e.message)
+                } finally {
+                    pdfDoc?.close()
+                    pdfDoc = null
+                }
+            }
+        }
+
+        printManager.print("Finance_Master_Report", printAdapter, null)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Failed to print: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
 }

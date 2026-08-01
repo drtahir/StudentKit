@@ -1,7 +1,7 @@
 package com.example
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -32,7 +32,7 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.Screen
 import com.example.viewmodel.StudentKitViewModel
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -60,24 +60,24 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
     // Sync selected bottom tab item when currentScreen changes (e.g. from Home screen HD buttons)
     LaunchedEffect(currentScreen) {
         selectedTabItem = when (currentScreen) {
-            is Screen.Dashboard -> 0
+            is Screen.Dashboard, is Screen.About, is Screen.Settings -> 0
             is Screen.ExpenseTracker, is Screen.IncomeTracker, is Screen.UtilityBills,
             is Screen.ZakatCalculator, is Screen.BcCommittee, is Screen.BcCommitteeDetails,
-            is Screen.LoanTracker, is Screen.SavingsGoals -> 1
+            is Screen.LoanTracker, is Screen.SavingsGoals, is Screen.FinanceReportAndBackup -> 1
             is Screen.CvBuilder, is Screen.ImageToPdf, is Screen.ImageToXls, is Screen.ImageToWord,
             is Screen.DocumentScanner, is Screen.IdCardScanner, is Screen.PassportScanner,
             is Screen.PdfTools, is Screen.InvoiceGenerator, is Screen.SignaturePad -> 2
             is Screen.Calculator, is Screen.UnitConverter, is Screen.QrGenerator,
             is Screen.QrScanner, is Screen.WifiQrGenerator, is Screen.PasswordManager,
             is Screen.ImageTools, is Screen.AgeCalculator, is Screen.IntruderGuard, is Screen.WatermarkStudio, is Screen.BackgroundEraser,
-            is Screen.FileEncryptor, is Screen.HiddenLocker, is Screen.Steganography, is Screen.ImageEnhancer -> 3
+            is Screen.FileEncryptor, is Screen.HiddenLocker, is Screen.Steganography, is Screen.Steganalysis, is Screen.ImageEnhancer -> 3
             is Screen.Notes, is Screen.StudyTimer, is Screen.Timetable, is Screen.BmiCalculator,
             is Screen.GpaCalculator, is Screen.IvCalculator, is Screen.DosageCalculator,
-            is Screen.GfrCalculator, is Screen.AnatomyAtlas, is Screen.PharmacyExam, is Screen.HajjMedicalPrep,
+            is Screen.GfrCalculator, is Screen.AnatomyAtlas, is Screen.PharmacyExam, is Screen.NursingExam, is Screen.HajjMedicalPrep, is Screen.MoavineenHujjajPrep,
             is Screen.IslamicHub -> 4
             is Screen.SecurityHub, is Screen.PinVault, is Screen.AppLock, is Screen.CalculatorVault,
             is Screen.PhotoVault, is Screen.PrivateNotes, is Screen.SecureDelete, is Screen.PermissionAuditor,
-            is Screen.WifiScanner, is Screen.UssdCheck -> 5
+            is Screen.WifiScanner, is Screen.UssdCheck, is Screen.ThermalPrinterManager, is Screen.BiometricManagerScreen -> 5
         }
     }
 
@@ -211,6 +211,11 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                             SavingsGoalsScreen(viewModel = viewModel)
                         }
                     }
+                    is Screen.FinanceReportAndBackup -> FinanceHubScreen(viewModel = viewModel) {
+                        FinanceSubChoicesHub(viewModel = viewModel, activeSelection = "Report & Backup") {
+                            FinanceReportAndBackupScreen(viewModel = viewModel)
+                        }
+                    }
 
                     // --- DOCUMENTS MODULES ---
                     is Screen.ImageToPdf -> DocumentHubScreen(viewModel = viewModel, title = "Image to PDF") {
@@ -251,8 +256,8 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                             PdfToolsScreen(viewModel = viewModel)
                         }
                     }
-                    is Screen.InvoiceGenerator -> DocumentHubScreen(viewModel = viewModel, title = "Invoice & Receipt Maker") {
-                        DocumentSubChoicesHub(viewModel = viewModel, activeSelection = "Invoice Maker") {
+                    is Screen.InvoiceGenerator -> DocumentHubScreen(viewModel = viewModel, title = "OmniPOS Enterprise Suite") {
+                        DocumentSubChoicesHub(viewModel = viewModel, activeSelection = "OmniPOS Hub") {
                             InvoiceGeneratorScreen(viewModel = viewModel)
                         }
                     }
@@ -328,6 +333,11 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                             SteganographyScreen(viewModel = viewModel)
                         }
                     }
+                    is Screen.Steganalysis -> ToolsHubScreen(viewModel = viewModel, title = "Advanced Steganalysis Engine") {
+                        ToolsSubChoicesHub(viewModel = viewModel, activeSelection = "Steganalysis") {
+                            SteganalysisScreen(viewModel = viewModel)
+                        }
+                    }
                     is Screen.ImageEnhancer -> ToolsHubScreen(viewModel = viewModel, title = "Offline AI Enhancer") {
                         ToolsSubChoicesHub(viewModel = viewModel, activeSelection = "AI Enhancer") {
                             ImageEnhancerScreen()
@@ -385,9 +395,19 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                             PharmacyExamScreen(viewModel = viewModel)
                         }
                     }
+                    is Screen.NursingExam -> ToolsHubScreen(viewModel = viewModel, title = "Nursing International Exam Kit") {
+                        StudySubChoicesHub(viewModel = viewModel, activeSelection = "Nursing Exam") {
+                            NursingExamScreen(viewModel = viewModel)
+                        }
+                    }
                     is Screen.HajjMedicalPrep -> ToolsHubScreen(viewModel = viewModel, title = "Hajj Medical Mission NTS Prep") {
                         StudySubChoicesHub(viewModel = viewModel, activeSelection = "Hajj Prep") {
                             HajjMedicalPrepScreen(viewModel = viewModel)
+                        }
+                    }
+                    is Screen.MoavineenHujjajPrep -> ToolsHubScreen(viewModel = viewModel, title = "Moavineen-e-Hujjaj NTS Prep") {
+                        StudySubChoicesHub(viewModel = viewModel, activeSelection = "Moavineen Prep") {
+                            MoavineenHujjajPrepScreen(viewModel = viewModel)
                         }
                     }
                     is Screen.IslamicHub -> {
@@ -410,6 +430,10 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                     is Screen.PermissionAuditor -> PermissionAuditorScreen(viewModel = viewModel)
                     is Screen.WifiScanner -> WifiScannerScreen(viewModel = viewModel)
                     is Screen.UssdCheck -> UssdCheckScreen(viewModel = viewModel)
+                    is Screen.ThermalPrinterManager -> ThermalPrinterManagerScreen(viewModel = viewModel)
+                    is Screen.BiometricManagerScreen -> BiometricManagerScreen(viewModel = viewModel)
+                    is Screen.About -> AboutScreen(viewModel = viewModel)
+                    is Screen.Settings -> SettingsScreen(viewModel = viewModel)
                 }
             }
         }
@@ -433,7 +457,8 @@ fun FinanceSubChoicesHub(
         Pair("Zakat", Screen.ZakatCalculator),
         Pair("Committees", Screen.BcCommittee),
         Pair("Loans", Screen.LoanTracker),
-        Pair("Savings", Screen.SavingsGoals)
+        Pair("Savings", Screen.SavingsGoals),
+        Pair("Report & Backup", Screen.FinanceReportAndBackup)
     )
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -475,7 +500,7 @@ fun DocumentSubChoicesHub(
         Pair("ID Card Scan", Screen.IdCardScanner),
         Pair("Passport Scan", Screen.PassportScanner),
         Pair("PDF Tools", Screen.PdfTools),
-        Pair("Invoice Maker", Screen.InvoiceGenerator),
+        Pair("OmniPOS Hub", Screen.InvoiceGenerator),
         Pair("Stamp & Sign", Screen.SignaturePad)
     )
 
@@ -522,6 +547,7 @@ fun ToolsSubChoicesHub(
         Pair("File Encryptor", Screen.FileEncryptor),
         Pair("Hidden Locker", Screen.HiddenLocker),
         Pair("Steganography", Screen.Steganography),
+        Pair("Steganalysis", Screen.Steganalysis),
         Pair("AI Enhancer", Screen.ImageEnhancer),
         Pair("Watermark", Screen.WatermarkStudio),
         Pair("Background Eraser", Screen.BackgroundEraser)
@@ -568,7 +594,9 @@ fun StudySubChoicesHub(
         Pair("Kidney GFR", Screen.GfrCalculator),
         Pair("Anatomy", Screen.AnatomyAtlas),
         Pair("Pharm Exam", Screen.PharmacyExam),
-        Pair("Hajj Prep", Screen.HajjMedicalPrep),
+        Pair("Nursing Exam", Screen.NursingExam),
+        Pair("Hajj Medical", Screen.HajjMedicalPrep),
+        Pair("Moavineen Prep", Screen.MoavineenHujjajPrep),
         Pair("Islamic Library", Screen.IslamicHub)
     )
 

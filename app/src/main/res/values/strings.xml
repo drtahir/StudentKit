@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">StudentKit</string>
+    <string name="app_name">Hikmah Omni Suite</string>
     <string name="device_admin_description">Allows Intruder Shield to detect incorrect screen lock unlock attempts and secure your device.</string>
 </resources>

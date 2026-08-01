@@ -50,7 +50,9 @@ sealed class Screen {
     object GfrCalculator : Screen()
     object AnatomyAtlas : Screen()
     object PharmacyExam : Screen()
+    object NursingExam : Screen()
     object HajjMedicalPrep : Screen()
+    object MoavineenHujjajPrep : Screen()
     object IslamicHub : Screen()
     object IntruderGuard : Screen()
     object SignaturePad : Screen()
@@ -59,6 +61,7 @@ sealed class Screen {
     object FileEncryptor : Screen()
     object HiddenLocker : Screen()
     object Steganography : Screen()
+    object Steganalysis : Screen()
     object ImageEnhancer : Screen()
     
     // --- SECURITY SUITE ---
@@ -72,6 +75,11 @@ sealed class Screen {
     object PermissionAuditor : Screen()
     object WifiScanner : Screen()
     object UssdCheck : Screen()
+    object ThermalPrinterManager : Screen()
+    object BiometricManagerScreen : Screen()
+    object FinanceReportAndBackup : Screen()
+    object About : Screen()
+    object Settings : Screen()
 }
 
 class StudentKitViewModel(application: Application) : AndroidViewModel(application) {
@@ -91,6 +99,38 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
         } else {
             prefs.edit().putBoolean("dark_theme", enabled).apply()
         }
+    }
+
+    // --- USER PROFILE REGISTRATION STATES ---
+    private val _userName = MutableStateFlow(prefs.getString("user_name", "") ?: "")
+    val userName: StateFlow<String> = _userName.asStateFlow()
+
+    private val _userOccupation = MutableStateFlow(prefs.getString("user_occupation", "") ?: "")
+    val userOccupation: StateFlow<String> = _userOccupation.asStateFlow()
+
+    private val _userEmail = MutableStateFlow(prefs.getString("user_email", "") ?: "")
+    val userEmail: StateFlow<String> = _userEmail.asStateFlow()
+
+    private val _userPhone = MutableStateFlow(prefs.getString("user_phone", "") ?: "")
+    val userPhone: StateFlow<String> = _userPhone.asStateFlow()
+
+    private val _userCity = MutableStateFlow(prefs.getString("user_city", "") ?: "")
+    val userCity: StateFlow<String> = _userCity.asStateFlow()
+
+    fun saveUserProfile(name: String, occupation: String, email: String, phone: String, city: String) {
+        _userName.value = name.trim()
+        _userOccupation.value = occupation.trim()
+        _userEmail.value = email.trim()
+        _userPhone.value = phone.trim()
+        _userCity.value = city.trim()
+
+        prefs.edit()
+            .putString("user_name", name.trim())
+            .putString("user_occupation", occupation.trim())
+            .putString("user_email", email.trim())
+            .putString("user_phone", phone.trim())
+            .putString("user_city", city.trim())
+            .apply()
     }
 
     init {
@@ -561,7 +601,16 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- INTRUDER LOG OPERATIONS ---
-    fun addIntruderLog(photoPath: String?, status: String, notes: String? = null, latitude: Double? = null, longitude: Double? = null) {
+    fun addIntruderLog(
+        photoPath: String?,
+        status: String,
+        notes: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        batteryLevel: Int? = null,
+        networkStatus: String? = null,
+        cameraFacing: String? = "Front Camera"
+    ) {
         viewModelScope.launch {
             val log = IntruderLog(
                 id = UUID.randomUUID().toString(),
@@ -570,7 +619,10 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
                 attemptStatus = status,
                 latitude = latitude,
                 longitude = longitude,
-                notes = notes
+                notes = notes,
+                batteryLevel = batteryLevel,
+                networkStatus = networkStatus,
+                cameraFacing = cameraFacing
             )
             repository.insertIntruderLog(log)
         }
@@ -678,6 +730,344 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     fun clearSpeedTestHistory() {
         viewModelScope.launch {
             repository.clearSpeedTestHistory()
+        }
+    }
+
+    // --- QURAN CACHE METHODS ---
+    fun getCachedVersesForSurah(surahNumber: Int): Flow<List<com.example.data.CachedQuranVerse>> = repository.getCachedVersesForSurah(surahNumber)
+    fun getCachedVersesForPage(pageNumber: Int): Flow<List<com.example.data.CachedQuranVerse>> = repository.getCachedVersesForPage(pageNumber)
+    
+    fun insertQuranVerses(verses: List<com.example.data.CachedQuranVerse>) {
+        viewModelScope.launch {
+            repository.insertQuranVerses(verses)
+        }
+    }
+    
+    suspend fun getCachedQuranVersesCount(): Int {
+        return repository.getCachedQuranVersesCount()
+    }
+    
+    fun clearCachedQuran() {
+        viewModelScope.launch {
+            repository.clearCachedQuran()
+        }
+    }
+
+    // --- POS SYSTEM ---
+    val allPosProducts: StateFlow<List<PosProduct>> = repository.allPosProducts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun insertPosProduct(product: PosProduct) = viewModelScope.launch { repository.insertPosProduct(product) }
+    fun deletePosProductById(id: String) = viewModelScope.launch { repository.deletePosProductById(id) }
+
+    val allPosClients: StateFlow<List<PosClient>> = repository.allPosClients.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun insertPosClient(client: PosClient) = viewModelScope.launch { repository.insertPosClient(client) }
+    fun deletePosClientById(id: String) = viewModelScope.launch { repository.deletePosClientById(id) }
+
+    val allPosOrders: StateFlow<List<PosOrder>> = repository.allPosOrders.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun insertPosOrder(order: PosOrder) = viewModelScope.launch { repository.insertPosOrder(order) }
+    fun insertPosOrderItem(item: PosOrderItem) = viewModelScope.launch { repository.insertPosOrderItem(item) }
+
+    fun importFinanceJsonData(jsonString: String, onComplete: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val root = org.json.JSONObject(jsonString)
+                
+                // 1. Import Expenses
+                if (root.has("expenses")) {
+                    val array = root.getJSONArray("expenses")
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val id = obj.optString("id", java.util.UUID.randomUUID().toString())
+                        val title = obj.optString("title", "")
+                        val amount = obj.optDouble("amount", 0.0)
+                        val category = obj.optString("category", "General")
+                        val date = obj.optString("date", "")
+                        val note = if (obj.isNull("note")) null else obj.optString("note", null)
+                        val isRecurring = obj.optInt("is_recurring", 0)
+                        repository.insertExpense(Expense(id, title, amount, category, date, note, isRecurring))
+                    }
+                }
+
+                // 2. Import Income
+                if (root.has("income")) {
+                    val array = root.getJSONArray("income")
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val id = obj.optString("id", java.util.UUID.randomUUID().toString())
+                        val title = obj.optString("title", "")
+                        val amount = obj.optDouble("amount", 0.0)
+                        val source = obj.optString("source", "General")
+                        val date = obj.optString("date", "")
+                        val note = if (obj.isNull("note")) null else obj.optString("note", null)
+                        repository.insertIncome(Income(id, title, amount, source, date, note))
+                    }
+                }
+
+                // 3. Import Bills
+                if (root.has("bills")) {
+                    val array = root.getJSONArray("bills")
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val id = obj.optString("id", java.util.UUID.randomUUID().toString())
+                        val name = obj.optString("name", "")
+                        val amount = obj.optDouble("amount", 0.0)
+                        val dueDate = obj.optString("due_date", "")
+                        val isPaid = obj.optInt("is_paid", 0)
+                        val category = obj.optString("category", "General")
+                        val isRecurring = obj.optInt("is_recurring", 1)
+                        repository.insertBill(Bill(id, name, amount, dueDate, isPaid, category, isRecurring))
+                    }
+                }
+
+                // 4. Import Loans
+                if (root.has("loans")) {
+                    val array = root.getJSONArray("loans")
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val id = obj.optString("id", java.util.UUID.randomUUID().toString())
+                        val personName = obj.optString("person_name", "")
+                        val amount = obj.optDouble("amount", 0.0)
+                        val type = obj.optString("type", "I Lent")
+                        val date = obj.optString("date", "")
+                        val dueDate = if (obj.isNull("due_date")) null else obj.optString("due_date", null)
+                        val isSettled = obj.optInt("is_settled", 0)
+                        val note = if (obj.isNull("note")) null else obj.optString("note", null)
+                        repository.insertLoan(Loan(id, personName, amount, type, date, dueDate, isSettled, note))
+                    }
+                }
+
+                // 5. Import Savings Goals
+                if (root.has("savings_goals")) {
+                    val array = root.getJSONArray("savings_goals")
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val id = obj.optString("id", java.util.UUID.randomUUID().toString())
+                        val title = obj.optString("title", "")
+                        val targetAmount = obj.optDouble("target_amount", 0.0)
+                        val currentAmount = obj.optDouble("current_amount", 0.0)
+                        val targetDate = if (obj.isNull("target_date")) null else obj.optString("target_date", null)
+                        val icon = if (obj.isNull("icon")) null else obj.optString("icon", null)
+                        val color = if (obj.isNull("color")) null else obj.optString("color", null)
+                        repository.insertSavingsGoal(SavingsGoal(id, title, targetAmount, currentAmount, targetDate, icon, color))
+                    }
+                }
+
+                // 6. Import Committees
+                if (root.has("bc_committees")) {
+                    val array = root.getJSONArray("bc_committees")
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val id = obj.optString("id", java.util.UUID.randomUUID().toString())
+                        val name = obj.optString("name", "")
+                        val amountPerHead = obj.optDouble("amount_per_head", 0.0)
+                        val totalMembers = obj.optInt("total_members", 0)
+                        val startDate = obj.optString("start_date", "")
+                        val frequency = obj.optString("frequency", "monthly")
+                        repository.insertCommittee(BcCommittee(id, name, amountPerHead, totalMembers, startDate, frequency))
+                    }
+                }
+                if (root.has("bc_members")) {
+                    val array = root.getJSONArray("bc_members")
+                    val membersList = mutableListOf<BcMember>()
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        membersList.add(BcMember(
+                            id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                            committeeId = obj.optString("committee_id", ""),
+                            name = obj.optString("name", ""),
+                            phone = if (obj.isNull("phone")) null else obj.optString("phone", null),
+                            payoutPosition = obj.optInt("payout_position", 1),
+                            hasReceived = obj.optInt("has_received", 0)
+                        ))
+                    }
+                    if (membersList.isNotEmpty()) {
+                        repository.insertMembers(membersList)
+                    }
+                }
+                if (root.has("bc_payments")) {
+                    val array = root.getJSONArray("bc_payments")
+                    val paymentsList = mutableListOf<BcPayment>()
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        paymentsList.add(BcPayment(
+                            id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                            committeeId = obj.optString("committee_id", ""),
+                            memberId = obj.optString("member_id", ""),
+                            month = obj.optString("month", ""),
+                            isPaid = obj.optInt("is_paid", 0),
+                            paidDate = if (obj.isNull("paid_date")) null else obj.optString("paid_date", null)
+                        ))
+                    }
+                    if (paymentsList.isNotEmpty()) {
+                        repository.insertPayments(paymentsList)
+                    }
+                }
+                if (root.has("bc_history")) {
+                    val array = root.getJSONArray("bc_history")
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        repository.insertHistory(BcHistory(
+                            id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                            committeeId = obj.optString("committee_id", ""),
+                            roundNumber = obj.optInt("round_number", 1),
+                            winnerId = obj.optString("winner_id", ""),
+                            winnerName = obj.optString("winner_name", ""),
+                            amountWon = obj.optDouble("amount_won", 0.0),
+                            drawDate = obj.optString("draw_date", "")
+                        ))
+                    }
+                }
+
+                onComplete(true, "All selected modular data imported successfully!")
+            } catch (e: Exception) {
+                onComplete(false, "Import failed: ${e.message}")
+            }
+        }
+    }
+
+    fun exportFinanceJsonData(onComplete: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val root = org.json.JSONObject()
+
+                // 1. Export Expenses
+                val expArray = org.json.JSONArray()
+                for (exp in expenses.value) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", exp.id)
+                    obj.put("title", exp.title)
+                    obj.put("amount", exp.amount)
+                    obj.put("category", exp.category)
+                    obj.put("date", exp.date)
+                    obj.put("note", exp.note ?: org.json.JSONObject.NULL)
+                    obj.put("is_recurring", exp.isRecurring)
+                    expArray.put(obj)
+                }
+                root.put("expenses", expArray)
+
+                // 2. Export Income
+                val incArray = org.json.JSONArray()
+                for (inc in income.value) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", inc.id)
+                    obj.put("title", inc.title)
+                    obj.put("amount", inc.amount)
+                    obj.put("source", inc.source)
+                    obj.put("date", inc.date)
+                    obj.put("note", inc.note ?: org.json.JSONObject.NULL)
+                    incArray.put(obj)
+                }
+                root.put("income", incArray)
+
+                // 3. Export Bills
+                val billArray = org.json.JSONArray()
+                for (bill in bills.value) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", bill.id)
+                    obj.put("name", bill.name)
+                    obj.put("amount", bill.amount)
+                    obj.put("due_date", bill.dueDate)
+                    obj.put("is_paid", bill.isPaid)
+                    obj.put("category", bill.category)
+                    obj.put("is_recurring", bill.isRecurring)
+                    billArray.put(obj)
+                }
+                root.put("bills", billArray)
+
+                // 4. Export Loans
+                val loanArray = org.json.JSONArray()
+                for (loan in loans.value) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", loan.id)
+                    obj.put("person_name", loan.personName)
+                    obj.put("amount", loan.amount)
+                    obj.put("type", loan.type)
+                    obj.put("date", loan.date)
+                    obj.put("due_date", loan.dueDate ?: org.json.JSONObject.NULL)
+                    obj.put("is_settled", loan.isSettled)
+                    obj.put("note", loan.note ?: org.json.JSONObject.NULL)
+                    loanArray.put(obj)
+                }
+                root.put("loans", loanArray)
+
+                // 5. Export Savings Goals
+                val svArray = org.json.JSONArray()
+                for (sg in savingsGoals.value) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", sg.id)
+                    obj.put("title", sg.title)
+                    obj.put("target_amount", sg.targetAmount)
+                    obj.put("current_amount", sg.currentAmount)
+                    obj.put("target_date", sg.targetDate ?: org.json.JSONObject.NULL)
+                    obj.put("icon", sg.icon ?: org.json.JSONObject.NULL)
+                    obj.put("color", sg.color ?: org.json.JSONObject.NULL)
+                    svArray.put(obj)
+                }
+                root.put("savings_goals", svArray)
+
+                // 6. Export Committees
+                val commArray = org.json.JSONArray()
+                for (comm in committees.value) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", comm.id)
+                    obj.put("name", comm.name)
+                    obj.put("amount_per_head", comm.amountPerHead)
+                    obj.put("total_members", comm.totalMembers)
+                    obj.put("start_date", comm.startDate)
+                    obj.put("frequency", comm.frequency)
+                    commArray.put(obj)
+                }
+                root.put("bc_committees", commArray)
+
+                // 7. Export BC Members
+                val membersList = repository.getAllMembersSuspend()
+                val memArray = org.json.JSONArray()
+                for (mem in membersList) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", mem.id)
+                    obj.put("committee_id", mem.committeeId)
+                    obj.put("name", mem.name)
+                    obj.put("phone", mem.phone ?: org.json.JSONObject.NULL)
+                    obj.put("payout_position", mem.payoutPosition)
+                    obj.put("has_received", mem.hasReceived)
+                    memArray.put(obj)
+                }
+                root.put("bc_members", memArray)
+
+                // 8. Export BC Payments
+                val paymentsList = repository.getAllPaymentsSuspend()
+                val payArray = org.json.JSONArray()
+                for (pay in paymentsList) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", pay.id)
+                    obj.put("committee_id", pay.committeeId)
+                    obj.put("member_id", pay.memberId)
+                    obj.put("month", pay.month)
+                    obj.put("is_paid", pay.isPaid)
+                    obj.put("paid_date", pay.paidDate ?: org.json.JSONObject.NULL)
+                    payArray.put(obj)
+                }
+                root.put("bc_payments", payArray)
+
+                // 9. Export BC History
+                val historyList = repository.getAllHistorySuspend()
+                val histArray = org.json.JSONArray()
+                for (hist in historyList) {
+                    val obj = org.json.JSONObject()
+                    obj.put("id", hist.id)
+                    obj.put("committee_id", hist.committeeId)
+                    obj.put("round_number", hist.roundNumber)
+                    obj.put("winner_id", hist.winnerId)
+                    obj.put("winner_name", hist.winnerName)
+                    obj.put("amount_won", hist.amountWon)
+                    obj.put("draw_date", hist.drawDate)
+                    histArray.put(obj)
+                }
+                root.put("bc_history", histArray)
+
+                onComplete(root.toString(4))
+            } catch (e: Exception) {
+                onComplete(null)
+            }
         }
     }
 }

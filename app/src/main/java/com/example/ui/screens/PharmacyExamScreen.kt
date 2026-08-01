@@ -7,6 +7,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -116,94 +119,47 @@ fun PharmacyExamScreen(viewModel: StudentKitViewModel) {
 }
 
 /**
- * 1. INTERACTIVE EXAM SIMULATOR
+ * 1. INTERACTIVE EXAM SIMULATOR & 500+ QUESTION PRACTICE PORTAL
  */
 @Composable
 fun PharmacyExamSimulatorView() {
     val context = LocalContext.current
     
-    // Comprehensive high-yield Pakistan Pharmacy Category B Exam questions
-    val questions = remember {
-        listOf(
-            ExamQuestion(
-                1, "Pharmaceutics",
-                "According to USP guidelines, what is the standard temperature and holding time required for dynamic steam sterilization (Autoclaving) of medical utensils?",
-                listOf("100°C for 60 minutes", "121°C (at 15 psi pressure) for 15-20 minutes", "160°C for 120 minutes", "80°C for 45 minutes"),
-                1,
-                "Moist heat sterilization (Autoclaving) uses saturated steam under pressure. The standard protocol is 121°C at 15 pounds per square inch (psi) of pressure for at least 15 minutes, which destroys all highly-resistant bacterial endospores.",
-                "Pharmaceutics Paper-II (Sterilization Section)"
-            ),
-            ExamQuestion(
-                2, "Pharmacy Law & Ethics",
-                "Under the Pakistan Drug Act 1976, which form is officially designated as the 'Form of Warranty' that a licensed manufacturer issues to a pharmacy retailer?",
-                listOf("Form 2-A", "Form 5", "Form 12-B", "Form 9"),
-                1,
-                "Under the Drug Act 1976 and rules thereunder, Form 5 is the standard legal form used for prescribing warranty of drug quality by a distributor/manufacturer to a dispensing chemist/retailer.",
-                "Pakistan Drug Act 1976, Section 23(1)(i)"
-            ),
-            ExamQuestion(
-                3, "Pharmacology",
-                "Which class of anti-hypertensive drugs acts primarily by blocking the conversion of Angiotensin I to Angiotensin II in pulmonary capillaries?",
-                listOf("Beta-blockers (e.g. Propranolol)", "Calcium Channel Blockers (e.g. Amlodipine)", "ACE Inhibitors (e.g. Captopril, Enalapril)", "Loop Diuretics (e.g. Furosemide)"),
-                2,
-                "Angiotensin-Converting Enzyme (ACE) Inhibitors block the conversion of Angiotensin I into the potent vasoconstrictor Angiotensin II. This reduces peripheral arterial resistance and lowers blood pressure.",
-                "Pharmacology Paper-II (Cardiovascular Drugs)"
-            ),
-            ExamQuestion(
-                4, "Pharmacognosy",
-                "What is the botanical source of 'Senna' leaves, a highly common crude purgative stimulant laxative widely sold in Pakistani herbal pharmacies?",
-                listOf("Cassia angustifolia (or Cassia acutifolia)", "Digitalis purpurea", "Cinchona officinalis", "Zingiber officinale"),
-                0,
-                "Senna consists of the dried leaflets of Cassia angustifolia (known as Indian Senna) or Cassia acutifolia (Alexandrian Senna), belonging to the family Fabaceae. Its active chemical constituents are sennosides A and B.",
-                "Pharmacognosy Paper-II (Glycosides & Laxatives)"
-            ),
-            ExamQuestion(
-                5, "Microbiology",
-                "In bacterial Gram staining, what is the exact function of 'Gram's Iodine' solution?",
-                listOf("Primary basic counterstain", "Decolorizing agent", "Mordant (fixes the crystal violet dye)", "Acid-fast cellular dissolver"),
-                2,
-                "Gram's Iodine acts as a mordant. It forms a chemical complex with the primary crystal violet dye within the thick peptidoglycan cell walls of Gram-positive bacteria, preventing it from being washed out easily by alcohol.",
-                "Microbiology Paper-I (Staining Techniques)"
-            ),
-            ExamQuestion(
-                6, "Pharmaceutics",
-                "What type of pharmaceutical incompatibility occurs when two solid drugs (like Menthol and Camphor) are mixed and form a liquid due to depression of their melting points?",
-                listOf("Chemical Incompatibility", "Eutectic Mixture formation", "Therapeutic Antagonism", "Physical Precipitation"),
-                1,
-                "When substances like menthol, camphor, or thymol are mixed together, they form a eutectic mixture—liquefying at room temperature because their combined melting point is lower than room temperature.",
-                "Pharmaceutics Paper-II (Dispensing Incompatibilities)"
-            ),
-            ExamQuestion(
-                7, "Pharmacy Law & Ethics",
-                "Which authority in Pakistan is responsible for registering drug products and issuing Manufacturing/Retail licenses under federal drug safety mandates?",
-                listOf("Pakistan Medical Commission (PMC)", "Drug Regulatory Authority of Pakistan (DRAP)", "Provincial Health Department", "National Institute of Health (NIH)"),
-                1,
-                "The Drug Regulatory Authority of Pakistan (DRAP), established under the DRAP Act 2012, is the supreme federal agency responsible for drug registrations, manufacturing licenses, quality control, and pricing.",
-                "DRAP Act 2012 & Drug Act 1976"
-            ),
-            ExamQuestion(
-                8, "Pharmacology",
-                "A patient taking warfarin (oral anticoagulant) starts taking high doses of Aspirin (NSAID). Why is this combination clinically contraindicated?",
-                listOf(
-                    "Aspirin speeds up renal clearance of warfarin",
-                    "Aspirin causes additive antiplatelet effects and displaces warfarin from plasma albumin, significantly increasing hemorrhage risk",
-                    "Aspirin directly decomposes the warfarin compound in the stomach",
-                    "Warfarin completely neutralizes the analgesic efficacy of Aspirin"
-                ),
-                1,
-                "Aspirin has antiplatelet activity and can cause gastric mucosal damage. Furthermore, NSAIDs can displace warfarin from its plasma protein binding sites (albumin), leading to elevated free warfarin levels and severe bleeding.",
-                "Pharmacology Paper-II (Drug Interactions)"
-            )
-        )
+    // Load complete 500+ question bank covering all 7 Category B subjects
+    val allQuestions = remember { PharmacyQuestionBank.getAllQuestions() }
+    
+    var selectedSubjectFilter by remember { mutableStateOf("All Subjects") }
+    var searchQuery by remember { mutableStateOf("") }
+    var instantLearnMode by remember { mutableStateOf(true) } // Instant Red/Green feedback on tap
+    
+    // Filter questions based on subject chip and search text
+    val filteredQuestions = remember(selectedSubjectFilter, searchQuery, allQuestions) {
+        allQuestions.filter { q ->
+            val matchesSubject = (selectedSubjectFilter == "All Subjects") || q.subject.equals(selectedSubjectFilter, ignoreCase = true)
+            val matchesSearch = searchQuery.isBlank() || 
+                q.question.contains(searchQuery, ignoreCase = true) || 
+                q.explanation.contains(searchQuery, ignoreCase = true) ||
+                q.options.any { it.contains(searchQuery, ignoreCase = true) }
+            matchesSubject && matchesSearch
+        }
     }
 
     var currentQIndex by remember { mutableStateOf(0) }
     val selectedAnswers = remember { mutableStateMapOf<Int, Int>() } // questionId -> selectedOptionIndex
     var examSubmitted by remember { mutableStateOf(false) }
+    var showGridDialog by remember { mutableStateOf(false) }
+    var jumpInputText by remember { mutableStateOf("") }
     
-    // Exam Timer State
-    var timerSeconds by remember { mutableStateOf(600) } // 10 minutes
-    var isTimerActive by remember { mutableStateOf(true) }
+    // Exam Timer State for Board Exam Mode
+    var timerSeconds by remember { mutableStateOf(1800) } // 30 minutes for board exam mode
+    var isTimerActive by remember { mutableStateOf(false) }
+
+    // Clamp currentQIndex if filtered list shrinks
+    LaunchedEffect(filteredQuestions.size) {
+        if (currentQIndex >= filteredQuestions.size && filteredQuestions.isNotEmpty()) {
+            currentQIndex = 0
+        }
+    }
 
     LaunchedEffect(isTimerActive, examSubmitted) {
         if (isTimerActive && !examSubmitted) {
@@ -218,270 +174,630 @@ fun PharmacyExamSimulatorView() {
         }
     }
 
-    val score = questions.count { selectedAnswers[it.id] == it.correctIndex }
-    val progress = (currentQIndex + 1).toFloat() / questions.size
+    val totalAnsweredInFilter = filteredQuestions.count { selectedAnswers.containsKey(it.id) }
+    val correctCountInFilter = filteredQuestions.count { selectedAnswers[it.id] == it.correctIndex }
+    
+    val activeQ = if (filteredQuestions.isNotEmpty() && currentQIndex < filteredQuestions.size) {
+        filteredQuestions[currentQIndex]
+    } else null
+
+    val progress = if (filteredQuestions.isNotEmpty()) (currentQIndex + 1).toFloat() / filteredQuestions.size else 0f
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Timer and Score Banner
+        // Mode & Stats Header Card
         item {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (examSubmitted) {
-                        if (score >= questions.size / 2) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
-                    } else {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                    }
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = if (examSubmitted) "EXAM COMPLETED" else "SIMULATED EXAM ACTIVE",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.primary,
-                            letterSpacing = 1.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (examSubmitted) {
-                                "Score: $score / ${questions.size} (${(score.toDouble() / questions.size * 100).toInt()}% Pass)"
-                            } else {
-                                val mins = timerSeconds / 60
-                                val secs = timerSeconds % 60
-                                "Time Remaining: ${String.format("%02d:%02d", mins, secs)}"
-                            },
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (examSubmitted) {
-                                if (score >= questions.size / 2) Color(0xFF2E7D32) else Color(0xFFC62828)
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            }
-                        )
-                    }
-
-                    if (!examSubmitted) {
-                        Button(
-                            onClick = {
-                                examSubmitted = true
-                                isTimerActive = false
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Submit Exam", fontSize = 11.sp)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = {
-                                selectedAnswers.clear()
-                                examSubmitted = false
-                                currentQIndex = 0
-                                timerSeconds = 600
-                                isTimerActive = true
-                            },
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Retake", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Question Progress Bar
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Subject: ${questions[currentQIndex].subject}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Question ${currentQIndex + 1} of ${questions.size}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                LinearProgressIndicator(
-                    progress = progress,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(CircleShape)
-                )
-            }
-        }
-
-        // Active Question Card
-        val activeQ = questions[currentQIndex]
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = activeQ.question,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp
-                    )
-                }
-            }
-        }
-
-        // Options
-        items(activeQ.options.size) { index ->
-            val isSelected = selectedAnswers[activeQ.id] == index
-            val isCorrect = index == activeQ.correctIndex
-            val isWrong = isSelected && !isCorrect
-
-            val containerColor = when {
-                examSubmitted && isCorrect -> Color(0xFFE8F5E9) // Success green
-                examSubmitted && isWrong -> Color(0xFFFFEBEE) // Error red
-                isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                else -> MaterialTheme.colorScheme.surface
-            }
-
-            val borderColor = when {
-                examSubmitted && isCorrect -> Color(0xFF4CAF50)
-                examSubmitted && isWrong -> Color(0xFFE53935)
-                isSelected -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.outlineVariant
-            }
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = !examSubmitted) {
-                        selectedAnswers[activeQ.id] = index
-                    },
-                colors = CardDefaults.cardColors(containerColor = containerColor),
-                border = BorderStroke(if (isSelected || (examSubmitted && isCorrect)) 2.dp else 1.dp, borderColor)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.4f)),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Quiz,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "500+ Category B Board Question Bank",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = ('A'.code + index).toChar().toString(),
+                                text = "Total Bank: ${allQuestions.size} Questions | Active Filter: ${filteredQuestions.size} Qs",
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) Color.White else Color.Black
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(activeQ.options[index], fontSize = 13.sp)
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF2E7D32).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "$correctCountInFilter / $totalAnsweredInFilter Correct",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2E7D32),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
 
-                    if (examSubmitted) {
-                        if (isCorrect) {
-                            Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
-                        } else if (isWrong) {
-                            Icon(Icons.Default.Cancel, null, tint = Color(0xFFC62828))
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // Mode Selector Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FilterChip(
+                                selected = instantLearnMode,
+                                onClick = { 
+                                    instantLearnMode = true 
+                                    isTimerActive = false
+                                },
+                                label = { Text("Instant Learn Mode", fontSize = 11.sp) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(14.dp))
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            FilterChip(
+                                selected = !instantLearnMode,
+                                onClick = { 
+                                    instantLearnMode = false
+                                    isTimerActive = true
+                                    if (timerSeconds == 0) timerSeconds = 1800
+                                },
+                                label = { Text("Timed Board Exam", fontSize = 11.sp) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(14.dp))
+                                }
+                            )
+                        }
+
+                        if (!instantLearnMode && !examSubmitted) {
+                            val mins = timerSeconds / 60
+                            val secs = timerSeconds % 60
+                            Text(
+                                text = String.format("%02d:%02d", mins, secs),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (timerSeconds < 300) Color.Red else MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Explanation / Rationales (Post-Submission)
-        if (examSubmitted) {
+        // Subject Filter Chips
+        item {
+            val subjects = listOf("All Subjects", "Pharmaceutics", "Pharmacology", "Pharmacognosy", "Pharmacy Law & Ethics", "Anatomy & Physiology", "Microbiology", "Biochemistry")
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(subjects.size) { idx ->
+                    val subj = subjects[idx]
+                    val isSel = selectedSubjectFilter == subj
+                    val count = if (subj == "All Subjects") allQuestions.size else allQuestions.count { it.subject.equals(subj, ignoreCase = true) }
+                    FilterChip(
+                        selected = isSel,
+                        onClick = {
+                            selectedSubjectFilter = subj
+                            currentQIndex = 0
+                        },
+                        label = { Text("$subj ($count)", fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+        }
+
+        // Search Bar & Question Jump Controls
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search question keywords...", fontSize = 12.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+
+                // Grid View Launcher
+                Button(
+                    onClick = { showGridDialog = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Icon(Icons.Default.GridView, contentDescription = "Question Grid", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Grid", fontSize = 12.sp)
+                }
+            }
+        }
+
+        // Question Navigation Bar
+        item {
+            if (filteredQuestions.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Subject: ${activeQ?.subject ?: ""}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Q ${currentQIndex + 1} of ${filteredQuestions.size}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            // Quick Jump Input
+                            OutlinedTextField(
+                                value = jumpInputText,
+                                onValueChange = { input ->
+                                    if (input.all { it.isDigit() }) {
+                                        jumpInputText = input
+                                        val num = input.toIntOrNull()
+                                        if (num != null && num in 1..filteredQuestions.size) {
+                                            currentQIndex = num - 1
+                                        }
+                                    }
+                                },
+                                placeholder = { Text("#", fontSize = 10.sp) },
+                                modifier = Modifier.width(52.dp).height(40.dp),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+                    LinearProgressIndicator(
+                        progress = progress,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(CircleShape)
+                    )
+                }
+            } else {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
+                ) {
+                    Text(
+                        text = "No questions match your current search/subject filter. Clear search or pick another subject.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+        }
+
+        // Active Question Display & Selectable Options
+        activeQ?.let { q ->
+            val userSelected = selectedAnswers[q.id]
+            val hasAnswered = userSelected != null
+
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.15f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Lightbulb, null, tint = Color(0xFFFBC02D), modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Exam Rationale & Reference:",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                            ) {
+                                Text(
+                                    text = "Question #${q.id} • ${q.subject}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            if (hasAnswered) {
+                                val isRight = userSelected == q.correctIndex
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isRight) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isRight) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                            contentDescription = null,
+                                            tint = if (isRight) Color(0xFF2E7D32) else Color(0xFFC62828),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = if (isRight) "CORRECT" else "INCORRECT",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isRight) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        Text(activeQ.explanation, fontSize = 12.sp, lineHeight = 18.sp, color = Color.DarkGray)
-                        Divider(modifier = Modifier.padding(vertical = 4.dp))
+
                         Text(
-                            text = "📚 Reference: ${activeQ.reference}",
-                            fontSize = 11.sp,
+                            text = q.question,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.secondary
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
             }
-        }
 
-        // Navigation Row
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                OutlinedButton(
-                    onClick = { if (currentQIndex > 0) currentQIndex-- },
-                    enabled = currentQIndex > 0,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.ArrowBack, null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Prev", fontSize = 11.sp)
+            // Options list with Instant Red (Wrong) and Green (Correct) Highlighting
+            items(q.options.size) { index ->
+                val isThisOptionSelected = userSelected == index
+                val isThisCorrectOption = index == q.correctIndex
+                
+                // Highlight rules:
+                // Show colors if answered (in Instant Learn Mode or after Exam Submission)
+                val showFeedbackColors = (instantLearnMode && hasAnswered) || examSubmitted
+
+                val isDark = isSystemInDarkTheme()
+                val correctBg = if (isDark) Color(0xFF1B3E20) else Color(0xFFE8F5E9)
+                val correctBorder = if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32)
+                val correctText = if (isDark) Color(0xFFA5D6A7) else Color(0xFF1B5E20)
+
+                val wrongBg = if (isDark) Color(0xFF3E1B1B) else Color(0xFFFFEBEE)
+                val wrongBorder = if (isDark) Color(0xFFEF9A9A) else Color(0xFFC62828)
+                val wrongText = if (isDark) Color(0xFFFFCDD2) else Color(0xFFB71C1C)
+
+                val containerColor = when {
+                    showFeedbackColors && isThisCorrectOption -> correctBg
+                    showFeedbackColors && isThisOptionSelected && !isThisCorrectOption -> wrongBg
+                    isThisOptionSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else -> MaterialTheme.colorScheme.surface
                 }
 
-                OutlinedButton(
-                    onClick = { if (currentQIndex + 1 < questions.size) currentQIndex++ },
-                    enabled = currentQIndex + 1 < questions.size,
-                    shape = RoundedCornerShape(10.dp)
+                val borderColor = when {
+                    showFeedbackColors && isThisCorrectOption -> correctBorder
+                    showFeedbackColors && isThisOptionSelected && !isThisCorrectOption -> wrongBorder
+                    isThisOptionSelected -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.outlineVariant
+                }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            selectedAnswers[q.id] = index
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = containerColor),
+                    border = BorderStroke(
+                        width = if (isThisOptionSelected || (showFeedbackColors && isThisCorrectOption)) 2.dp else 1.dp,
+                        color = borderColor
+                    )
                 ) {
-                    Text("Next", fontSize = 11.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            showFeedbackColors && isThisCorrectOption -> correctBorder
+                                            showFeedbackColors && isThisOptionSelected -> wrongBorder
+                                            isThisOptionSelected -> MaterialTheme.colorScheme.primary
+                                            else -> MaterialTheme.colorScheme.surfaceVariant
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = ('A'.code + index).toChar().toString(),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isThisOptionSelected || (showFeedbackColors && isThisCorrectOption)) Color.White else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = q.options[index],
+                                fontSize = 13.sp,
+                                fontWeight = if (showFeedbackColors && isThisCorrectOption) FontWeight.Bold else FontWeight.Normal,
+                                color = when {
+                                    showFeedbackColors && isThisCorrectOption -> correctText
+                                    showFeedbackColors && isThisOptionSelected && !isThisCorrectOption -> wrongText
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                        }
+
+                        if (showFeedbackColors) {
+                            if (isThisCorrectOption) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("✓ Correct", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Correct", tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                                }
+                            } else if (isThisOptionSelected) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("✗ Wrong", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.Cancel, contentDescription = "Wrong", tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Instant Rationale & Syllabus Reference Box
+            if ((instantLearnMode && hasAnswered) || examSubmitted) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.2f)
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Lightbulb, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Exam Rationale & Detailed Explanation:",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text(
+                                text = q.explanation,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Divider(modifier = Modifier.padding(vertical = 4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Reference: ${q.reference}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Previous / Next Question Navigation Bar
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { if (currentQIndex > 0) currentQIndex-- },
+                        enabled = currentQIndex > 0,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Previous Q", fontSize = 12.sp)
+                    }
+
+                    // Reset / Clear Progress Button
+                    IconButton(
+                        onClick = {
+                            selectedAnswers.clear()
+                            examSubmitted = false
+                            Toast.makeText(context, "Quiz progress reset.", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Reset Progress", tint = MaterialTheme.colorScheme.error)
+                    }
+
+                    Button(
+                        onClick = { if (currentQIndex + 1 < filteredQuestions.size) currentQIndex++ },
+                        enabled = currentQIndex + 1 < filteredQuestions.size,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("Next Q", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
                 }
             }
         }
+    }
+
+    // 500+ Question Quick Navigation Grid Dialog
+    if (showGridDialog) {
+        AlertDialog(
+            onDismissRequest = { showGridDialog = false },
+            icon = { Icon(Icons.Default.GridView, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = {
+                Text(
+                    text = "Question Directory (${filteredQuestions.size} Qs)",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(Color(0xFF2E7D32)))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Correct", fontSize = 10.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(Color(0xFFC62828)))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Wrong", fontSize = 10.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(Color.LightGray))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Unanswered", fontSize = 10.sp)
+                        }
+                    }
+
+                    Divider()
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(5),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(filteredQuestions.size) { index ->
+                            val q = filteredQuestions[index]
+                            val userAns = selectedAnswers[q.id]
+                            val isAns = userAns != null
+                            val isCorrect = isAns && userAns == q.correctIndex
+
+                            val btnBg = when {
+                                isCorrect -> Color(0xFFE8F5E9)
+                                isAns -> Color(0xFFFFEBEE)
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            }
+
+                            val txtColor = when {
+                                isCorrect -> Color(0xFF2E7D32)
+                                isAns -> Color(0xFFC62828)
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(btnBg)
+                                    .border(
+                                        width = if (index == currentQIndex) 2.dp else 0.5.dp,
+                                        color = if (index == currentQIndex) MaterialTheme.colorScheme.primary else Color.Transparent
+                                    )
+                                    .clickable {
+                                        currentQIndex = index
+                                        showGridDialog = false
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${index + 1}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = txtColor
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showGridDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 

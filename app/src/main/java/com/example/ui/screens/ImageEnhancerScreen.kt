@@ -84,6 +84,15 @@ fun ImageEnhancerScreen(
         }
     }
 
+    fun loadSampleImage(resourceId: Int) {
+        val loaded = android.graphics.BitmapFactory.decodeResource(context.resources, resourceId)
+        if (loaded != null) {
+            viewModel.setOriginalImage(loaded)
+        } else {
+            Toast.makeText(context, "Failed to load sample image.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.checkModelsStatus()
     }
@@ -209,6 +218,28 @@ fun ImageEnhancerScreen(
                             Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Camera", fontSize = 12.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Or use sample images:", fontSize = 12.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { loadSampleImage(com.example.R.drawable.sample_portrait) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Portrait", fontSize = 11.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { loadSampleImage(com.example.R.drawable.sample_object) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Object", fontSize = 11.sp)
                         }
                     }
                 }

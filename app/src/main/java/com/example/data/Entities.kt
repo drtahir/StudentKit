@@ -161,7 +161,10 @@ data class IntruderLog(
     @ColumnInfo(name = "attempt_status") val attemptStatus: String,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    val batteryLevel: Int? = null,
+    val networkStatus: String? = null,
+    val cameraFacing: String? = "Front Camera"
 )
 
 @Entity(tableName = "pin_vault")
@@ -216,4 +219,60 @@ data class SpeedTestHistory(
     @ColumnInfo(name = "upload_speed") val uploadSpeedMbps: Double
 )
 
+@Entity(tableName = "cached_quran_verses")
+data class CachedQuranVerse(
+    @PrimaryKey val id: String, // format: "surah_verse"
+    @ColumnInfo(name = "surah_number") val surahNumber: Int,
+    @ColumnInfo(name = "verse_number") val verseNumber: Int,
+    @ColumnInfo(name = "juz_number") val juz: Int,
+    @ColumnInfo(name = "page_number") val page: Int,
+    @ColumnInfo(name = "text_arabic") val textArabic: String,
+    @ColumnInfo(name = "text_urdu") val textUrdu: String,
+    @ColumnInfo(name = "text_english") val textEnglish: String
+)
 
+
+
+
+// --- POS SYSTEM ---
+@Entity(tableName = "pos_products")
+data class PosProduct(
+    @PrimaryKey val id: String,
+    val name: String,
+    val category: String,
+    val price: Double,
+    val stock: Int,
+    val unit: String
+)
+
+@Entity(tableName = "pos_clients")
+data class PosClient(
+    @PrimaryKey val id: String,
+    val name: String,
+    val phone: String,
+    val email: String,
+    val address: String,
+    val type: String // "Customer" or "Supplier"
+)
+
+@Entity(tableName = "pos_orders")
+data class PosOrder(
+    @PrimaryKey val id: String,
+    val date: String,
+    val clientId: String?,
+    val subtotal: Double,
+    val tax: Double,
+    val discount: Double,
+    val total: Double,
+    val documentType: String // "Invoice", "Receipt", "Estimate"
+)
+
+@Entity(tableName = "pos_order_items")
+data class PosOrderItem(
+    @PrimaryKey val id: String,
+    val orderId: String,
+    val productId: String,
+    val name: String,
+    val quantity: Int,
+    val price: Double
+)

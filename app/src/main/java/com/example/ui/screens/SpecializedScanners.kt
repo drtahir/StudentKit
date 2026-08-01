@@ -616,7 +616,7 @@ fun compileIdCardToPdf(
         textPaint.textSize = 10f
         textPaint.color = android.graphics.Color.parseColor("#64748B")
         val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-        canvas.drawText("Captured on: $currentDate  |  Source: StudentKit Elite CamScanner", 40f, 70f, textPaint)
+        canvas.drawText("Captured on: $currentDate  |  Source: Hikmah Omni Suite CamScanner", 40f, 70f, textPaint)
 
         val linePaint = Paint().apply {
             color = android.graphics.Color.parseColor("#E2E8F0")
@@ -715,7 +715,7 @@ fun compileIdCardToPdf(
 
         textPaint.color = android.graphics.Color.parseColor("#94A3B8")
         textPaint.textSize = 8f
-        canvas.drawText("On-Device Scanning Engine | StudentKit Premium Integration Suite", 40f, 810f, textPaint)
+        canvas.drawText("On-Device Scanning Engine | Hikmah Omni Suite Premium Integration", 40f, 810f, textPaint)
 
         pdfDocument.finishPage(page)
 
@@ -795,7 +795,7 @@ fun compilePassportToPdf(
         textPaint.textSize = 10f
         textPaint.color = android.graphics.Color.parseColor("#64748B")
         val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-        canvas.drawText("Captured on: $currentDate  |  Source: StudentKit Passport Capture", 40f, 70f, textPaint)
+        canvas.drawText("Captured on: $currentDate  |  Source: Hikmah Omni Suite Passport Capture", 40f, 70f, textPaint)
 
         val linePaint = Paint().apply {
             color = android.graphics.Color.parseColor("#E2E8F0")
@@ -856,7 +856,7 @@ fun compilePassportToPdf(
 
         textPaint.color = android.graphics.Color.parseColor("#94A3B8")
         textPaint.textSize = 8f
-        canvas.drawText("On-Device Passport Scanner Engine | StudentKit Premium Suite", 40f, 800f, textPaint)
+        canvas.drawText("On-Device Passport Scanner Engine | Hikmah Omni Suite", 40f, 800f, textPaint)
 
         pdfDocument.finishPage(page)
 
@@ -1107,7 +1107,7 @@ fun saveTextDocToDownloads(
         Additional Remarks:  $additionalNotes
         
         ============================================================
-        Generated via StudentKit CamScanner Elite, All Rights Reserved.
+        Generated via Hikmah Omni Suite CamScanner, All Rights Reserved.
         ============================================================
         """.trimIndent()
 

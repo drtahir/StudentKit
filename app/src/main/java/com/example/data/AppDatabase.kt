@@ -103,6 +103,15 @@ interface StudentKitDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHistory(history: BcHistory)
 
+    @Query("SELECT * FROM bc_members")
+    suspend fun getAllMembersSuspend(): List<BcMember>
+
+    @Query("SELECT * FROM bc_payments")
+    suspend fun getAllPaymentsSuspend(): List<BcPayment>
+
+    @Query("SELECT * FROM bc_history")
+    suspend fun getAllHistorySuspend(): List<BcHistory>
+
 
     // --- LOANS ---
     @Query("SELECT * FROM loans ORDER BY date DESC")
@@ -264,6 +273,46 @@ interface StudentKitDao {
 
     @Query("DELETE FROM speed_test_history")
     suspend fun clearSpeedTestHistory()
+
+    // --- CACHED QURAN ---
+    @Query("SELECT * FROM cached_quran_verses WHERE surah_number = :surahNumber ORDER BY verse_number ASC")
+    fun getCachedVersesForSurah(surahNumber: Int): Flow<List<CachedQuranVerse>>
+
+    @Query("SELECT * FROM cached_quran_verses WHERE page_number = :pageNumber ORDER BY surah_number ASC, verse_number ASC")
+    fun getCachedVersesForPage(pageNumber: Int): Flow<List<CachedQuranVerse>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertQuranVerses(verses: List<CachedQuranVerse>)
+
+    @Query("SELECT COUNT(*) FROM cached_quran_verses")
+    suspend fun getCachedQuranVersesCount(): Int
+
+    @Query("DELETE FROM cached_quran_verses")
+    suspend fun clearCachedQuran()
+    // --- POS SYSTEM ---
+    @Query("SELECT * FROM pos_products ORDER BY name ASC")
+    fun getAllPosProducts(): Flow<List<PosProduct>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosProduct(product: PosProduct)
+    @Query("DELETE FROM pos_products WHERE id = :id")
+    suspend fun deletePosProductById(id: String)
+
+    @Query("SELECT * FROM pos_clients ORDER BY name ASC")
+    fun getAllPosClients(): Flow<List<PosClient>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosClient(client: PosClient)
+    @Query("DELETE FROM pos_clients WHERE id = :id")
+    suspend fun deletePosClientById(id: String)
+
+    @Query("SELECT * FROM pos_orders ORDER BY date DESC")
+    fun getAllPosOrders(): Flow<List<PosOrder>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosOrder(order: PosOrder)
+
+    @Query("SELECT * FROM pos_order_items WHERE orderId = :orderId")
+    fun getPosOrderItems(orderId: String): Flow<List<PosOrderItem>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosOrderItem(item: PosOrderItem)
 }
 
 @Database(
@@ -287,9 +336,14 @@ interface StudentKitDao {
         PhotoVaultEntry::class,
         PrivateNoteEntry::class,
         WifiDevice::class,
-        SpeedTestHistory::class
+        SpeedTestHistory::class,
+        CachedQuranVerse::class
+        ,PosProduct::class,
+        PosClient::class,
+        PosOrder::class,
+        PosOrderItem::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -310,6 +364,12 @@ abstract class AppDatabase : RoomDatabase() {
                 .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        fun resetInstance() {
+            synchronized(this) {
+                INSTANCE = null
             }
         }
     }

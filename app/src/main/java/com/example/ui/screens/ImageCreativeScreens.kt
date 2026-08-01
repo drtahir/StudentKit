@@ -44,6 +44,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.viewmodel.StudentKitViewModel
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.graphics.graphicsLayer
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.segmentation.Segmentation
 import com.google.mlkit.vision.segmentation.selfie.SelfieSegmenterOptions
@@ -575,7 +581,9 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
 
     // Brush Settings
     var brushMode by remember { mutableStateOf("erase") } // "erase" or "restore"
-    var brushSize by remember { mutableStateOf(30f) }
+    var brushSize by remember { mutableStateOf(50f) }
+    var brushSoftness by remember { mutableStateOf(5f) }
+    var brushOffset by remember { mutableStateOf(80f) }
     var triggerRecompositionToken by remember { mutableStateOf(0) }
     
     // Coordinates mapping
@@ -587,6 +595,13 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
 
     // History stack for Undo
     val undoStack = remember { mutableStateListOf<Bitmap>() }
+
+    // Export Settings
+    var bgColor by remember { mutableStateOf(Color.Transparent) }
+    var exportSizePreset by remember { mutableStateOf("Original") }
+    var customWidthStr by remember { mutableStateOf("1080") }
+    var customHeightStr by remember { mutableStateOf("1080") }
+    var fitMode by remember { mutableStateOf("Fit Center") }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -608,6 +623,23 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
             }
             isProcessing = false
         }
+    }
+
+    fun loadSampleImage(resourceId: Int) {
+        val uri = Uri.parse("android.resource://${context.packageName}/$resourceId")
+        selectedImageUri = uri
+        errorMessage = null
+        isProcessing = true
+        undoStack.clear()
+        
+        val loaded = android.graphics.BitmapFactory.decodeResource(context.resources, resourceId)
+        if (loaded != null) {
+            originalBitmap = loaded
+            workingBitmap = loaded.copy(loaded.config ?: Bitmap.Config.ARGB_8888, true)
+        } else {
+            errorMessage = "Failed to load sample image."
+        }
+        isProcessing = false
     }
 
     // Function to run the actual ML Kit Segmentation
@@ -770,6 +802,23 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Try with sample images:", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { loadSampleImage(com.example.R.drawable.sample_portrait) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Sample Portrait", fontSize = 12.sp)
+                }
+                Button(
+                    onClick = { loadSampleImage(com.example.R.drawable.sample_object) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Sample Object", fontSize = 12.sp)
+                }
+            }
         } else {
             // Display & interactive editor
             val bitmap = workingBitmap
@@ -900,13 +949,17 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
                         .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    // 1. Checkerboard Background
-                    CheckerboardBg(modifier = Modifier.fillMaxSize())
+                    // 1. Checkerboard Background or Solid Color
+                    if (bgColor == Color.Transparent) {
+                        CheckerboardBg(modifier = Modifier.fillMaxSize())
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize().background(bgColor))
+                    }
+
+                    var scale by remember { mutableStateOf(1f) }
+                    var pan by remember { mutableStateOf(Offset.Zero) }
 
                     // 2. The Interactive Working Canvas
-                    var lastX by remember { mutableStateOf(-1f) }
-                    var lastY by remember { mutableStateOf(-1f) }
-
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -917,72 +970,126 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
                                 containerWidth = layoutCoordinates.size.width.toFloat()
                                 containerHeight = layoutCoordinates.size.height.toFloat()
                             }
-                            .pointerInput(brushMode, brushSize, triggerRecompositionToken) {
-                                detectDragGestures(
-                                    onDragStart = { offset ->
-                                        // Save copy for undo support
-                                        val copy = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
-                                        if (undoStack.size >= 5) {
-                                            undoStack.removeAt(0)
+                            .pointerInput(brushMode, brushSize, brushSoftness, brushOffset) {
+                                awaitEachGesture {
+                                    val firstDown = awaitFirstDown()
+                                    var isZooming = false
+                                    var undoSaved = false
+                                    val copy = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
+                                    
+                                    var lastDrawPos = Offset.Unspecified
+                                    
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        
+                                        if (event.changes.size >= 2) {
+                                            isZooming = true
+                                            val zoomChange = event.calculateZoom()
+                                            val panChange = event.calculatePan()
+                                            
+                                            scale = (scale * zoomChange).coerceIn(1f, 10f)
+                                            pan += panChange
+                                            
+                                            event.changes.forEach { it.consume() }
+                                        } else if (event.changes.size == 1 && !isZooming) {
+                                            val change = event.changes.first()
+                                            
+                                            if (change.pressed) {
+                                                if (!undoSaved) {
+                                                    if (undoStack.size >= 5) undoStack.removeAt(0)
+                                                    undoStack.add(copy)
+                                                    undoSaved = true
+                                                }
+                                                
+                                                val center = Offset(containerWidth / 2f, containerHeight / 2f)
+                                                
+                                                val rawX = change.position.x
+                                                val rawY = change.position.y - brushOffset // Offset so finger doesn't block
+                                                
+                                                val transX = (rawX - pan.x - center.x) / scale + center.x
+                                                val transY = (rawY - pan.y - center.y) / scale + center.y
+                                                
+                                                val scaleX = if (containerWidth > 0) bitmap.width.toFloat() / containerWidth else 1f
+                                                val scaleY = if (containerHeight > 0) bitmap.height.toFloat() / containerHeight else 1f
+                                                
+                                                val bX = transX * scaleX
+                                                val bY = transY * scaleY
+                                                
+                                                val currentPos = Offset(bX, bY)
+                                                
+                                                val canvas = Canvas(bitmap)
+                                                val paint = Paint().apply {
+                                                    isAntiAlias = true
+                                                    style = Paint.Style.STROKE
+                                                    strokeCap = Paint.Cap.ROUND
+                                                    strokeJoin = Paint.Join.ROUND
+                                                    strokeWidth = (brushSize * scaleX) / scale
+                                                    
+                                                    if (brushSoftness > 0f) {
+                                                        // BlurMaskFilter removed because it causes ANR (Input dispatching timed out) on large bitmaps
+                                                        // We rely on anti-aliasing instead
+                                                    }
+                                                    
+                                                    if (brushMode == "erase") {
+                                                        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+                                                    } else {
+                                                        shader = BitmapShader(orig, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+                                                    }
+                                                }
+                                                
+                                                if (lastDrawPos == Offset.Unspecified) {
+                                                    canvas.drawPoint(bX, bY, paint)
+                                                } else {
+                                                    val segmentPath = android.graphics.Path()
+                                                    segmentPath.moveTo(lastDrawPos.x, lastDrawPos.y)
+                                                    val midX = (lastDrawPos.x + bX) / 2
+                                                    val midY = (lastDrawPos.y + bY) / 2
+                                                    segmentPath.quadTo(lastDrawPos.x, lastDrawPos.y, midX, midY)
+                                                    segmentPath.lineTo(bX, bY)
+                                                    canvas.drawPath(segmentPath, paint)
+                                                }
+                                                
+                                                lastDrawPos = currentPos
+                                                change.consume()
+                                                triggerRecompositionToken++
+                                            }
                                         }
-                                        undoStack.add(copy)
-
-                                        lastX = offset.x
-                                        lastY = offset.y
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-
-                                        val scaleX = if (containerWidth > 0) bitmap.width.toFloat() / containerWidth else 1f
-                                        val scaleY = if (containerHeight > 0) bitmap.height.toFloat() / containerHeight else 1f
-
-                                        val bX = change.position.x * scaleX
-                                        val bY = change.position.y * scaleY
-                                        val prevBX = lastX * scaleX
-                                        val prevBY = lastY * scaleY
-
-                                        val canvas = Canvas(bitmap)
-                                        val paint = Paint().apply {
-                                            isAntiAlias = true
-                                            style = Paint.Style.STROKE
-                                            strokeCap = Paint.Cap.ROUND
-                                            strokeJoin = Paint.Join.ROUND
-                                            strokeWidth = brushSize * scaleX
-                                        }
-
-                                        if (brushMode == "erase") {
-                                            paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-                                        } else {
-                                            paint.shader = BitmapShader(orig, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-                                        }
-
-                                        if (prevBX >= 0 && prevBY >= 0) {
-                                            canvas.drawLine(prevBX, prevBY, bX, bY, paint)
-                                        } else {
-                                            canvas.drawPoint(bX, bY, paint)
-                                        }
-
-                                        lastX = change.position.x
-                                        lastY = change.position.y
-                                        triggerRecompositionToken++
-                                    },
-                                    onDragEnd = {
-                                        lastX = -1f
-                                        lastY = -1f
-                                    }
-                                )
+                                    } while (event.changes.any { it.pressed })
+                                }
                             }
                     ) {
-                        // Display the updated working bitmap
+                        // Display the updated working bitmap with scale and pan
                         val rememberedImageBitmap = remember(bitmap, triggerRecompositionToken) {
                             bitmap.asImageBitmap()
                         }
                         androidx.compose.foundation.Image(
                             bitmap = rememberedImageBitmap,
                             contentDescription = "Subject cutout",
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                    translationX = pan.x
+                                    translationY = pan.y
+                                },
                             contentScale = ContentScale.Fit
                         )
+                    }
+                    
+                    if (scale > 1f || pan != Offset.Zero) {
+                        IconButton(
+                            onClick = { 
+                                scale = 1f
+                                pan = Offset.Zero
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .background(Color.White.copy(alpha=0.5f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.ZoomOutMap, contentDescription = "Reset Zoom", tint = Color.Black)
+                        }
                     }
                 }
 
@@ -1036,20 +1143,185 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
                             }
                         }
 
-                        // Brush Size Slider
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Default.Adjust, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Text("Brush Size: ${brushSize.toInt()}px", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(110.dp))
-                            Slider(
-                                value = brushSize,
-                                onValueChange = { brushSize = it },
-                                valueRange = 10f..100f,
-                                modifier = Modifier.weight(1f)
+                        // Brush Settings
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(Icons.Default.Adjust, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Text("Size:", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(50.dp))
+                                Slider(
+                                    value = brushSize,
+                                    onValueChange = { brushSize = it },
+                                    valueRange = 10f..200f,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(Icons.Default.BlurOn, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Text("Soft:", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(50.dp))
+                                Slider(
+                                    value = brushSoftness,
+                                    onValueChange = { brushSoftness = it },
+                                    valueRange = 0f..50f,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(Icons.Default.PanTool, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Text("Offset:", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(50.dp))
+                                Slider(
+                                    value = brushOffset,
+                                    onValueChange = { brushOffset = it },
+                                    valueRange = 0f..200f,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Background & Format Settings
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Export Settings", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Size:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            val presets = listOf("Original", "Passport (35x45)", "Visa (50x50)", "Custom")
+                            var expandedSize by remember { mutableStateOf(false) }
+                            Box {
+                                OutlinedButton(onClick = { expandedSize = true }, modifier = Modifier.height(36.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                                    Text(exportSizePreset, fontSize = 11.sp)
+                                    Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(16.dp))
+                                }
+                                DropdownMenu(expanded = expandedSize, onDismissRequest = { expandedSize = false }) {
+                                    presets.forEach { p ->
+                                        DropdownMenuItem(
+                                            text = { Text(p, fontSize = 12.sp) },
+                                            onClick = { 
+                                                exportSizePreset = p
+                                                expandedSize = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (exportSizePreset == "Custom") {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = customWidthStr,
+                                    onValueChange = { customWidthStr = it },
+                                    label = { Text("Width", fontSize = 10.sp) },
+                                    modifier = Modifier.weight(1f).height(50.dp),
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                )
+                                Text("x", fontSize = 12.sp)
+                                OutlinedTextField(
+                                    value = customHeightStr,
+                                    onValueChange = { customHeightStr = it },
+                                    label = { Text("Height", fontSize = 10.sp) },
+                                    modifier = Modifier.weight(1f).height(50.dp),
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                )
+                            }
+                        }
+
+                        if (exportSizePreset != "Original") {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Fit:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { fitMode = "Fit Center" }) {
+                                        RadioButton(selected = fitMode == "Fit Center", onClick = { fitMode = "Fit Center" })
+                                        Text("Fit Center", fontSize = 11.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { fitMode = "Center Crop" }) {
+                                        RadioButton(selected = fitMode == "Center Crop", onClick = { fitMode = "Center Crop" })
+                                        Text("Center Crop", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Text("Background Color:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val colors = listOf(
+                                "Transparent" to Color.Transparent,
+                                "White" to Color.White,
+                                "Blue" to Color(0xFF1E88E5),
+                                "Chroma Green" to Color(0xFF00FF00),
+                                "Red" to Color(0xFFE53935)
                             )
+                            colors.forEach { (name, color) ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(if (color == Color.Transparent) Color.LightGray else color)
+                                        .border(
+                                            2.dp, 
+                                            if (bgColor == color) MaterialTheme.colorScheme.primary else Color.Transparent, 
+                                            CircleShape
+                                        )
+                                        .clickable { bgColor = color },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (color == Color.Transparent) {
+                                        Icon(Icons.Default.Block, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Quality Picker
+                var expandedQuality by remember { mutableStateOf(false) }
+                val qualities = listOf(
+                    "Low (720p)" to 0.25f, 
+                    "Medium (1080p)" to 0.5f, 
+                    "High (Original/4K)" to 1f
+                )
+                var selectedQuality by remember { mutableStateOf(qualities[2]) }
+
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Save Quality:", fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
+                    Box {
+                        OutlinedButton(onClick = { expandedQuality = true }) {
+                            Text(selectedQuality.first)
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = expandedQuality, onDismissRequest = { expandedQuality = false }) {
+                            qualities.forEach { q ->
+                                DropdownMenuItem(
+                                    text = { Text(q.first) },
+                                    onClick = { 
+                                        selectedQuality = q
+                                        expandedQuality = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1062,11 +1334,13 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
                     Button(
                         onClick = {
                             coroutineScope.launch {
-                                val file = saveTransparentPngToGalleryHelper(context, bitmap)
+                                val finalBitmap = createExportBitmap(bitmap, selectedQuality.second, bgColor, exportSizePreset, customWidthStr, customHeightStr, fitMode)
+                                val format = if (bgColor == Color.Transparent) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                                val file = saveImageHelper(context, finalBitmap, format)
                                 if (file != null) {
-                                    Toast.makeText(context, "Saved PNG with Alpha to Gallery:\n${file.name}", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "Saved to Gallery:\n${file.name}", Toast.LENGTH_LONG).show()
                                 } else {
-                                    Toast.makeText(context, "Error saving PNG", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Error saving", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },
@@ -1075,13 +1349,15 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
                     ) {
                         Icon(Icons.Default.Save, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Save PNG")
+                        Text(if (bgColor == Color.Transparent) "Save PNG" else "Save Image")
                     }
 
                     OutlinedButton(
                         onClick = {
                             coroutineScope.launch {
-                                val file = saveTransparentPngToGalleryHelper(context, bitmap)
+                                val finalBitmap = createExportBitmap(bitmap, selectedQuality.second, bgColor, exportSizePreset, customWidthStr, customHeightStr, fitMode)
+                                val format = if (bgColor == Color.Transparent) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                                val file = saveImageHelper(context, finalBitmap, format)
                                 if (file != null) {
                                     val uri = FileProvider.getUriForFile(
                                         context,
@@ -1089,11 +1365,11 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
                                         file
                                     )
                                     val intent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "image/png"
+                                        type = if (format == Bitmap.CompressFormat.PNG) "image/png" else "image/jpeg"
                                         putExtra(Intent.EXTRA_STREAM, uri)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
-                                    context.startActivity(Intent.createChooser(intent, "Share Cutout Image"))
+                                    context.startActivity(Intent.createChooser(intent, "Share Image"))
                                 } else {
                                     Toast.makeText(context, "Error sharing", Toast.LENGTH_SHORT).show()
                                 }
@@ -1142,12 +1418,103 @@ fun CheckerboardBg(modifier: Modifier = Modifier) {
     }
 }
 
-fun saveTransparentPngToGalleryHelper(context: Context, bitmap: Bitmap): File? {
+fun createExportBitmap(
+    sourceBitmap: Bitmap, 
+    qualityScale: Float, 
+    bgColor: Color, 
+    exportSizePreset: String,
+    customWidthStr: String,
+    customHeightStr: String,
+    fitMode: String
+): Bitmap {
+    val origW = sourceBitmap.width
+    val origH = sourceBitmap.height
+
+    val targetW: Int
+    val targetH: Int
+
+    if (exportSizePreset == "Original") {
+        targetW = (origW * qualityScale).toInt().coerceAtLeast(1)
+        targetH = (origH * qualityScale).toInt().coerceAtLeast(1)
+    } else if (exportSizePreset.contains("Passport")) {
+        targetW = (700 * qualityScale).toInt().coerceAtLeast(1)
+        targetH = (900 * qualityScale).toInt().coerceAtLeast(1)
+    } else if (exportSizePreset.contains("Visa")) {
+        targetW = (800 * qualityScale).toInt().coerceAtLeast(1)
+        targetH = (800 * qualityScale).toInt().coerceAtLeast(1)
+    } else { // Custom
+        val cw = customWidthStr.toIntOrNull() ?: 1080
+        val ch = customHeightStr.toIntOrNull() ?: 1080
+        targetW = (cw * qualityScale).toInt().coerceAtLeast(1)
+        targetH = (ch * qualityScale).toInt().coerceAtLeast(1)
+    }
+
+    val exportBitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(exportBitmap)
+    
+    if (bgColor != Color.Transparent) {
+        canvas.drawColor(AndroidColor.argb(
+            (bgColor.alpha * 255).toInt(),
+            (bgColor.red * 255).toInt(),
+            (bgColor.green * 255).toInt(),
+            (bgColor.blue * 255).toInt()
+        ))
+    }
+
+    if (exportSizePreset == "Original") {
+        val scaledSource = if (qualityScale == 1f) sourceBitmap else {
+            Bitmap.createScaledBitmap(sourceBitmap, targetW, targetH, true)
+        }
+        val paint = android.graphics.Paint().apply { isAntiAlias = true }
+        canvas.drawBitmap(scaledSource, 0f, 0f, paint)
+    } else {
+        val srcRect = android.graphics.Rect(0, 0, origW, origH)
+        val dstRect: android.graphics.RectF
+
+        if (fitMode == "Fit Center") {
+            val scaleX = targetW.toFloat() / origW
+            val scaleY = targetH.toFloat() / origH
+            val scale = minOf(scaleX, scaleY)
+            
+            val scaledW = origW * scale
+            val scaledH = origH * scale
+            
+            val left = (targetW - scaledW) / 2f
+            val top = (targetH - scaledH) / 2f
+            
+            dstRect = android.graphics.RectF(left, top, left + scaledW, top + scaledH)
+        } else {
+            // "Center Crop"
+            val scaleX = targetW.toFloat() / origW
+            val scaleY = targetH.toFloat() / origH
+            val scale = maxOf(scaleX, scaleY)
+            
+            val scaledW = origW * scale
+            val scaledH = origH * scale
+            
+            val left = (targetW - scaledW) / 2f
+            val top = (targetH - scaledH) / 2f
+            
+            dstRect = android.graphics.RectF(left, top, left + scaledW, top + scaledH)
+        }
+
+        val paint = android.graphics.Paint().apply { 
+            isAntiAlias = true
+            isFilterBitmap = true 
+        }
+        canvas.drawBitmap(sourceBitmap, srcRect, dstRect, paint)
+    }
+
+    return exportBitmap
+}
+
+fun saveImageHelper(context: Context, bitmap: Bitmap, format: Bitmap.CompressFormat = Bitmap.CompressFormat.PNG): File? {
     val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-    val file = File(dir, "Eraser_Export_${System.currentTimeMillis()}.png")
+    val ext = if (format == Bitmap.CompressFormat.PNG) "png" else "jpg"
+    val file = File(dir, "Eraser_Export_${System.currentTimeMillis()}.$ext")
     return try {
         val stream = FileOutputStream(file)
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        bitmap.compress(format, 100, stream)
         stream.flush()
         stream.close()
         file

@@ -263,7 +263,12 @@ fun QiblaCompassWidget(
 
     // GPS Telemetry updates inside DisposableEffect
     DisposableEffect(hasLocationPermission) {
-        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            context.createAttributionContext("default")
+        } else {
+            context
+        }
+        val locationManager = attributionContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         var gpsListener: LocationListener? = null
 
         if (hasLocationPermission) {

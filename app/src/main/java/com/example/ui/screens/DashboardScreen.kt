@@ -25,11 +25,20 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.*
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.TextStyle
 import com.example.data.*
 import com.example.viewmodel.Screen
 import com.example.viewmodel.StudentKitViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 
 data class UtilityTool(
     val id: String,
@@ -77,6 +86,7 @@ val allToolsList = listOf(
     UtilityTool("file_encryptor", "File Encryptor", "Hardware AES-256 GCM locker", "Utilities", Icons.Default.EnhancedEncryption, Color(0xFF1E88E5), "KEYSTORE", Screen.FileEncryptor),
     UtilityTool("hidden_locker", "Hidden Locker", "Secure sandbox file/photo vault", "Utilities", Icons.Default.FolderSpecial, Color(0xFFEC407A), "ENCRYPTEDFILE", Screen.HiddenLocker),
     UtilityTool("steganography", "Steganography", "Hide secret message in image pixels", "Utilities", Icons.Default.Image, Color(0xFF43A047), "LSB BIT", Screen.Steganography),
+    UtilityTool("steganalysis", "Steganalysis", "Detect hidden data, LSB entropy & overlays", "Utilities", Icons.Default.Analytics, Color(0xFFE65100), "FORENSICS", Screen.Steganalysis),
     UtilityTool("ai_enhancer", "AI Enhancer", "Offline AI face & photo restorer", "Utilities", Icons.Default.AutoAwesome, Color(0xFF00ACC1), "REMINI", Screen.ImageEnhancer),
     UtilityTool("watermark_studio", "Watermark Studio", "Add text watermarks & photo filter matrix", "Utilities", Icons.Default.Brush, Color(0xFF7B1FA2), "STUDIO", Screen.WatermarkStudio),
     UtilityTool("bg_eraser", "Background Eraser", "AI background remover with precise brush refine", "Utilities", Icons.Default.FilterFrames, Color(0xFFE91E63), "AI SEGMENT", Screen.BackgroundEraser),
@@ -95,6 +105,7 @@ val allToolsList = listOf(
     UtilityTool("gfr_calc", "GFR Renal Solver", "Cockcroft-Gault kidney clearance", "Medical", Icons.Default.Science, Color(0xFFFF9100), "CLINICAL", Screen.GfrCalculator),
     UtilityTool("anatomy", "Anatomy Atlas", "Human systems, colorful study charts & quiz", "Medical", Icons.Default.AccessibilityNew, Color(0xFFE53935), "STUDY ATLAS", Screen.AnatomyAtlas),
     UtilityTool("pharmacy_exam", "Pharmacy Exam", "Pakistan Category B pharmacy assistant prep", "Medical", Icons.Default.Quiz, Color(0xFF9C27B0), "EXAM PREP", Screen.PharmacyExam),
+    UtilityTool("nursing_exam", "Nursing Exam Kit", "DHA, Saudi Prometric, NCLEX-RN, HAAD, MOH prep", "Medical", Icons.Default.MedicalServices, Color(0xFF00695C), "12000+ Qs & BOOK", Screen.NursingExam),
     UtilityTool("hajj_prep", "Hajj Mission Prep", "Hajj Medical Mission NTS exam preparation", "Medical", Icons.Default.MedicalInformation, Color(0xFF009688), "NTS EXAM", Screen.HajjMedicalPrep)
 )
 
@@ -330,6 +341,418 @@ fun IslamicLibraryHeroButton(
     }
 }
 
+@Composable
+fun Nursing12kMcqHeroButton(
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "nursing_pulse")
+    
+    // Smooth pulsing scale effect between 0.98f and 1.02f
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    
+    // Shining highlight translation
+    val shimmerTranslate by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(onClick = onClick)
+            .testTag("nursing_12k_hero_button"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF004D40)), // Deep Medical Teal background
+        border = BorderStroke(1.5.dp, Color(0xFF00E5FF)), // Glowing Electric Cyan border
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF00363A),
+                            Color(0xFF006064),
+                            Color(0xFF004D40)
+                        )
+                    )
+                )
+                .padding(18.dp)
+        ) {
+            // Shiny highlight shimmer overlay
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0f),
+                        Color.White.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    start = Offset(shimmerTranslate - 300f, 0f),
+                    end = Offset(shimmerTranslate, size.height)
+                )
+                drawRect(brush = brush)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Electric Cyan Circle with Medical Services Icon
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .background(Color(0xFF00E5FF).copy(alpha = 0.15f), CircleShape)
+                            .border(1.5.dp, Color(0xFF00E5FF), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MedicalServices,
+                            contentDescription = "Nursing MCQs",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(14.dp))
+                    
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Nursing 12,000+ MCQs",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFF00E5FF), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "NCLEX & DHA",
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00363A)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "DHA, Saudi Prometric, NCLEX-RN & PNC Master",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+                
+                // Forward Electric Cyan Arrow
+                Icon(
+                    imageVector = Icons.Default.ArrowForwardIos,
+                    contentDescription = "Open Nursing Exam Kit",
+                    tint = Color(0xFF00E5FF),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MoavineenHujjajHeroButton(
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "moavineen_pulse")
+    
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    
+    val shimmerTranslate by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(onClick = onClick)
+            .testTag("moavineen_hujjaj_hero_button"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0D5C3A)),
+        border = BorderStroke(1.5.dp, Color(0xFFDAA520)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF073822),
+                            Color(0xFF0D5C3A),
+                            Color(0xFF073822)
+                        )
+                    )
+                )
+                .padding(18.dp)
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0f),
+                        Color.White.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    start = Offset(shimmerTranslate - 300f, 0f),
+                    end = Offset(shimmerTranslate, size.height)
+                )
+                drawRect(brush = brush)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .background(Color(0xFFDAA520).copy(alpha = 0.2f), CircleShape)
+                            .border(1.5.dp, Color(0xFFDAA520), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mosque,
+                            contentDescription = "Moavineen Hujjaj",
+                            tint = Color(0xFFDAA520),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(14.dp))
+                    
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Moavineen-e-Hujjaj Prep",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFDAA520), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "MORA NTS",
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF073822)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "1000+ Quizzes • Supervisor & Supporting Staff",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+                
+                Icon(
+                    imageVector = Icons.Default.ArrowForwardIos,
+                    contentDescription = "Open Moavineen Prep",
+                    tint = Color(0xFFDAA520),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun OmniPosHeroButton(
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "omnipos_pulse")
+    
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    
+    val shimmerTranslate by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(onClick = onClick)
+            .testTag("omnipos_hero_button"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF311B92)), // Rich Royal Violet
+        border = BorderStroke(1.5.dp, Color(0xFFFF9800)), // Glowing Electric Amber Orange
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF1A237E), // Deep Midnight Blue
+                            Color(0xFF311B92), // Deep Indigo
+                            Color(0xFF4A148C)  // Rich Amethyst Purple
+                        )
+                    )
+                )
+                .padding(18.dp)
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0f),
+                        Color.White.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    start = Offset(shimmerTranslate - 300f, 0f),
+                    end = Offset(shimmerTranslate, size.height)
+                )
+                drawRect(brush = brush)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .background(Color(0xFFFF9800).copy(alpha = 0.18f), CircleShape)
+                            .border(1.5.dp, Color(0xFFFF9800), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PointOfSale,
+                            contentDescription = "OmniPOS Enterprise",
+                            tint = Color(0xFFFF9800),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(14.dp))
+                    
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "OmniPOS Enterprise System",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFFF9800), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "360° POS",
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1A237E)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Multi-Service POS, Stock, Invoices & Ledger",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+                
+                Icon(
+                    imageVector = Icons.Default.ArrowForwardIos,
+                    contentDescription = "Open OmniPOS",
+                    tint = Color(0xFFFF9800),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
@@ -339,8 +762,63 @@ fun DashboardScreen(
     val expenses by viewModel.expenses.collectAsState()
     val income by viewModel.income.collectAsState()
     val bills by viewModel.unpaidBills.collectAsState()
+    val allBills by viewModel.bills.collectAsState()
+    val committees by viewModel.committees.collectAsState()
+    val loans by viewModel.loans.collectAsState()
     val savingsGoals by viewModel.savingsGoals.collectAsState()
     val timetable by viewModel.timetableClasses.collectAsState()
+
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    // SAF Launchers for Home Screen Footer JSON Backup
+    val exportJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+        onResult = { uri ->
+            if (uri != null) {
+                viewModel.exportFinanceJsonData { jsonString ->
+                    if (jsonString != null) {
+                        coroutineScope.launch {
+                            try {
+                                context.contentResolver.openOutputStream(uri)?.use { output ->
+                                    output.write(jsonString.toByteArray(Charsets.UTF_8))
+                                }
+                                Toast.makeText(context, "Finance JSON Export Completed!", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(context, "Failed to build JSON export data.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    )
+
+    val importJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                coroutineScope.launch {
+                    try {
+                        val content = context.contentResolver.openInputStream(uri)?.use { input ->
+                            input.bufferedReader().use { it.readText() }
+                        }
+                        if (content != null) {
+                            viewModel.importFinanceJsonData(content) { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "Failed to read JSON content.", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    )
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
@@ -349,13 +827,41 @@ fun DashboardScreen(
     val isDarkThemeSetting by viewModel.isDarkTheme.collectAsState()
     var showThemeMenu by remember { mutableStateOf(false) }
 
+    val userName by viewModel.userName.collectAsState()
+    val userOccupation by viewModel.userOccupation.collectAsState()
+
     // Welcomes, dates, Islamic dates
     val calendar = Calendar.getInstance()
     val hour = calendar.get(Calendar.HOUR_OF_DAY)
-    val greeting = when {
-        hour < 12 -> "Good Morning, Student!"
-        hour < 17 -> "Good Afternoon, Student!"
-        else -> "Good Evening, Student!"
+    val greetingTime = when {
+        hour < 12 -> "Good Morning"
+        hour < 17 -> "Good Afternoon"
+        else -> "Good Evening"
+    }
+    val timeOfDayTag = when {
+        hour < 12 -> "GOOD MORNING"
+        hour < 17 -> "GOOD AFTERNOON"
+        else -> "GOOD EVENING"
+    }
+    val timeOfDayIcon = when {
+        hour < 12 -> Icons.Default.WbSunny
+        hour < 17 -> Icons.Default.WbTwilight
+        else -> Icons.Default.NightsStay
+    }
+    val timeOfDayIconTint = when {
+        hour < 12 -> Color(0xFFFFD54F)
+        hour < 17 -> Color(0xFFFFB74D)
+        else -> Color(0xFFC5CAE9)
+    }
+    val cardGradientColors = when {
+        hour < 12 -> listOf(Color(0xFF0F5132), Color(0xFF198754), Color(0xFF0D6EFD))
+        hour < 17 -> listOf(Color(0xFF133B5C), Color(0xFF1E5E8C), Color(0xFF0F5132))
+        else -> listOf(Color(0xFF0D1B2A), Color(0xFF1B263B), Color(0xFF0F5132))
+    }
+    val greeting = if (userName.isNotBlank()) {
+        "$greetingTime, ${userName.trim()}!"
+    } else {
+        "$greetingTime!"
     }
 
     val df = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
@@ -375,30 +881,104 @@ fun DashboardScreen(
 
     val activeGoalsCount = savingsGoals.count { it.currentAmount < it.targetAmount }
 
+    // Animated logo gradient sweep & scale pulse for "Hikmah"
+    val infiniteTransition = rememberInfiniteTransition(label = "hikmah_header_anim")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer_offset"
+    )
+
+    val logoPulseScale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.025f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "logo_pulse"
+    )
+
+    val brandPrimary = MaterialTheme.colorScheme.primary
+    val emeraldGreen = Color(0xFF10B981)
+    val goldYellow = Color(0xFFF59E0B)
+    val cyanBlue = Color(0xFF0288D1)
+
+    val hikmahAnimatedBrush = Brush.linearGradient(
+        colors = listOf(
+            brandPrimary,
+            goldYellow,
+            emeraldGreen,
+            cyanBlue,
+            brandPrimary
+        ),
+        start = Offset(shimmerOffset - 600f, 0f),
+        end = Offset(shimmerOffset, 200f)
+    )
+
+    var showMoreMenu by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Column(
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.Start,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            // BIGGER animated logo font for "Hikmah"
+                            Text(
+                                text = "Hikmah",
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Black,
+                                style = TextStyle(
+                                    brush = hikmahAnimatedBrush,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                modifier = Modifier.graphicsLayer(
+                                    scaleX = logoPulseScale,
+                                    scaleY = logoPulseScale
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // SMALL NORMAL font for "Omni Suite"
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.padding(top = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Omni Suite",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    letterSpacing = 0.4.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                )
+                            }
+                        }
+
                         Text(
-                            text = "StudentKit",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "All-in-One Utility App",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            text = "Comprehensive Professional Platform",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                         )
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { viewModel.navigateTo(Screen.IslamicHub) }
-                    ) {
-                        Icon(Icons.Default.MenuBook, contentDescription = "Islamic Library", tint = Color(0xFF198754))
-                    }
                     IconButton(
                         onClick = { showAllToolsDialog = true },
                         modifier = Modifier.testTag("notes_shortcut")
@@ -406,10 +986,9 @@ fun DashboardScreen(
                         Icon(Icons.Default.Notes, contentDescription = "View All Services")
                     }
                     IconButton(
-                        onClick = { viewModel.navigateTo(Screen.StudyTimer) },
-                        modifier = Modifier.testTag("timer_shortcut")
+                        onClick = { viewModel.navigateTo(Screen.IslamicHub) }
                     ) {
-                        Icon(Icons.Default.Timer, contentDescription = "Focus Timer")
+                        Icon(Icons.Default.MenuBook, contentDescription = "Islamic Library", tint = Color(0xFF198754))
                     }
                     Box {
                         IconButton(
@@ -507,6 +1086,53 @@ fun DashboardScreen(
                             )
                         }
                     }
+                    Box {
+                        IconButton(
+                            onClick = { showMoreMenu = true },
+                            modifier = Modifier.testTag("settings_app_shortcut")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Options",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Settings & Profile") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    viewModel.navigateTo(Screen.Settings)
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Focus Study Timer") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    viewModel.navigateTo(Screen.StudyTimer)
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("About Hikmah Omni Suite") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    viewModel.navigateTo(Screen.About)
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -534,48 +1160,231 @@ fun DashboardScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(24.dp))
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.secondary
-                            )
+                            colors = cardGradientColors
                         )
+                    )
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.35f),
+                                Color.White.copy(alpha = 0.10f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(24.dp)
                     )
                     .padding(20.dp)
             ) {
+                // Subtle glassmorphic background depth accents
+                Box(
+                    modifier = Modifier
+                        .size(110.dp)
+                        .align(Alignment.TopEnd)
+                        .offset(x = 30.dp, y = (-30).dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
+                )
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .align(Alignment.BottomStart)
+                        .offset(x = (-20).dp, y = 20.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.05f))
+                )
+
                 Column {
                     Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            // Avatar container with subtle ring
+                            Box(
+                                modifier = Modifier
+                                    .size(50.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(alpha = 0.20f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = Color.White.copy(alpha = 0.40f),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (userName.isNotBlank()) {
+                                    Text(
+                                        text = userName.trim().take(1).uppercase(),
+                                        color = Color.White,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                } else {
+                                    Text(
+                                        text = "N",
+                                        color = Color.White,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column {
+                                // Time of day tag pill
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.White.copy(alpha = 0.20f),
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = timeOfDayIcon,
+                                            contentDescription = null,
+                                            tint = timeOfDayIconTint,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = timeOfDayTag,
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.sp
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = if (userName.isNotBlank()) userName.trim() else "Welcome",
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1
+                                )
+
+                                if (userOccupation.isNotBlank()) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.WorkOutline,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.85f),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = userOccupation,
+                                            color = Color.White.copy(alpha = 0.90f),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Glass Action Button to Edit Profile / Settings
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.White.copy(alpha = 0.20f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { viewModel.navigateTo(Screen.Settings) }
+                                .testTag("welcome_card_settings_btn")
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit Profile",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    HorizontalDivider(
+                        color = Color.White.copy(alpha = 0.20f),
+                        thickness = 1.dp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.School,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = greeting,
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        // Gregorian Date Pill
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.White.copy(alpha = 0.18f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarToday,
+                                    contentDescription = null,
+                                    tint = Color.White.copy(alpha = 0.90f),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = formattedDate,
+                                    color = Color.White,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        // Hijri Date Pill
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.White.copy(alpha = 0.18f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFD54F),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = hijriDate,
+                                    color = Color.White,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = formattedDate,
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 14.sp
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "🕌 $hijriDate",
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
                 }
             }
 
@@ -615,6 +1424,21 @@ fun DashboardScreen(
             // Beautiful Animated Islamic Library CTA
             IslamicLibraryHeroButton(
                 onClick = { viewModel.navigateTo(Screen.IslamicHub) }
+            )
+
+            // Beautiful Animated Nursing 12000+ MCQs Hero CTA
+            Nursing12kMcqHeroButton(
+                onClick = { viewModel.navigateTo(Screen.NursingExam) }
+            )
+
+            // Beautiful Animated Moavineen-e-Hujjaj Prep Hero CTA
+            MoavineenHujjajHeroButton(
+                onClick = { viewModel.navigateTo(Screen.MoavineenHujjajPrep) }
+            )
+
+            // Beautiful Animated OmniPOS Enterprise Suite Hero CTA
+            OmniPosHeroButton(
+                onClick = { viewModel.navigateTo(Screen.InvoiceGenerator) }
             )
 
             // Modern Search & Utilities Portal (Replaces old Quick Action Grid)
@@ -981,6 +1805,233 @@ fun DashboardScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // -----------------------------------------------------------------------------
+            // HOME SCREEN FOOTER UI - Data Portability & About Developer
+            // -----------------------------------------------------------------------------
+
+            // Data Portability & PDF Print Footer Card
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("home_footer_tools_card"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Data Backup & PDF Report",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Instant 1-click access to print your master financial PDF statement or export/import full modular database JSON backups.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Master PDF Print Button
+                        Button(
+                            onClick = {
+                                val totalInc = income.sumOf { it.amount }
+                                val totalExp = expenses.sumOf { it.amount }
+                                val net = totalInc - totalExp
+                                val totalUnpaid = allBills.filter { it.isPaid == 0 }.sumOf { it.amount }
+                                val totalBorrowed = loans.filter { it.type == "Borrowed" && it.isSettled == 0 }.sumOf { it.amount }
+                                val totalLent = loans.filter { it.type == "Lent" && it.isSettled == 0 }.sumOf { it.amount }
+                                val totalSaved = savingsGoals.sumOf { it.currentAmount }
+                                val totalTarget = savingsGoals.sumOf { it.targetAmount }
+
+                                triggerFinanceMasterPrint(
+                                    context = context,
+                                    expenses = expenses,
+                                    income = income,
+                                    bills = allBills,
+                                    committees = committees,
+                                    loans = loans,
+                                    savingsGoals = savingsGoals,
+                                    totalIncome = totalInc,
+                                    totalExpense = totalExp,
+                                    netBalance = net,
+                                    totalUnpaid = totalUnpaid,
+                                    totalBorrowed = totalBorrowed,
+                                    totalLent = totalLent,
+                                    totalSaved = totalSaved,
+                                    totalTarget = totalTarget
+                                )
+                            },
+                            modifier = Modifier.weight(1f).testTag("home_pdf_print_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(vertical = 12.dp, horizontal = 6.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("PDF Print", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Export JSON Button
+                        Button(
+                            onClick = {
+                                val dateStr = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
+                                exportJsonLauncher.launch("Hikmah_Omni_Suite_Backup_$dateStr.json")
+                            },
+                            modifier = Modifier.weight(1f).testTag("home_export_json_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(vertical = 12.dp, horizontal = 6.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Export", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Import JSON Button
+                        Button(
+                            onClick = {
+                                importJsonLauncher.launch("application/json")
+                            },
+                            modifier = Modifier.weight(1f).testTag("home_import_json_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(vertical = 12.dp, horizontal = 6.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Import", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Developer & About App Footer Card
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("home_footer_about_card"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Code,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Developer Tahir Buneri",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "WhatsApp: +923465552678",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Hikmah Omni Suite is an unrivaled all-in-one platform unifying Islamic knowledge resources, financial management, document scanning & OCR, military-grade security vaults, medical tools, and study systems.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // WhatsApp Contact
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val url = "https://wa.me/923465552678"
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "WhatsApp: +923465552678", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f).testTag("home_whatsapp_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFF25D366))
+                        ) {
+                            Icon(imageVector = Icons.Default.Phone, contentDescription = null, tint = Color(0xFF25D366), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("WhatsApp", color = Color(0xFF25D366), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // About App & Modules Button
+                        Button(
+                            onClick = { viewModel.navigateTo(Screen.About) },
+                            modifier = Modifier.weight(1.2f).testTag("home_about_app_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("About App", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 }

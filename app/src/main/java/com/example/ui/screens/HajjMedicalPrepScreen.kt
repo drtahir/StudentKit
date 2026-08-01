@@ -840,6 +840,10 @@ fun generateAllHajjQuestions(): List<HajjQuestion> {
         list.add(HajjQuestion(qId, "Analytical Reasoning", questionText, options, optionIndex, explanation, reference))
     }
 
+    // --- ADD 1000 EXTRA HIGH-YIELD HAJJ MEDICAL MISSION MCQs (Divided across all 6 subjects) ---
+    val extra1000 = Hajj1000QuestionBank.get1000HajjQuestions(list.size + 1)
+    list.addAll(extra1000)
+
     return list
 }
 
@@ -847,7 +851,7 @@ fun generateAllHajjQuestions(): List<HajjQuestion> {
 fun HajjMockSimulatorView() {
     val context = LocalContext.current
     
-    // Core NTS Hajj Medical Mission Question Bank (High-Yield Past Papers + Generated Bank of 260 Questions)
+    // Core NTS Hajj Medical Mission Master Question Bank (High-Yield Past Papers + 1,340 Total MCQs)
     val questionBank = remember {
         generateAllHajjQuestions()
     }

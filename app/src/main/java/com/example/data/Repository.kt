@@ -42,6 +42,9 @@ class StudentKitRepository(private val dao: StudentKitDao) {
     // --- BC HISTORY ---
     fun getHistoryByCommittee(committeeId: String): Flow<List<BcHistory>> = dao.getHistoryByCommittee(committeeId)
     suspend fun insertHistory(history: BcHistory) = dao.insertHistory(history)
+    suspend fun getAllMembersSuspend(): List<BcMember> = dao.getAllMembersSuspend()
+    suspend fun getAllPaymentsSuspend(): List<BcPayment> = dao.getAllPaymentsSuspend()
+    suspend fun getAllHistorySuspend(): List<BcHistory> = dao.getAllHistorySuspend()
 
     // --- LOANS ---
     val allLoans: Flow<List<Loan>> = dao.getAllLoans()
@@ -114,4 +117,26 @@ class StudentKitRepository(private val dao: StudentKitDao) {
     val allSpeedTestHistory: Flow<List<SpeedTestHistory>> = dao.getAllSpeedTestHistory()
     suspend fun insertSpeedTestHistory(history: SpeedTestHistory) = dao.insertSpeedTestHistory(history)
     suspend fun clearSpeedTestHistory() = dao.clearSpeedTestHistory()
+
+    // --- CACHED QURAN ---
+    fun getCachedVersesForSurah(surahNumber: Int): Flow<List<CachedQuranVerse>> = dao.getCachedVersesForSurah(surahNumber)
+    fun getCachedVersesForPage(pageNumber: Int): Flow<List<CachedQuranVerse>> = dao.getCachedVersesForPage(pageNumber)
+    suspend fun insertQuranVerses(verses: List<CachedQuranVerse>) = dao.insertQuranVerses(verses)
+    suspend fun getCachedQuranVersesCount(): Int = dao.getCachedQuranVersesCount()
+    suspend fun clearCachedQuran() = dao.clearCachedQuran()
+    // --- POS SYSTEM ---
+    val allPosProducts = dao.getAllPosProducts()
+    suspend fun insertPosProduct(product: PosProduct) = dao.insertPosProduct(product)
+    suspend fun deletePosProductById(id: String) = dao.deletePosProductById(id)
+
+    val allPosClients = dao.getAllPosClients()
+    suspend fun insertPosClient(client: PosClient) = dao.insertPosClient(client)
+    suspend fun deletePosClientById(id: String) = dao.deletePosClientById(id)
+
+    val allPosOrders = dao.getAllPosOrders()
+    suspend fun insertPosOrder(order: PosOrder) = dao.insertPosOrder(order)
+
+    fun getPosOrderItems(orderId: String) = dao.getPosOrderItems(orderId)
+    suspend fun insertPosOrderItem(item: PosOrderItem) = dao.insertPosOrderItem(item)
 }
+

@@ -77,8 +77,11 @@ fun IslamicHubScreen(
     var showTaziyatReader by remember { mutableStateOf(false) }
     var showNawawiReader by remember { mutableStateOf(false) }
     var showHisnulReader by remember { mutableStateOf(false) }
+    var showQuranMajeedReader by remember { mutableStateOf(false) }
 
-    if (showManzilReader) {
+    if (showQuranMajeedReader) {
+        QuranMajeedScreen(viewModel = viewModel, onBack = { showQuranMajeedReader = false })
+    } else if (showManzilReader) {
         ManzilReaderScreen(viewModel = viewModel, onBack = { showManzilReader = false })
     } else if (showNamazReader) {
         NamazReaderScreen(viewModel = viewModel, onBack = { showNamazReader = false })
@@ -183,7 +186,7 @@ fun IslamicHubScreen(
                 subtitle = "Complete Holy Scripture",
                 description = "Read, search, and study the complete 114 Surahs of the Qur'an with authentic Urdu and English translations. High-fidelity calligraphic scripts.",
                 pages = 604,
-                isAvailable = false,
+                isAvailable = true,
                 accentColor = Color(0xFF1E88E5),
                 type = "Scripture"
             ),
@@ -363,12 +366,14 @@ fun IslamicHubScreen(
                                     showNamazReader = true
                                 } else if (book.id == "namaz_janaza") {
                                     showJanazaReader = true
-                                } else if (book.id == "dua_taziyat") {
+                               } else if (book.id == "dua_taziyat") {
                                     showTaziyatReader = true
                                 } else if (book.id == "nawawi") {
                                     showNawawiReader = true
                                 } else if (book.id == "hisnul_muslim") {
                                     showHisnulReader = true
+                                } else if (book.id == "quran") {
+                                    showQuranMajeedReader = true
                                 }
                             }
                         }

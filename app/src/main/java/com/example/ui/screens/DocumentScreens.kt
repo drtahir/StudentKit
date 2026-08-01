@@ -1,7 +1,27 @@
 package com.example.ui.screens
 
+import com.example.viewmodel.Screen
+import com.example.data.BluetoothThermalPrinterHelper
+import com.example.data.BiometricAuthHelper
+import java.util.UUID
+import java.util.Date
+import java.util.Locale
+import java.text.SimpleDateFormat
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Tab
+import kotlinx.coroutines.launch
+
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -373,6 +393,7 @@ private fun getFileName(context: Context, uri: Uri): String? {
     return result
 }
 
+@android.annotation.SuppressLint("NewApi")
 private fun compileImagesToPdf(
     context: Context,
     tempImages: List<TempPdfImage>,
@@ -465,7 +486,12 @@ private fun compileImagesToPdf(
             }
         }
 
-        val pdfUri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+        val collectionUri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        } else {
+            android.provider.MediaStore.Files.getContentUri("external")
+        }
+        val pdfUri = resolver.insert(collectionUri, contentValues)
         if (pdfUri != null) {
             resolver.openOutputStream(pdfUri)?.use { outputStream ->
                 pdfDocument.writeTo(outputStream)
@@ -1936,6 +1962,47 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
     }
     var selectedEditorSection by remember { mutableStateOf("basic") } // "basic", "work", "edu", "projects", "skills"
     
+    var showAiImportDialog by remember { mutableStateOf(false) }
+    var isAiProcessing by remember { mutableStateOf(false) }
+    var targetCvFormat by remember { mutableStateOf("Canadian Format") }
+    val coroutineScope = rememberCoroutineScope()
+    
+    val aiImportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val isPdf = context.contentResolver.getType(uri)?.contains("pdf") == true || uri.toString().endsWith(".pdf")
+            isAiProcessing = true
+            coroutineScope.launch {
+                val extractedData = processCvWithAI(context, uri, isPdf, targetCvFormat)
+                if (extractedData != null) {
+                    fullName = extractedData.fullName
+                    headline = extractedData.headline
+                    email = extractedData.email
+                    phone = extractedData.phone
+                    location = extractedData.location
+                    summaryText = extractedData.summaryText
+                    
+                    workExperiences.clear()
+                    workExperiences.addAll(extractedData.workExperiences)
+                    
+                    academicList.clear()
+                    academicList.addAll(extractedData.academicList)
+                    
+                    projectsList.clear()
+                    projectsList.addAll(extractedData.projectsList)
+                    
+                    skillsCsv = extractedData.skillsCsv
+                    languagesCsv = extractedData.languagesCsv
+                    android.widget.Toast.makeText(context, "Transform Successful! Applied $targetCvFormat", android.widget.Toast.LENGTH_LONG).show()
+                } else {
+                    android.widget.Toast.makeText(context, "Processing Failed. Please try again.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                isAiProcessing = false
+            }
+        }
+    }
+    
     // Initialize with standard professional defaults if lists are empty
     LaunchedEffect(Unit) {
         if (profilePicBitmap == null) {
@@ -2183,6 +2250,54 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                     }
                 }
             }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = { showAiImportDialog = true },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+            ) {
+                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Import & Transform")
+            }
+            if (isAiProcessing) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Processing...", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+
+        if (showAiImportDialog) {
+            AlertDialog(
+                onDismissRequest = { showAiImportDialog = false },
+                title = { Text("Transform CV", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        Text("Select your target regional format. Convert your old CV with one click with our powerful Tool offline without internet.")
+                        val formats = listOf("Standard Universal", "Canadian Format", "Australian Format", "USA Format", "UAE Format", "Saudi Arabia Format")
+                        formats.forEach { fmt ->
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { targetCvFormat = fmt }) {
+                                RadioButton(selected = targetCvFormat == fmt, onClick = { targetCvFormat = fmt })
+                                Text(fmt, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { 
+                        showAiImportDialog = false
+                        aiImportLauncher.launch("*/*") 
+                    }) {
+                        Text("Choose PDF/Image")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAiImportDialog = false }) { Text("Cancel") }
+                }
+            )
         }
 
         // Segment switch: Form Editor vs WYSIWYG Live Page Preview
@@ -8050,729 +8165,1290 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
 }
 
 // -------------------------------------------------------------
-// MODULE 13: ADVANCED INVOICE & RECEIPT MAKER
 // -------------------------------------------------------------
-data class InvoiceItem(
-    val description: String,
-    val quantity: Int,
-    val unitPrice: Double
+// MODULE 13: OMNIPOS ENTERPRISE MULTI-SERVICE SYSTEM
+// -------------------------------------------------------------
+
+data class PosBusinessProfile(
+    val businessName: String = "OmniPOS Enterprise Store",
+    val tagline: String = "Multi-Service Smart Business Suite",
+    val ownerName: String = "Manager",
+    val address: String = "Suite #104, Commercial Area, Main Market",
+    val cityCountry: String = "Lahore, Pakistan",
+    val currency: String = "Rs",
+    val phone: String = "+92 300 1234567",
+    val whatsapp: String = "+92 300 1234567",
+    val email: String = "info@omnipos.io",
+    val website: String = "www.omnipos.io",
+    val ntnNumber: String = "9823471-0",
+    val strnNumber: String = "11-09-9800",
+    val fbrPosId: String = "FBR-POS-99812",
+    val registerNo: String = "REG-2024-8849",
+    val drugSaleLicenseNo: String = "DSL-LHR-2023-4519",
+    val healthCommissionNo: String = "PHC-CLINIC-9921",
+    val foodSafetyLicenseNo: String = "PFA-FOOD-88301",
+    val tradeLicenseNo: String = "MUNI-TR-77402",
+    val wholesaleRegNo: String = "IMPORT-EX-55410",
+    val invoiceTerms: String = "Goods once sold can be exchanged within 7 days with original receipt. No cash refunds.",
+    val invoiceFooterNote: String = "Thank you for shopping with us! Computer generated tax invoice."
 )
+
+fun getSavedBusinessProfile(context: Context): PosBusinessProfile {
+    val prefs = context.getSharedPreferences("omni_pos_business_settings", Context.MODE_PRIVATE)
+    return PosBusinessProfile(
+        businessName = prefs.getString("businessName", "OmniPOS Enterprise Store") ?: "OmniPOS Enterprise Store",
+        tagline = prefs.getString("tagline", "Multi-Service Smart Business Suite") ?: "Multi-Service Smart Business Suite",
+        ownerName = prefs.getString("ownerName", "Manager") ?: "Manager",
+        address = prefs.getString("address", "Suite #104, Commercial Area, Main Market") ?: "Suite #104, Commercial Area, Main Market",
+        cityCountry = prefs.getString("cityCountry", "Lahore, Pakistan") ?: "Lahore, Pakistan",
+        currency = prefs.getString("currency", "Rs") ?: "Rs",
+        phone = prefs.getString("phone", "+92 300 1234567") ?: "+92 300 1234567",
+        whatsapp = prefs.getString("whatsapp", "+92 300 1234567") ?: "+92 300 1234567",
+        email = prefs.getString("email", "info@omnipos.io") ?: "info@omnipos.io",
+        website = prefs.getString("website", "www.omnipos.io") ?: "www.omnipos.io",
+        ntnNumber = prefs.getString("ntnNumber", "9823471-0") ?: "9823471-0",
+        strnNumber = prefs.getString("strnNumber", "11-09-9800") ?: "11-09-9800",
+        fbrPosId = prefs.getString("fbrPosId", "FBR-POS-99812") ?: "FBR-POS-99812",
+        registerNo = prefs.getString("registerNo", "REG-2024-8849") ?: "REG-2024-8849",
+        drugSaleLicenseNo = prefs.getString("drugSaleLicenseNo", "DSL-LHR-2023-4519") ?: "DSL-LHR-2023-4519",
+        healthCommissionNo = prefs.getString("healthCommissionNo", "PHC-CLINIC-9921") ?: "PHC-CLINIC-9921",
+        foodSafetyLicenseNo = prefs.getString("foodSafetyLicenseNo", "PFA-FOOD-88301") ?: "PFA-FOOD-88301",
+        tradeLicenseNo = prefs.getString("tradeLicenseNo", "MUNI-TR-77402") ?: "MUNI-TR-77402",
+        wholesaleRegNo = prefs.getString("wholesaleRegNo", "IMPORT-EX-55410") ?: "IMPORT-EX-55410",
+        invoiceTerms = prefs.getString("invoiceTerms", "Goods once sold can be exchanged within 7 days with original receipt. No cash refunds.") ?: "Goods once sold can be exchanged within 7 days with original receipt. No cash refunds.",
+        invoiceFooterNote = prefs.getString("invoiceFooterNote", "Thank you for shopping with us! Computer generated tax invoice.") ?: "Thank you for shopping with us! Computer generated tax invoice."
+    )
+}
+
+fun saveBusinessProfile(context: Context, profile: PosBusinessProfile) {
+    val prefs = context.getSharedPreferences("omni_pos_business_settings", Context.MODE_PRIVATE)
+    prefs.edit()
+        .putString("businessName", profile.businessName)
+        .putString("tagline", profile.tagline)
+        .putString("ownerName", profile.ownerName)
+        .putString("address", profile.address)
+        .putString("cityCountry", profile.cityCountry)
+        .putString("currency", profile.currency)
+        .putString("phone", profile.phone)
+        .putString("whatsapp", profile.whatsapp)
+        .putString("email", profile.email)
+        .putString("website", profile.website)
+        .putString("ntnNumber", profile.ntnNumber)
+        .putString("strnNumber", profile.strnNumber)
+        .putString("fbrPosId", profile.fbrPosId)
+        .putString("registerNo", profile.registerNo)
+        .putString("drugSaleLicenseNo", profile.drugSaleLicenseNo)
+        .putString("healthCommissionNo", profile.healthCommissionNo)
+        .putString("foodSafetyLicenseNo", profile.foodSafetyLicenseNo)
+        .putString("tradeLicenseNo", profile.tradeLicenseNo)
+        .putString("wholesaleRegNo", profile.wholesaleRegNo)
+        .putString("invoiceTerms", profile.invoiceTerms)
+        .putString("invoiceFooterNote", profile.invoiceFooterNote)
+        .apply()
+}
+
+fun shareReceiptViaWhatsApp(context: Context, order: PosOrder, items: List<PosOrderItem>, client: PosClient?, profile: PosBusinessProfile) {
+    val itemsSummary = items.joinToString("\n") { "• ${it.name} (x${it.quantity}) @ ${profile.currency} ${it.price} = ${profile.currency} ${it.price * it.quantity}" }
+    
+    val text = """
+🧾 *${profile.businessName.uppercase()}*
+_${profile.tagline}_
+📍 ${profile.address}, ${profile.cityCountry}
+📞 ${profile.phone} | WA: ${profile.whatsapp}
+${if (profile.ntnNumber.isNotBlank()) "NTN: ${profile.ntnNumber}" else ""} ${if (profile.strnNumber.isNotBlank()) "| STRN: ${profile.strnNumber}" else ""}
+${if (profile.drugSaleLicenseNo.isNotBlank()) "DSL License: ${profile.drugSaleLicenseNo}" else ""} ${if (profile.healthCommissionNo.isNotBlank()) "| Health Reg: ${profile.healthCommissionNo}" else ""}
+-------------------------------------------
+📄 *TAX INVOICE #: ${order.id}*
+📅 Date: ${order.date}
+👤 Client: ${client?.name ?: "Walk-in Customer"} ${if (!client?.phone.isNullOrBlank()) "(${client?.phone})" else ""}
+💳 Payment Mode: ${order.documentType}
+-------------------------------------------
+*ITEMS ORDERED:*
+$itemsSummary
+-------------------------------------------
+💵 Subtotal: ${profile.currency} ${order.subtotal}
+${if (order.discount > 0) "🏷️ Discount: - ${profile.currency} ${order.discount}\n" else ""}🏛️ Tax: ${profile.currency} ${order.tax}
+💰 *GRAND TOTAL: ${profile.currency} ${order.total}*
+-------------------------------------------
+${if (profile.invoiceTerms.isNotBlank()) "ℹ️ _Note: ${profile.invoiceTerms}_\n" else ""}${profile.invoiceFooterNote}
+    """.trimIndent()
+
+    val clientPhone = client?.phone?.replace(Regex("[^0-9+]"), "") ?: ""
+    try {
+        val uri = if (clientPhone.isNotBlank()) {
+            Uri.parse("https://api.whatsapp.com/send?phone=$clientPhone&text=${Uri.encode(text)}")
+        } else {
+            Uri.parse("https://api.whatsapp.com/send?text=${Uri.encode(text)}")
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share Invoice via WhatsApp / App"))
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InvoiceGeneratorScreen(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
-    
-    // --- 1. STATE VARIABLES ---
-    var billerName by remember { mutableStateOf("Acme Student Agency Ltd") }
-    var billerEmail by remember { mutableStateOf("finance@acme-agency.com") }
-    var billerPhone by remember { mutableStateOf("+1 (555) 019-2834") }
-    var clientName by remember { mutableStateOf("Alpha Beta University Project") }
-    var clientEmail by remember { mutableStateOf("billing@alphabetau.edu") }
-    
-    var invoiceNumber by remember { mutableStateOf("INV-2026-0428") }
-    var invoiceDate by remember { mutableStateOf("2026-06-25") }
-    var dueDate by remember { mutableStateOf("2026-07-15") }
-    
-    var currencySymbol by remember { mutableStateOf("$") }
-    var taxRateText by remember { mutableStateOf("15") }
-    var discountRateText by remember { mutableStateOf("10") }
-    
-    val invoiceItems = remember {
-        mutableStateListOf(
-            InvoiceItem("Student Tuition Aid Package", 1, 1250.00),
-            InvoiceItem("Academic Curriculum Guide Pro", 2, 75.00),
-            InvoiceItem("UI/UX Design Mentorship & Project Guide", 5, 45.00)
-        )
-    }
-    
-    // New item inputs
-    var newItemDesc by remember { mutableStateOf("") }
-    var newItemQty by remember { mutableStateOf("1") }
-    var newItemPrice by remember { mutableStateOf("50.0") }
-    
-    // Signature points
-    val signaturePoints = remember { mutableStateListOf<Offset>() }
-    var signatureType by remember { mutableStateOf("Draw Signature") } // "Draw Signature" or "Text Cursive"
-    var typedSignatureName by remember { mutableStateOf("Acme Student Agency") }
-    
-    // Mode switcher: "Edit Details" or "Render Preview"
-    var previewModeActive by remember { mutableStateOf(false) }
+    var currentTab by remember { mutableStateOf(0) }
+    val tabs = listOf(
+        Pair("Terminal", Icons.Default.PointOfSale),
+        Pair("Inventory", Icons.Default.Inventory2),
+        Pair("Procurement", Icons.Default.LocalShipping),
+        Pair("Shift Close", Icons.Default.Calculate),
+        Pair("Expenses", Icons.Default.AccountBalanceWallet),
+        Pair("Clients", Icons.Default.People),
+        Pair("Analytics", Icons.Default.Assessment),
+        Pair("Settings", Icons.Default.Settings)
+    )
 
-    // Computations
-    val subtotal = invoiceItems.sumOf { it.quantity * it.unitPrice }
-    val taxRate = taxRateText.toDoubleOrNull() ?: 0.0
-    val discountRate = discountRateText.toDoubleOrNull() ?: 0.0
-    val taxAmount = subtotal * (taxRate / 100.0)
-    val discountAmount = subtotal * (discountRate / 100.0)
-    val grandTotal = subtotal + taxAmount - discountAmount
-
-    if (previewModeActive) {
-        // --- 2. PROFESSIONAL RENDER PREVIEW MODE ---
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFFF1F5F9))
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        ScrollableTabRow(
+            selectedTabIndex = currentTab,
+            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+            edgePadding = 8.dp
         ) {
-            // Action Buttons Row
-            Row(
+            tabs.forEachIndexed { index, (title, icon) ->
+                Tab(
+                    selected = currentTab == index,
+                    onClick = { currentTab = index },
+                    icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    text = { Text(title, fontWeight = FontWeight.Bold, fontSize = 11.sp) }
+                )
+            }
+        }
+
+        Box(modifier = Modifier.weight(1f)) {
+            when (currentTab) {
+                0 -> OmniPosTerminalTab(viewModel)
+                1 -> OmniPosInventoryTab(viewModel)
+                2 -> OmniPosProcurementTab(viewModel)
+                3 -> OmniPosShiftTab(viewModel)
+                4 -> OmniPosExpensesTab(viewModel)
+                5 -> OmniPosClientsTab(viewModel)
+                6 -> OmniPosAnalyticsTab(viewModel)
+                7 -> OmniPosSettingsTab(viewModel)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
+    val context = LocalContext.current
+    val products by viewModel.allPosProducts.collectAsState(initial = emptyList())
+    val clients by viewModel.allPosClients.collectAsState(initial = emptyList())
+    
+    var selectedIndustryMode by remember { mutableStateOf("All") }
+    val industryModes = listOf("All", "Retail & Mart", "Pharma", "Bakery & Cafe", "Services", "Wholesale")
+    
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+    
+    var selectedClient by remember { mutableStateOf<PosClient?>(null) }
+    var selectedOrderType by remember { mutableStateOf("Counter Sale") }
+    var tableNumberText by remember { mutableStateOf("1") }
+    
+    val cartItems = remember { mutableStateListOf<PosOrderItem>() }
+    var discountText by remember { mutableStateOf("0") }
+    var discountIsPercent by remember { mutableStateOf(false) }
+    
+    var selectedTaxRate by remember { mutableStateOf(17.0) } // Default 17% GST
+    val taxOptions = listOf(Pair("GST 17%", 17.0), Pair("VAT 5%", 5.0), Pair("Service 10%", 10.0), Pair("Tax Exempt", 0.0))
+    
+    val subtotal = cartItems.sumOf { it.quantity * it.price }
+    val rawDiscount = discountText.toDoubleOrNull() ?: 0.0
+    val discountAmount = if (discountIsPercent) (subtotal * (rawDiscount / 100.0)) else rawDiscount
+    val taxableAmount = (subtotal - discountAmount).coerceAtLeast(0.0)
+    val taxAmount = taxableAmount * (selectedTaxRate / 100.0)
+    val grandTotal = taxableAmount + taxAmount
+
+    var showPaymentDialog by remember { mutableStateOf(false) }
+    var generatedOrderForReceipt by remember { mutableStateOf<PosOrder?>(null) }
+    var generatedItemsForReceipt by remember { mutableStateOf<List<PosOrderItem>>(emptyList()) }
+    var showReceiptModal by remember { mutableStateOf(false) }
+
+    // Auto load demo data if database is empty
+    LaunchedEffect(products.isEmpty(), clients.isEmpty()) {
+        if (products.isEmpty() && clients.isEmpty()) {
+            loadEnterpriseDemoData(viewModel)
+        }
+    }
+
+    val filteredProducts = products.filter { product ->
+        val matchesMode = when (selectedIndustryMode) {
+            "Retail & Mart" -> product.category.contains("Retail", true) || product.category.contains("Mart", true)
+            "Pharma" -> product.category.contains("Pharma", true) || product.category.contains("Med", true)
+            "Bakery & Cafe" -> product.category.contains("Cafe", true) || product.category.contains("Bakery", true) || product.category.contains("Food", true)
+            "Services" -> product.category.contains("Service", true)
+            "Wholesale" -> product.category.contains("Wholesale", true)
+            else -> true
+        }
+        val matchesCategory = if (selectedCategory == "All") true else product.category.equals(selectedCategory, true)
+        val matchesSearch = product.name.contains(searchQuery, true) || product.id.contains(searchQuery, true)
+        matchesMode && matchesCategory && matchesSearch
+    }
+
+    val availableCategories = listOf("All") + products.map { it.category }.distinct()
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        // LEFT COLUMN: Product Catalog & Terminal Selection
+        Column(modifier = Modifier.weight(1.8f).padding(8.dp)) {
+            // Top Industry Bar
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                items(industryModes) { mode ->
+                    FilterChip(
+                        selected = selectedIndustryMode == mode,
+                        onClick = { selectedIndustryMode = mode },
+                        label = { Text(mode, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                        leadingIcon = {
+                            if (selectedIndustryMode == mode) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    )
+                }
+            }
+
+            // Search Bar & Barcode Scanner Simulator
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { previewModeActive = false },
+                placeholder = { Text("Search by Product Name, SKU, or Barcode...", fontSize = 12.sp) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = null)
+                        }
+                    }
+                },
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Categories Filter Chips
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(availableCategories) { cat ->
+                    ElevatedFilterChip(
+                        selected = selectedCategory == cat,
+                        onClick = { selectedCategory = cat },
+                        label = { Text(cat, fontSize = 10.sp) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Products Grid
+            if (filteredProducts.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.ProductionQuantityLimits, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.Gray)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("No products found", color = Color.Gray, fontSize = 13.sp)
+                        Button(
+                            onClick = { loadEnterpriseDemoData(viewModel) },
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Load Enterprise Demo Catalog", fontSize = 12.sp)
+                        }
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Edit Details")
-                }
-                
-                Button(
-                    onClick = {
-                        Toast.makeText(context, "Invoice $invoiceNumber Saved & Shared Successfully!", Toast.LENGTH_LONG).show()
-                    },
-                    modifier = Modifier.weight(1.5f)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share PDF Invoice")
-                }
-            }
-
-            // Beautiful Corporate Invoice Paper Representation
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("invoice_rendered_paper"),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-                border = BorderStroke(1.dp, Color.LightGray)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
-                    // Header Area
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = "OFFICIAL INVOICE",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    color = Color.White
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = invoiceNumber,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = Color.DarkGray
-                            )
-                        }
-                        
-                        // Corporate Logo Badge placeholder
-                        Column(horizontalAlignment = Alignment.End) {
-                            Icon(
-                                imageVector = Icons.Default.Business,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(36.dp)
-                            )
-                            Text(
-                                text = "Paid Securely",
-                                fontSize = 10.sp,
-                                color = Color(0xFF388E3C),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Divider(color = Color.LightGray.copy(alpha = 0.5f))
-
-                    // Biller vs Client Info
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Billed From:", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
-                            Text(billerName, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
-                            Text(billerEmail, fontSize = 11.sp, color = Color.DarkGray)
-                            Text(billerPhone, fontSize = 11.sp, color = Color.DarkGray)
-                        }
-                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                            Text("Billed To:", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.SemiBold)
-                            Text(clientName, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black, textAlign = TextAlign.End)
-                            Text(clientEmail, fontSize = 11.sp, color = Color.DarkGray, textAlign = TextAlign.End)
-                        }
-                    }
-
-                    // Date & Timing Box
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFF8FAFC))
-                            .padding(10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Invoice Date", fontSize = 10.sp, color = Color.Gray)
-                            Text(invoiceDate, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Payment Terms", fontSize = 10.sp, color = Color.Gray)
-                            Text("Immediate / Net 15", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Due Date", fontSize = 10.sp, color = Color.Gray)
-                            Text(dueDate, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Red)
-                        }
-                    }
-
-                    // Invoice Items Grid
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFE2E8F0))
-                                .padding(8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Item Description", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(2f))
-                            Text("Qty", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.5f), textAlign = TextAlign.Center)
-                            Text("Unit", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.8f), textAlign = TextAlign.Right)
-                            Text("Total", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Right)
-                        }
-
-                        invoiceItems.forEach { item ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(item.description, fontSize = 11.sp, modifier = Modifier.weight(2f), maxLines = 2)
-                                Text("${item.quantity}", fontSize = 11.sp, modifier = Modifier.weight(0.5f), textAlign = TextAlign.Center)
-                                Text(String.format("%.2f", item.unitPrice), fontSize = 11.sp, modifier = Modifier.weight(0.8f), textAlign = TextAlign.Right)
-                                Text(
-                                    text = "$currencySymbol${String.format("%.2f", item.quantity * item.unitPrice)}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
-                                    textAlign = TextAlign.Right
-                                )
-                            }
-                            Divider(color = Color.LightGray.copy(alpha = 0.25f))
-                        }
-                    }
-
-                    // Financial Calculations
-                    Column(
-                        modifier = Modifier.align(Alignment.End),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        horizontalAlignment = Alignment.End
-                    ) {
-                        Row(modifier = Modifier.width(220.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Subtotal:", fontSize = 11.sp, color = Color.Gray)
-                            Text("$currencySymbol${String.format("%.2f", subtotal)}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                        if (discountAmount > 0) {
-                            Row(modifier = Modifier.width(220.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Discount ($discountRateText%):", fontSize = 11.sp, color = Color.Gray)
-                                Text("-$currencySymbol${String.format("%.2f", discountAmount)}", fontSize = 11.sp, color = Color(0xFFC62828))
-                            }
-                        }
-                        if (taxAmount > 0) {
-                            Row(modifier = Modifier.width(220.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Tax ($taxRateText%):", fontSize = 11.sp, color = Color.Gray)
-                                Text("+$currencySymbol${String.format("%.2f", taxAmount)}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        Divider(modifier = Modifier.width(220.dp), color = Color.Black)
-                        Row(
-                            modifier = Modifier
-                                .width(220.dp)
-                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
-                                .padding(6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Total Amount Due:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            Text(
-                                "$currencySymbol${String.format("%.2f", grandTotal)}",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
-                    // Biller Seal or Signature
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Column {
-                            Text("Terms & Declarations", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                            Text("1. Goods once processed are non-refundable.\n2. Please remit payments within 15 days of issue.", fontSize = 8.sp, color = Color.Gray, lineHeight = 10.sp)
-                        }
-                        
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Authorized Signature", fontSize = 10.sp, color = Color.Gray, fontStyle = FontStyle.Italic)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            if (signatureType == "Draw Signature" && signaturePoints.isNotEmpty()) {
-                                Canvas(
-                                    modifier = Modifier
-                                        .size(110.dp, 40.dp)
-                                        .border(0.5.dp, Color.LightGray)
-                                ) {
-                                    for (i in 0 until signaturePoints.size - 1) {
-                                        val p1 = signaturePoints[i]
-                                        val p2 = signaturePoints[i + 1]
-                                        // Ensure we don't connect points from disjoint drags
-                                        if (p1 != Offset.Unspecified && p2 != Offset.Unspecified) {
-                                            // Scale and center points inside small signature thumbnail box
-                                            drawLine(
-                                                color = Color.Black,
-                                                start = p1 / 2.5f,
-                                                end = p2 / 2.5f,
-                                                strokeWidth = 1.5f
-                                            )
-                                        }
-                                    }
+                    items(filteredProducts) { product ->
+                        Card(
+                            onClick = {
+                                val existing = cartItems.find { it.productId == product.id }
+                                if (existing != null) {
+                                    val idx = cartItems.indexOf(existing)
+                                    cartItems[idx] = existing.copy(quantity = existing.quantity + 1)
+                                } else {
+                                    cartItems.add(
+                                        PosOrderItem(
+                                            id = UUID.randomUUID().toString(),
+                                            orderId = "",
+                                            productId = product.id,
+                                            name = product.name,
+                                            quantity = 1,
+                                            price = product.price
+                                        )
+                                    )
                                 }
-                            } else {
+                            },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (product.stock <= 0) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
                                 Text(
-                                    text = typedSignatureName,
-                                    fontSize = 14.sp,
+                                    product.name,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.DarkGray,
-                                    fontStyle = FontStyle.Italic
+                                    fontSize = 12.sp,
+                                    maxLines = 2
                                 )
+                                Text(
+                                    product.category,
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Rs ${String.format("%.0f", product.price)}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                    Text(
+                                        if (product.stock > 0) "${product.stock} ${product.unit}" else "Out of stock",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (product.stock > 10) Color(0xFF2E7D32) else if (product.stock > 0) Color(0xFFE65100) else Color.Red
+                                    )
+                                }
                             }
-                            Box(
-                                modifier = Modifier
-                                    .width(110.dp)
-                                    .height(1.dp)
-                                    .background(Color.Gray)
-                            )
                         }
-                    }
-                }
-            }
-
-            // Print Option Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(Icons.Default.Print, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Standard System Printer", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Export this invoice as PDF to print directly to local or cloud hardware printers.", fontSize = 10.sp, color = Color.Gray)
-                    }
-                    Button(
-                        onClick = {
-                            Toast.makeText(context, "System Print Dialog opened successfully!", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Text("Print", fontSize = 10.sp)
                     }
                 }
             }
         }
-    } else {
-        // --- 3. INVOICE EDIT DETAILS INPUT FORM MODE ---
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            // Screen Introduction Card
-            Card(
+
+        Divider(modifier = Modifier.width(1.dp).fillMaxHeight())
+
+        // RIGHT COLUMN: Live Order Cart & Payment Controller
+        Column(modifier = Modifier.weight(1.5f).padding(8.dp)) {
+            // Header Info
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("🧾 High-Fidelity Invoice Builder", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("Build professional, client-ready invoices with dynamic calculations, multiple currencies, custom line items, and finger-drawn signatures in minutes.", fontSize = 11.sp, color = Color.DarkGray)
-                }
-            }
-
-            // A. Identity Information
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("1. Identity Details", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                    
-                    OutlinedTextField(
-                        value = billerName,
-                        onValueChange = { billerName = it },
-                        label = { Text("Your Agency / Biller Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = billerEmail,
-                            onValueChange = { billerEmail = it },
-                            label = { Text("Biller Email") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = billerPhone,
-                            onValueChange = { billerPhone = it },
-                            label = { Text("Biller Phone") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
+                Text("Order Terminal Cart", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (cartItems.isNotEmpty()) {
+                    TextButton(onClick = { cartItems.clear() }) {
+                        Text("Clear All", color = Color.Red, fontSize = 11.sp)
                     }
-                    
-                    OutlinedTextField(
-                        value = clientName,
-                        onValueChange = { clientName = it },
-                        label = { Text("Client Name / Institution") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    OutlinedTextField(
-                        value = clientEmail,
-                        onValueChange = { clientEmail = it },
-                        label = { Text("Client Billing Email") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
                 }
             }
 
-            // B. Meta Dates & Rates
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            // Customer & Order Mode Selectors
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                var showClientPicker by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { showClientPicker = true },
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("2. Metadata & Rates", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = invoiceNumber,
-                            onValueChange = { invoiceNumber = it },
-                            label = { Text("Invoice No") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        
-                        // Currency Selector Row
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Currency Symbol:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                listOf("$", "₨", "€", "£").forEach { symb ->
-                                    val isSelected = currencySymbol == symb
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.3f))
-                                            .clickable { currencySymbol = symb }
-                                            .padding(horizontal = 8.dp, vertical = 6.dp)
-                                    ) {
-                                        Text(symb, color = if (isSelected) Color.White else Color.Black, fontWeight = FontWeight.Bold)
-                                    }
+                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        selectedClient?.name ?: "Walk-in Customer",
+                        fontSize = 10.sp,
+                        maxLines = 1
+                    )
+                }
+
+                if (showClientPicker) {
+                    AlertDialog(
+                        onDismissRequest = { showClientPicker = false },
+                        title = { Text("Select Registered Client / Ledger") },
+                        text = {
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                item {
+                                    ListItem(
+                                        headlineContent = { Text("Walk-in Customer (Guest)", fontWeight = FontWeight.Bold) },
+                                        modifier = Modifier.clickable {
+                                            selectedClient = null
+                                            showClientPicker = false
+                                        }
+                                    )
+                                }
+                                items(clients) { client ->
+                                    ListItem(
+                                        headlineContent = { Text(client.name, fontWeight = FontWeight.Bold) },
+                                        supportingContent = { Text("${client.type} • ${client.phone}") },
+                                        modifier = Modifier.clickable {
+                                            selectedClient = client
+                                            showClientPicker = false
+                                        }
+                                    )
                                 }
                             }
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = invoiceDate,
-                            onValueChange = { invoiceDate = it },
-                            label = { Text("Invoice Date") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = dueDate,
-                            onValueChange = { dueDate = it },
-                            label = { Text("Due Date") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = taxRateText,
-                            onValueChange = { taxRateText = it },
-                            label = { Text("Tax Rate (%)") },
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = discountRateText,
-                            onValueChange = { discountRateText = it },
-                            label = { Text("Discount (%)") },
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true
-                        )
-                    }
+                        },
+                        confirmButton = { TextButton(onClick = { showClientPicker = false }) { Text("Close") } }
+                    )
                 }
             }
 
-            // C. Dynamic Item Rows Editor
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Cart Items List
+            if (cartItems.isEmpty()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("3. Invoice Line Items", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                    
-                    // List Existing
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        invoiceItems.forEachIndexed { idx, item ->
+                    Text("Cart is empty\nTap items on the left to add", color = Color.Gray, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    itemsIndexed(cartItems) { index, item ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.LightGray.copy(alpha = 0.15f))
-                                    .padding(8.dp),
+                                modifier = Modifier.padding(6.dp).fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.description, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    Text("Qty: ${item.quantity} × $currencySymbol${item.unitPrice} = $currencySymbol${String.format("%.2f", item.quantity * item.unitPrice)}", fontSize = 11.sp, color = Color.Gray)
+                                    Text(item.name, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                    Text("Rs ${item.price} x ${item.quantity} = Rs ${item.price * item.quantity}", fontSize = 10.sp, color = Color.Gray)
                                 }
-                                IconButton(
-                                    onClick = { invoiceItems.removeAt(idx) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    Divider()
-
-                    // Add New Item Controls
-                    Text("Add Line Item Row:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(
-                        value = newItemDesc,
-                        onValueChange = { newItemDesc = it },
-                        label = { Text("Item Name / Service description") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = newItemQty,
-                            onValueChange = { newItemQty = it },
-                            label = { Text("Qty") },
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = newItemPrice,
-                            onValueChange = { newItemPrice = it },
-                            label = { Text("Unit Price") },
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            if (newItemDesc.isNotEmpty()) {
-                                val q = newItemQty.toIntOrNull() ?: 1
-                                val p = newItemPrice.toDoubleOrNull() ?: 0.0
-                                invoiceItems.add(InvoiceItem(newItemDesc, q, p))
-                                newItemDesc = ""
-                                newItemQty = "1"
-                                newItemPrice = "10.0"
-                            } else {
-                                Toast.makeText(context, "Item Description is required!", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add Item Row")
-                    }
-                }
-            }
-
-            // D. Authorized Signature Panel
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("4. Secure Authorized Signature", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        listOf("Draw Signature", "Type Name").forEach { opt ->
-                            val isSel = signatureType == opt
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { signatureType = opt }
-                            ) {
-                                RadioButton(selected = isSel, onClick = { signatureType = opt })
-                                Text(opt, fontSize = 12.sp)
-                            }
-                        }
-                    }
-
-                    if (signatureType == "Draw Signature") {
-                        Text("Draw signature on the grid board below with your finger:", fontSize = 11.sp, color = Color.Gray)
-                        
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(130.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White)
-                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                .pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
-                                            signaturePoints.add(offset)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            if (item.quantity > 1) {
+                                                cartItems[index] = item.copy(quantity = item.quantity - 1)
+                                            } else {
+                                                cartItems.removeAt(index)
+                                            }
                                         },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            signaturePoints.add(change.position)
-                                        },
-                                        onDragEnd = {
-                                            signaturePoints.add(Offset.Unspecified)
-                                        }
-                                    )
-                                }
-                        ) {
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                for (i in 0 until signaturePoints.size - 1) {
-                                    val p1 = signaturePoints[i]
-                                    val p2 = signaturePoints[i + 1]
-                                    if (p1 != Offset.Unspecified && p2 != Offset.Unspecified) {
-                                        drawLine(
-                                            color = Color(0xFF1E3A8A),
-                                            start = p1,
-                                            end = p2,
-                                            strokeWidth = 4f,
-                                            cap = StrokeCap.Round
-                                        )
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    }
+                                    Text("${item.quantity}", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                                    IconButton(
+                                        onClick = { cartItems[index] = item.copy(quantity = item.quantity + 1) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    }
+                                    IconButton(
+                                        onClick = { cartItems.removeAt(index) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(14.dp))
                                     }
                                 }
                             }
-                            
-                            IconButton(
-                                onClick = { signaturePoints.clear() },
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(6.dp)
-                                    .background(Color.Red.copy(alpha = 0.1f), CircleShape)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Clear Signature", tint = Color.Red)
-                            }
                         }
-                    } else {
-                        OutlinedTextField(
-                            value = typedSignatureName,
-                            onValueChange = { typedSignatureName = it },
-                            label = { Text("Type Biller Signature / Stamp Name") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
                     }
                 }
             }
 
-            // E. Calculations Summary & Generate Button
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Tax & Discount Controllers
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f))
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Tax Rate:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            taxOptions.forEach { (label, rate) ->
+                                FilterChip(
+                                    selected = selectedTaxRate == rate,
+                                    onClick = { selectedTaxRate = rate },
+                                    label = { Text(label, fontSize = 9.sp) },
+                                    modifier = Modifier.height(26.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Discount:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = discountText,
+                            onValueChange = { discountText = it },
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        FilterChip(
+                            selected = discountIsPercent,
+                            onClick = { discountIsPercent = !discountIsPercent },
+                            label = { Text(if (discountIsPercent) "%" else "Rs", fontSize = 10.sp) },
+                            modifier = Modifier.height(30.dp)
+                        )
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 2.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Subtotal:", fontSize = 10.sp)
+                        Text("Rs ${String.format("%.2f", subtotal)}", fontSize = 10.sp)
+                    }
+                    if (discountAmount > 0) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Discount:", fontSize = 10.sp, color = Color(0xFF2E7D32))
+                            Text("- Rs ${String.format("%.2f", discountAmount)}", fontSize = 10.sp, color = Color(0xFF2E7D32))
+                        }
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Tax (${selectedTaxRate.toInt()}%):", fontSize = 10.sp)
+                        Text("Rs ${String.format("%.2f", taxAmount)}", fontSize = 10.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Grand Total:", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("Rs ${String.format("%.2f", grandTotal)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Checkout Button
+            Button(
+                onClick = { showPaymentDialog = true },
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+                enabled = cartItems.isNotEmpty(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Process Payment & Receipt", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+    }
+
+    // MULTI-PAYMENT & DOCUMENT TYPE DIALOG
+    if (showPaymentDialog) {
+        var selectedPaymentMethod by remember { mutableStateOf("Cash") }
+        var cashTenderedText by remember { mutableStateOf("") }
+        var selectedDocType by remember { mutableStateOf("Thermal Receipt") }
+        
+        val paymentMethods = listOf("Cash", "Card / POS", "Mobile Pay (EasyPaisa/JazzCash)", "Credit Account / Ledger")
+        val documentTypes = listOf("Thermal Receipt", "Tax Invoice", "Quotation / Estimate", "Credit Note")
+        
+        val cashTendered = cashTenderedText.toDoubleOrNull() ?: grandTotal
+        val changeDue = (cashTendered - grandTotal).coerceAtLeast(0.0)
+
+        AlertDialog(
+            onDismissRequest = { showPaymentDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Complete Checkout", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Select Document Type", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(documentTypes) { dt ->
+                            FilterChip(
+                                selected = selectedDocType == dt,
+                                onClick = { selectedDocType = dt },
+                                label = { Text(dt, fontSize = 10.sp) }
+                            )
+                        }
+                    }
+
+                    Text("Payment Method", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        paymentMethods.forEach { method ->
+                            FilterChip(
+                                selected = selectedPaymentMethod == method,
+                                onClick = { selectedPaymentMethod = method },
+                                label = { Text(method, fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    if (selectedPaymentMethod == "Cash") {
+                        OutlinedTextField(
+                            value = cashTenderedText,
+                            onValueChange = { cashTenderedText = it },
+                            label = { Text("Cash Received (Tendered)") },
+                            placeholder = { Text("Rs ${String.format("%.2f", grandTotal)}") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "Change Due: Rs ${String.format("%.2f", changeDue)}",
+                            fontWeight = FontWeight.Bold,
+                            color = if (cashTendered >= grandTotal) Color(0xFF2E7D32) else Color.Red,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                        Row(modifier = Modifier.padding(10.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total Payable:", fontWeight = FontWeight.Bold)
+                            Text("Rs ${String.format("%.2f", grandTotal)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val orderId = "POS-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
+                        val order = PosOrder(
+                            id = orderId,
+                            date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
+                            clientId = selectedClient?.id,
+                            subtotal = subtotal,
+                            tax = taxAmount,
+                            discount = discountAmount,
+                            total = grandTotal,
+                            documentType = "$selectedDocType ($selectedPaymentMethod)"
+                        )
+                        viewModel.insertPosOrder(order)
+                        val savedItems = cartItems.map { it.copy(orderId = orderId) }
+                        savedItems.forEach { item ->
+                            viewModel.insertPosOrderItem(item)
+                        }
+
+                        generatedOrderForReceipt = order
+                        generatedItemsForReceipt = savedItems
+                        
+                        cartItems.clear()
+                        discountText = "0"
+                        showPaymentDialog = false
+                        showReceiptModal = true
+                        Toast.makeText(context, "$selectedDocType Completed Successfully!", Toast.LENGTH_SHORT).show()
+                    }
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Subtotal ($currencySymbol):", fontSize = 12.sp)
-                        Text("$currencySymbol${String.format("%.2f", subtotal)}", fontWeight = FontWeight.Bold)
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Estimated Total Due:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Text("$currencySymbol${String.format("%.2f", grandTotal)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
+                    Text("Generate & Print")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPaymentDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+    // PRINTABLE RECEIPT / INVOICE PREVIEW MODAL (A4 & THERMAL + WHATSAPP SHARE)
+    if (showReceiptModal && generatedOrderForReceipt != null) {
+        val order = generatedOrderForReceipt!!
+        val items = generatedItemsForReceipt
+        val profile = getSavedBusinessProfile(context)
+        var previewFormat by remember { mutableStateOf("A4 Tax Invoice") } // "A4 Tax Invoice" vs "Thermal 80mm"
 
+        AlertDialog(
+            onDismissRequest = { showReceiptModal = false },
+            title = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Invoice Preview & Print", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        IconButton(onClick = { showReceiptModal = false }) {
+                            Icon(Icons.Default.Close, contentDescription = null)
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = previewFormat == "A4 Tax Invoice",
+                            onClick = { previewFormat = "A4 Tax Invoice" },
+                            label = { Text("A4 Tax Invoice Sheet", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            leadingIcon = { Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        )
+                        FilterChip(
+                            selected = previewFormat == "Thermal 80mm",
+                            onClick = { previewFormat = "Thermal 80mm" },
+                            label = { Text("Thermal Receipt (80mm)", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            leadingIcon = { Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (previewFormat == "Thermal 80mm") {
+                        // THERMAL RECEIPT 80MM POS FORMAT
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFAFAFA), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp))
+                                .padding(14.dp)
+                        ) {
+                            Text(profile.businessName.uppercase(), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.Black, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            Text(profile.tagline, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            Text("${profile.address}, ${profile.cityCountry}", fontSize = 9.sp, color = Color.DarkGray, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            Text("Tel: ${profile.phone} | WA: ${profile.whatsapp}", fontSize = 9.sp, color = Color.DarkGray, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            
+                            if (profile.ntnNumber.isNotBlank() || profile.strnNumber.isNotBlank()) {
+                                Text("NTN: ${profile.ntnNumber} | STRN: ${profile.strnNumber}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            }
+                            if (profile.drugSaleLicenseNo.isNotBlank()) {
+                                Text("Pharma DSL License #: ${profile.drugSaleLicenseNo}", fontSize = 9.sp, color = Color(0xFF00695C), modifier = Modifier.align(Alignment.CenterHorizontally))
+                            }
+                            if (profile.healthCommissionNo.isNotBlank()) {
+                                Text("Health Reg #: ${profile.healthCommissionNo}", fontSize = 9.sp, color = Color(0xFF1565C0), modifier = Modifier.align(Alignment.CenterHorizontally))
+                            }
+                            if (profile.foodSafetyLicenseNo.isNotBlank()) {
+                                Text("Food Safety License #: ${profile.foodSafetyLicenseNo}", fontSize = 9.sp, color = Color(0xFFE65100), modifier = Modifier.align(Alignment.CenterHorizontally))
+                            }
+
+                            Text("--------------------------------------------------", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.align(Alignment.CenterHorizontally))
+
+                            Text("INVOICE #: ${order.id}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Black)
+                            Text("DATE: ${order.date}", fontSize = 10.sp, color = Color.Black)
+                            Text("CLIENT: ${selectedClient?.name ?: "Walk-in Customer"}", fontSize = 10.sp, color = Color.Black)
+                            Text("PAYMENT MODE: ${order.documentType}", fontSize = 10.sp, color = Color.Black)
+
+                            Text("--------------------------------------------------", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.align(Alignment.CenterHorizontally))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("ITEM DESCR.", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(2f))
+                                Text("QTY", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(0.7f))
+                                Text("TOTAL", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(1f))
+                            }
+                            Text("--------------------------------------------------", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.align(Alignment.CenterHorizontally))
+
+                            items.forEach { item ->
+                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(item.name, fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(2f))
+                                    Text("${item.quantity}", fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(0.7f))
+                                    Text("${profile.currency} ${item.price * item.quantity}", fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(1f))
+                                }
+                            }
+
+                            Text("--------------------------------------------------", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.align(Alignment.CenterHorizontally))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("SUBTOTAL:", fontSize = 10.sp, color = Color.Black)
+                                Text("${profile.currency} ${order.subtotal}", fontSize = 10.sp, color = Color.Black)
+                            }
+                            if (order.discount > 0) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("DISCOUNT:", fontSize = 10.sp, color = Color.Black)
+                                    Text("- ${profile.currency} ${order.discount}", fontSize = 10.sp, color = Color.Black)
+                                }
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("GOVT TAX:", fontSize = 10.sp, color = Color.Black)
+                                Text("${profile.currency} ${order.tax}", fontSize = 10.sp, color = Color.Black)
+                            }
+                            Text("--------------------------------------------------", fontSize = 10.sp, color = Color.Black, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("GRAND TOTAL:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
+                                Text("${profile.currency} ${order.total}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            if (profile.invoiceTerms.isNotBlank()) {
+                                Text(profile.invoiceTerms, fontSize = 9.sp, color = Color.DarkGray, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            }
+                            Text(profile.invoiceFooterNote, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            Text("*** Software Powered by OmniPOS ***", fontSize = 8.sp, color = Color.Gray, modifier = Modifier.align(Alignment.CenterHorizontally))
+                        }
+                    } else {
+                        // FORMAL A4 TAX INVOICE FORMAT
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = BorderStroke(1.dp, Color(0xFF1565C0)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                // A4 TOP HEADER BANNER
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Column(modifier = Modifier.weight(1.5f)) {
+                                        Text(profile.businessName, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF0D47A1))
+                                        Text(profile.tagline, fontSize = 11.sp, color = Color.DarkGray)
+                                        Spacer(Modifier.height(4.dp))
+                                        Text("📍 ${profile.address}, ${profile.cityCountry}", fontSize = 10.sp, color = Color.Black)
+                                        Text("📞 Phone: ${profile.phone} | WA: ${profile.whatsapp}", fontSize = 10.sp, color = Color.Black)
+                                        Text("✉️ Email: ${profile.email} | Web: ${profile.website}", fontSize = 9.sp, color = Color.Gray)
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1f)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color(0xFF0D47A1), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("OFFICIAL TAX INVOICE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                        Spacer(Modifier.height(6.dp))
+                                        Text("Invoice #: ${order.id}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Black)
+                                        Text("Date: ${order.date}", fontSize = 10.sp, color = Color.DarkGray)
+                                        Text("Status: PAID", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color(0xFF2E7D32))
+                                    }
+                                }
+
+                                Divider(modifier = Modifier.padding(vertical = 10.dp), color = Color(0xFF0D47A1))
+
+                                // TAX & PROFESSIONAL REGISTRATIONS CHIPS GRID
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        if (profile.ntnNumber.isNotBlank()) Text("NTN: ${profile.ntnNumber}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                        if (profile.strnNumber.isNotBlank()) Text("STRN: ${profile.strnNumber}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                        if (profile.fbrPosId.isNotBlank()) Text("FBR POS ID: ${profile.fbrPosId}", fontSize = 9.sp, color = Color.DarkGray)
+                                    }
+                                    
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        if (profile.drugSaleLicenseNo.isNotBlank()) Text("DSL (Pharma): ${profile.drugSaleLicenseNo}", fontSize = 9.sp, color = Color(0xFF00695C))
+                                        if (profile.healthCommissionNo.isNotBlank()) Text("PMC/Health Reg: ${profile.healthCommissionNo}", fontSize = 9.sp, color = Color(0xFF1565C0))
+                                        if (profile.foodSafetyLicenseNo.isNotBlank()) Text("Food Safety: ${profile.foodSafetyLicenseNo}", fontSize = 9.sp, color = Color(0xFFE65100))
+                                        if (profile.tradeLicenseNo.isNotBlank()) Text("Trade License: ${profile.tradeLicenseNo}", fontSize = 9.sp, color = Color.DarkGray)
+                                    }
+                                }
+
+                                Spacer(Modifier.height(10.dp))
+
+                                // BILL TO CLIENT BOX
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F7FA)),
+                                    border = BorderStroke(0.5.dp, Color.LightGray)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text("BILL TO / CUSTOMER DETAILS:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0D47A1))
+                                        Text("Name: ${selectedClient?.name ?: "Walk-in Customer"}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Black)
+                                        Text("Phone: ${selectedClient?.phone ?: "N/A"} | Address: ${selectedClient?.address ?: "N/A"}", fontSize = 10.sp, color = Color.DarkGray)
+                                        Text("Payment Method: ${order.documentType}", fontSize = 10.sp, color = Color.Black)
+                                    }
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
+                                // ITEMIZATION TABLE
+                                Box(modifier = Modifier.fillMaxWidth().background(Color(0xFF0D47A1)).padding(6.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                        Text("Description", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(2.5f))
+                                        Text("Price", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(1f))
+                                        Text("Qty", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(0.7f))
+                                        Text("Amount", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(1.2f))
+                                    }
+                                }
+
+                                items.forEachIndexed { idx, item ->
+                                    val bg = if (idx % 2 == 0) Color.White else Color(0xFFF9FAFC)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().background(bg).padding(horizontal = 6.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(item.name, fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(2.5f))
+                                        Text("${profile.currency} ${item.price}", fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(1f))
+                                        Text("${item.quantity}", fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(0.7f))
+                                        Text("${profile.currency} ${item.price * item.quantity}", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.Black, modifier = Modifier.weight(1.2f))
+                                    }
+                                }
+
+                                Divider(color = Color.LightGray, modifier = Modifier.padding(vertical = 6.dp))
+
+                                // SUMMARY TOTALS & STAMP
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Bottom
+                                ) {
+                                    Column(modifier = Modifier.weight(1.2f)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(100.dp, 40.dp)
+                                                .border(1.dp, Color.LightGray, RoundedCornerShape(4.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("Authorized Stamp / Sign", fontSize = 8.sp, color = Color.Gray)
+                                        }
+                                    }
+
+                                    Column(modifier = Modifier.weight(1.5f)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Subtotal:", fontSize = 10.sp, color = Color.Black)
+                                            Text("${profile.currency} ${order.subtotal}", fontSize = 10.sp, color = Color.Black)
+                                        }
+                                        if (order.discount > 0) {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("Discount:", fontSize = 10.sp, color = Color.Black)
+                                                Text("- ${profile.currency} ${order.discount}", fontSize = 10.sp, color = Color.Black)
+                                            }
+                                        }
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Tax (Sales/Govt):", fontSize = 10.sp, color = Color.Black)
+                                            Text("${profile.currency} ${order.tax}", fontSize = 10.sp, color = Color.Black)
+                                        }
+                                        Divider(modifier = Modifier.padding(vertical = 4.dp), color = Color.Black)
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("GRAND TOTAL:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0D47A1))
+                                            Text("${profile.currency} ${order.total}", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0D47A1))
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text("Terms & Conditions: ${profile.invoiceTerms}", fontSize = 8.sp, color = Color.DarkGray)
+                                Text(profile.invoiceFooterNote, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.align(Alignment.CenterHorizontally))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Direct WhatsApp Share Button
                     Button(
                         onClick = {
-                            if (invoiceItems.isEmpty()) {
-                                Toast.makeText(context, "Please add at least one line item!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                previewModeActive = true
-                            }
+                            shareReceiptViaWhatsApp(context, order, items, selectedClient, profile)
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("preview_invoice_btn")
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Receipt, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Generate & Preview Premium Invoice", fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("WhatsApp", fontSize = 11.sp)
+                    }
+
+                    // Bluetooth ESC/POS Thermal Print Button
+                    Button(
+                        onClick = {
+                            val printers = BluetoothThermalPrinterHelper.getAvailablePrinters(context)
+                            val targetAddr = printers.firstOrNull()?.address ?: "00:11:22:33:44:55"
+                            val payload = BluetoothThermalPrinterHelper.buildPosReceiptPayload(
+                                businessName = profile.businessName,
+                                tagline = profile.tagline,
+                                address = profile.address,
+                                phone = profile.phone,
+                                orderId = order.id,
+                                dateStr = order.date,
+                                items = items,
+                                subtotal = order.subtotal,
+                                discount = order.discount,
+                                tax = order.tax,
+                                total = order.total,
+                                paymentMethod = order.documentType,
+                                footerNote = profile.invoiceFooterNote
+                            )
+                            val (success, msg) = BluetoothThermalPrinterHelper.printPayload(context, targetAddr, payload)
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                        modifier = Modifier.weight(1.3f)
+                    ) {
+                        Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Thermal Print", fontSize = 11.sp)
+                    }
+
+                    // Print / PDF Button
+                    Button(
+                        onClick = {
+                            Toast.makeText(context, "Sending to Printer ($previewFormat)...", Toast.LENGTH_SHORT).show()
+                            showReceiptModal = false
+                        },
+                        modifier = Modifier.weight(1.1f)
+                    ) {
+                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Print / PDF", fontSize = 11.sp)
+                    }
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniPosInventoryTab(viewModel: StudentKitViewModel) {
+    val products by viewModel.allPosProducts.collectAsState(initial = emptyList())
+    var searchQuery by remember { mutableStateOf("") }
+    var stockFilter by remember { mutableStateOf("All") }
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    val filteredProducts = products.filter { p ->
+        val matchesSearch = p.name.contains(searchQuery, true) || p.category.contains(searchQuery, true)
+        val matchesStock = when (stockFilter) {
+            "Low Stock" -> p.stock in 1..10
+            "Out of Stock" -> p.stock <= 0
+            else -> true
+        }
+        matchesSearch && matchesStock
+    }
+
+    val lowStockCount = products.count { it.stock in 1..10 }
+    val outOfStockCount = products.count { it.stock <= 0 }
+
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        // Summary Cards
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Total Items", fontSize = 10.sp)
+                    Text("${products.size}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Low Stock Alerts", fontSize = 10.sp)
+                    Text("$lowStockCount Low / $outOfStockCount Out", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            Button(
+                onClick = { showAddDialog = true },
+                modifier = Modifier.weight(1.2f).height(50.dp)
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add Item", fontSize = 11.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Search & Filter
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.weight(1f).height(44.dp),
+                placeholder = { Text("Filter catalog...", fontSize = 11.sp) },
+                leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)) },
+                singleLine = true
+            )
+
+            listOf("All", "Low Stock", "Out of Stock").forEach { flt ->
+                FilterChip(
+                    selected = stockFilter == flt,
+                    onClick = { stockFilter = flt },
+                    label = { Text(flt, fontSize = 10.sp) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Catalog List
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(filteredProducts) { product ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1.5f)) {
+                            Text(product.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Cat: ${product.category} | SKU: ${product.id.take(8)}", fontSize = 10.sp, color = Color.Gray)
+                        }
+                        Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1f)) {
+                            Text("Rs ${product.price}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("Stock: ${product.stock} ${product.unit}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (product.stock > 10) Color(0xFF2E7D32) else Color.Red)
+                        }
+                        Row {
+                            IconButton(
+                                onClick = {
+                                    viewModel.insertPosProduct(product.copy(stock = product.stock + 10))
+                                }
+                            ) {
+                                Icon(Icons.Default.AddCircleOutline, contentDescription = "Restock", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { viewModel.deletePosProductById(product.id) }) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        var name by remember { mutableStateOf("") }
+        var category by remember { mutableStateOf("Retail") }
+        var price by remember { mutableStateOf("") }
+        var stock by remember { mutableStateOf("") }
+        var unit by remember { mutableStateOf("pcs") }
+
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Add Catalog Product / Service") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Product Name") }, singleLine = true)
+                    OutlinedTextField(value = category, onValueChange = { category = it }, label = { Text("Category (Pharma/Cafe/Retail/Service/Wholesale)") }, singleLine = true)
+                    OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Selling Price (Rs)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+                    OutlinedTextField(value = stock, onValueChange = { stock = it }, label = { Text("Initial Stock Level") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+                    OutlinedTextField(value = unit, onValueChange = { unit = it }, label = { Text("Unit (pcs, kg, bottle, hr)") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val pPrice = price.toDoubleOrNull() ?: 0.0
+                    val pStock = stock.toIntOrNull() ?: 0
+                    viewModel.insertPosProduct(PosProduct(UUID.randomUUID().toString(), name, category, pPrice, pStock, unit))
+                    showAddDialog = false
+                }) { Text("Save Item") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniPosClientsTab(viewModel: StudentKitViewModel) {
+    val clients by viewModel.allPosClients.collectAsState(initial = emptyList())
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Clients & Ledger Directory", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Button(onClick = { showAddDialog = true }) {
+                Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add Client/Supplier", fontSize = 11.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(clients) { client ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(client.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("${client.type} • Phone: ${client.phone}", fontSize = 11.sp, color = Color.Gray)
+                            Text("Address: ${client.address}", fontSize = 10.sp, color = Color.DarkGray)
+                        }
+                        IconButton(onClick = { viewModel.deletePosClientById(client.id) }) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        var name by remember { mutableStateOf("") }
+        var phone by remember { mutableStateOf("") }
+        var email by remember { mutableStateOf("") }
+        var address by remember { mutableStateOf("") }
+        var type by remember { mutableStateOf("Customer") }
+
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Register Client / Supplier") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name / Business") }, singleLine = true)
+                    OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone Number") }, singleLine = true)
+                    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email Address") }, singleLine = true)
+                    OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Address") }, singleLine = true)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = type == "Customer", onClick = { type = "Customer" }, label = { Text("Customer") })
+                        FilterChip(selected = type == "Supplier", onClick = { type = "Supplier" }, label = { Text("Supplier") })
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.insertPosClient(PosClient(UUID.randomUUID().toString(), name, phone, email, address, type))
+                    showAddDialog = false
+                }) { Text("Save Client") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+fun OmniPosAnalyticsTab(viewModel: StudentKitViewModel) {
+    val orders by viewModel.allPosOrders.collectAsState(initial = emptyList())
+    val totalRevenue = orders.sumOf { it.total }
+    val totalOrders = orders.size
+    val totalTax = orders.sumOf { it.tax }
+
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        Text("Executive Financial Dashboard", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Gross Revenue", fontSize = 10.sp)
+                    Text("Rs ${String.format("%.0f", totalRevenue)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Total Orders", fontSize = 10.sp)
+                    Text("$totalOrders", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
+                }
+            }
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Tax Collected", fontSize = 10.sp)
+                    Text("Rs ${String.format("%.0f", totalTax)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.tertiary)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Recent Sales Log", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(modifier = Modifier.height(6.dp))
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(orders) { order ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("${order.documentType} • ${order.id}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Date: ${order.date}", fontSize = 10.sp, color = Color.Gray)
+                        }
+                        Text("Rs ${String.format("%.2f", order.total)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -8780,3 +9456,978 @@ fun InvoiceGeneratorScreen(viewModel: StudentKitViewModel) {
     }
 }
 
+fun loadEnterpriseDemoData(viewModel: StudentKitViewModel) {
+    val demoProducts = listOf(
+        PosProduct(UUID.randomUUID().toString(), "Panadol Extra 500mg (10s)", "Pharma", 150.0, 100, "Pack"),
+        PosProduct(UUID.randomUUID().toString(), "Amoxicillin Syrup 250mg", "Pharma", 280.0, 45, "Bottle"),
+        PosProduct(UUID.randomUUID().toString(), "Espresso Coffee Roast (1kg)", "Bakery & Cafe", 3500.0, 15, "Kg"),
+        PosProduct(UUID.randomUUID().toString(), "Fresh Chicken Club Sandwich", "Bakery & Cafe", 450.0, 30, "Portion"),
+        PosProduct(UUID.randomUUID().toString(), "Wireless Optical Mouse", "Retail & Mart", 1250.0, 25, "Pcs"),
+        PosProduct(UUID.randomUUID().toString(), "USB-C Fast Charging Cable 2m", "Retail & Mart", 850.0, 60, "Pcs"),
+        PosProduct(UUID.randomUUID().toString(), "Legal & Tax Advisory Consultation", "Services", 8000.0, 999, "Hour"),
+        PosProduct(UUID.randomUUID().toString(), "Software Maintenance Retainer", "Services", 25000.0, 999, "Month"),
+        PosProduct(UUID.randomUUID().toString(), "Wholesale Basmati Rice (50kg)", "Wholesale", 12000.0, 40, "Bag"),
+        PosProduct(UUID.randomUUID().toString(), "Premium Wheat Flour (20kg)", "Wholesale", 2900.0, 50, "Bag")
+    )
+
+    val demoClients = listOf(
+        PosClient(UUID.randomUUID().toString(), "Metro City Clinic & Hospital", "0321-4567890", "procurement@metrohospital.org", "Main Blvd, Lahore", "Customer"),
+        PosClient(UUID.randomUUID().toString(), "TechLogix Global Solutions", "0300-1122334", "accounts@techlogix.com", "Phase 5 DHA, Lahore", "Customer"),
+        PosClient(UUID.randomUUID().toString(), "Apex Wholesale Distributors", "0333-8889900", "supply@apexdist.pk", "Industrial State, Karachi", "Supplier")
+    )
+
+    demoProducts.forEach { viewModel.insertPosProduct(it) }
+    demoClients.forEach { viewModel.insertPosClient(it) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniPosSettingsTab(viewModel: StudentKitViewModel) {
+    val context = LocalContext.current
+    var profile by remember { mutableStateOf(getSavedBusinessProfile(context)) }
+    
+    var businessName by remember { mutableStateOf(profile.businessName) }
+    var tagline by remember { mutableStateOf(profile.tagline) }
+    var ownerName by remember { mutableStateOf(profile.ownerName) }
+    var address by remember { mutableStateOf(profile.address) }
+    var cityCountry by remember { mutableStateOf(profile.cityCountry) }
+    var currency by remember { mutableStateOf(profile.currency) }
+    var phone by remember { mutableStateOf(profile.phone) }
+    var whatsapp by remember { mutableStateOf(profile.whatsapp) }
+    var email by remember { mutableStateOf(profile.email) }
+    var website by remember { mutableStateOf(profile.website) }
+
+    var ntnNumber by remember { mutableStateOf(profile.ntnNumber) }
+    var strnNumber by remember { mutableStateOf(profile.strnNumber) }
+    var fbrPosId by remember { mutableStateOf(profile.fbrPosId) }
+    var registerNo by remember { mutableStateOf(profile.registerNo) }
+
+    var drugSaleLicenseNo by remember { mutableStateOf(profile.drugSaleLicenseNo) }
+    var healthCommissionNo by remember { mutableStateOf(profile.healthCommissionNo) }
+    var foodSafetyLicenseNo by remember { mutableStateOf(profile.foodSafetyLicenseNo) }
+    var tradeLicenseNo by remember { mutableStateOf(profile.tradeLicenseNo) }
+    var wholesaleRegNo by remember { mutableStateOf(profile.wholesaleRegNo) }
+
+    var invoiceTerms by remember { mutableStateOf(profile.invoiceTerms) }
+    var invoiceFooterNote by remember { mutableStateOf(profile.invoiceFooterNote) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Top Header Banner
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Storefront, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Business & Professional Licensing Settings", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("Input store details, NTN/STRN, FBR POS ID, and professional licenses (Pharma DSL, Health Clinic, Food Safety, Trade) to print on official A4 & Thermal Receipts.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                }
+            }
+        }
+
+        // SECTION 1: IDENTITY & CONTACT
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Business, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("1. Business Identity & Direct Contact", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                OutlinedTextField(value = businessName, onValueChange = { businessName = it }, label = { Text("Business / Store Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = tagline, onValueChange = { tagline = it }, label = { Text("Tagline / Subtitle") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = ownerName, onValueChange = { ownerName = it }, label = { Text("Owner / Manager") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = currency, onValueChange = { currency = it }, label = { Text("Currency (Rs, $, SAR)") }, modifier = Modifier.weight(0.8f), singleLine = true)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone Number") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = whatsapp, onValueChange = { whatsapp = it }, label = { Text("WhatsApp Business No.") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email Address") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = website, onValueChange = { website = it }, label = { Text("Website Domain") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+            }
+        }
+
+        // SECTION 2: LOCATION & ADDRESS
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("2. Location & Postal Address", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Full Store / Commercial Street Address") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = cityCountry, onValueChange = { cityCountry = it }, label = { Text("City, Province & Country") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+        }
+
+        // SECTION 3: TAX & GOVERNMENT REGISTRATIONS
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccountBalance, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("3. Tax Identifiers & Government Registrations", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = ntnNumber, onValueChange = { ntnNumber = it }, label = { Text("NTN # (National Tax No)") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = strnNumber, onValueChange = { strnNumber = it }, label = { Text("STRN / VAT Reg #") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = fbrPosId, onValueChange = { fbrPosId = it }, label = { Text("FBR POS Unit ID / Device No") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = registerNo, onValueChange = { registerNo = it }, label = { Text("Company Register No") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+            }
+        }
+
+        // SECTION 4: PROFESSIONAL & INDUSTRY LICENSES
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("4. Professional & Industry Licensing Numbers", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                Text("Applies to specialized domains (Pharma, Medical Clinics, Food Safety, Retail & Import/Export)", fontSize = 11.sp, color = Color.Gray)
+                
+                OutlinedTextField(value = drugSaleLicenseNo, onValueChange = { drugSaleLicenseNo = it }, label = { Text("Drug Sale License (DSL / DRAP #) - Pharmacy") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = healthCommissionNo, onValueChange = { healthCommissionNo = it }, label = { Text("Healthcare Commission Reg # - Medical / Clinic") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = foodSafetyLicenseNo, onValueChange = { foodSafetyLicenseNo = it }, label = { Text("Food Safety Authority License # - Cafe & Bakery") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = tradeLicenseNo, onValueChange = { tradeLicenseNo = it }, label = { Text("Municipal Commercial / Trade License #") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = wholesaleRegNo, onValueChange = { wholesaleRegNo = it }, label = { Text("Import/Export & Wholesale Registration #") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+        }
+
+        // SECTION 5: INVOICE TERMS & DISCLAIMER
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Gavel, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("5. Receipt Terms & Disclaimer Policy", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                OutlinedTextField(value = invoiceTerms, onValueChange = { invoiceTerms = it }, label = { Text("Exchange & Return Policy Note") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                OutlinedTextField(value = invoiceFooterNote, onValueChange = { invoiceFooterNote = it }, label = { Text("Footer Closing Greeting") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+        }
+
+        // SECTION 6: HARDWARE INTEGRATION SUITE
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Bluetooth, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("6. Hardware Integrations (Bluetooth & Biometrics)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                Text("Configure physical Bluetooth ESC/POS 58mm/80mm thermal receipt printers, cash drawers, and fingerprint/face security override.", fontSize = 11.sp, color = Color.DarkGray)
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = { viewModel.navigateTo(Screen.ThermalPrinterManager) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Print, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Thermal Printer Console", fontSize = 11.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.navigateTo(Screen.BiometricManagerScreen) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Fingerprint, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Biometric Security Hub", fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        // SAVE BUTTON
+        Button(
+            onClick = {
+                val updatedProfile = PosBusinessProfile(
+                    businessName = businessName,
+                    tagline = tagline,
+                    ownerName = ownerName,
+                    address = address,
+                    cityCountry = cityCountry,
+                    currency = currency,
+                    phone = phone,
+                    whatsapp = whatsapp,
+                    email = email,
+                    website = website,
+                    ntnNumber = ntnNumber,
+                    strnNumber = strnNumber,
+                    fbrPosId = fbrPosId,
+                    registerNo = registerNo,
+                    drugSaleLicenseNo = drugSaleLicenseNo,
+                    healthCommissionNo = healthCommissionNo,
+                    foodSafetyLicenseNo = foodSafetyLicenseNo,
+                    tradeLicenseNo = tradeLicenseNo,
+                    wholesaleRegNo = wholesaleRegNo,
+                    invoiceTerms = invoiceTerms,
+                    invoiceFooterNote = invoiceFooterNote
+                )
+                saveBusinessProfile(context, updatedProfile)
+                profile = updatedProfile
+                Toast.makeText(context, "Business Profile & Licensing Settings Saved!", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Save Business Profile & Licenses", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        
+        Spacer(Modifier.height(20.dp))
+    }
+}
+
+// -------------------------------------------------------------
+// OMNIPOS MISSING ENTERPRISE SERVICE 1: PROCUREMENT & PURCHASE ORDERS
+// -------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniPosProcurementTab(viewModel: StudentKitViewModel) {
+    val context = LocalContext.current
+    val products by viewModel.allPosProducts.collectAsState(initial = emptyList())
+    val clients by viewModel.allPosClients.collectAsState(initial = emptyList())
+    val suppliers = clients.filter { it.type.equals("Supplier", true) }
+
+    var selectedSupplierName by remember { mutableStateOf("Apex Wholesale Distributors") }
+    var poNumber by remember { mutableStateOf("PO-${(1000..9999).random()}") }
+    
+    val poCartItems = remember { mutableStateListOf<PosOrderItem>() }
+    var showAddProductDialog by remember { mutableStateOf(false) }
+    var showPoReceiptDialog by remember { mutableStateOf(false) }
+
+    val poSubtotal = poCartItems.sumOf { it.quantity * it.price }
+    
+    // Demo history
+    val poHistory = remember {
+        mutableStateListOf(
+            Pair("PO-8842", "Apex Wholesale • 12 Bags Rice, 20 Bags Wheat • Total: Rs 180,000"),
+            Pair("PO-8810", "MediSupply Corp • 50 Packs Panadol, 30 Syrups • Total: Rs 15,900")
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        // Top Banner
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+        ) {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Supplier Procurement & Stock Inward (GRN)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Generate Purchase Orders (PO) for vendors and directly receive incoming stock into your live inventory.", fontSize = 11.sp, color = Color.DarkGray)
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            // Left: PO Builder
+            Column(modifier = Modifier.weight(1.5f)) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("1. Purchase Order Details", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = poNumber,
+                                onValueChange = { poNumber = it },
+                                label = { Text("PO #", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = selectedSupplierName,
+                                onValueChange = { selectedSupplierName = it },
+                                label = { Text("Supplier Name", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1.5f),
+                                singleLine = true
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("PO Line Items (${poCartItems.size})", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Button(
+                                onClick = { showAddProductDialog = true },
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Add Item to PO", fontSize = 10.sp)
+                            }
+                        }
+
+                        if (poCartItems.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                                Text("No items added to Purchase Order. Click 'Add Item' above.", color = Color.Gray, fontSize = 11.sp)
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 200.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(poCartItems) { item ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)).padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1.5f)) {
+                                            Text(item.name, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                            Text("Cost: Rs ${item.price} / unit", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                        Text("${item.quantity} units", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        Text("Rs ${item.quantity * item.price}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                        IconButton(onClick = { poCartItems.remove(item) }, modifier = Modifier.size(24.dp)) {
+                                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total PO Amount:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Rs ${String.format("%.2f", poSubtotal)}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            // Action: Receive Goods (GRN Stock Increase)
+                            Button(
+                                onClick = {
+                                    if (poCartItems.isEmpty()) {
+                                        Toast.makeText(context, "Please add items to Purchase Order first!", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    // Update inventory stock in DB
+                                    poCartItems.forEach { item ->
+                                        val existingProduct = products.find { it.id == item.productId }
+                                        if (existingProduct != null) {
+                                            viewModel.insertPosProduct(existingProduct.copy(stock = existingProduct.stock + item.quantity))
+                                        }
+                                    }
+                                    poHistory.add(0, Pair(poNumber, "$selectedSupplierName • ${poCartItems.size} items • Total: Rs ${poSubtotal.toInt()}"))
+                                    Toast.makeText(context, "✅ Stock Successfully Received & Catalog Updated!", Toast.LENGTH_LONG).show()
+                                    poCartItems.clear()
+                                    poNumber = "PO-${(1000..9999).random()}"
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Receive Stock (GRN)", fontSize = 11.sp)
+                            }
+
+                            // Share / Print PO
+                            OutlinedButton(
+                                onClick = { showPoReceiptDialog = true },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Share PO Document", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Right: Recent PO Log
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Recent Purchase Orders", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Spacer(Modifier.height(6.dp))
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(poHistory) { (no, details) ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(no, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                Text(details, fontSize = 11.sp, color = Color.DarkGray)
+                                Text("Status: RECEIVED / COMPLETED", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add Item Dialog for PO
+    if (showAddProductDialog) {
+        var selectedProd by remember { mutableStateOf(products.firstOrNull()) }
+        var costPriceText by remember { mutableStateOf(selectedProd?.price?.times(0.8)?.toString() ?: "100") }
+        var qtyText by remember { mutableStateOf("10") }
+
+        AlertDialog(
+            onDismissRequest = { showAddProductDialog = false },
+            title = { Text("Add Product to Purchase Order") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Select Product from Catalog:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(products) { p ->
+                            FilterChip(
+                                selected = selectedProd?.id == p.id,
+                                onClick = {
+                                    selectedProd = p
+                                    costPriceText = (p.price * 0.8).toInt().toString()
+                                },
+                                label = { Text(p.name, fontSize = 10.sp) }
+                            )
+                        }
+                    }
+
+                    selectedProd?.let { p ->
+                        Text("Selected: ${p.name} (Current Stock: ${p.stock} ${p.unit})", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    OutlinedTextField(
+                        value = qtyText,
+                        onValueChange = { qtyText = it },
+                        label = { Text("Order Quantity") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = costPriceText,
+                        onValueChange = { costPriceText = it },
+                        label = { Text("Wholesale Cost Price per unit (Rs)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val p = selectedProd
+                    val qty = qtyText.toIntOrNull() ?: 1
+                    val cost = costPriceText.toDoubleOrNull() ?: 0.0
+                    if (p != null) {
+                        poCartItems.add(
+                            PosOrderItem(
+                                id = UUID.randomUUID().toString(),
+                                orderId = poNumber,
+                                productId = p.id,
+                                name = p.name,
+                                quantity = qty,
+                                price = cost
+                            )
+                        )
+                    }
+                    showAddProductDialog = false
+                }) { Text("Add to PO") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddProductDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Share PO Dialog
+    if (showPoReceiptDialog) {
+        val poSummaryText = buildString {
+            appendLine("📄 PURCHASE ORDER: $poNumber")
+            appendLine("Supplier: $selectedSupplierName")
+            appendLine("----------------------------------")
+            poCartItems.forEach { item ->
+                appendLine("• ${item.name} x ${item.quantity} @ Rs ${item.price} = Rs ${item.quantity * item.price}")
+            }
+            appendLine("----------------------------------")
+            appendLine("TOTAL PO AMOUNT: Rs $poSubtotal")
+            appendLine("Please process and dispatch shipment.")
+        }
+
+        AlertDialog(
+            onDismissRequest = { showPoReceiptDialog = false },
+            title = { Text("Vendor Purchase Order Summary") },
+            text = {
+                Text(poSummaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val sendIntent = Intent().apply {
+                        action = Intent.ACTION_SEND
+                        putExtra(Intent.EXTRA_TEXT, poSummaryText)
+                        type = "text/plain"
+                    }
+                    context.startActivity(Intent.createChooser(sendIntent, "Share Purchase Order"))
+                    showPoReceiptDialog = false
+                }) { Text("Share PO") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPoReceiptDialog = false }) { Text("Close") }
+            }
+        )
+    }
+}
+
+// -------------------------------------------------------------
+// OMNIPOS MISSING ENTERPRISE SERVICE 2: SHIFT REGISTER & DAY CLOSE (Z-REPORT)
+// -------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniPosShiftTab(viewModel: StudentKitViewModel) {
+    val context = LocalContext.current
+    val orders by viewModel.allPosOrders.collectAsState(initial = emptyList())
+    
+    var openingFloatText by remember { mutableStateOf("5000") }
+    var physicalCashText by remember { mutableStateOf("") }
+    var cashierName by remember { mutableStateOf("Cashier #01") }
+
+    val cashInLog = remember { mutableStateListOf(Pair("Float Top-up", 1000.0)) }
+    val cashOutLog = remember { mutableStateListOf(Pair("Tea & Refreshment Petty Cash", 350.0)) }
+
+    var showInDialog by remember { mutableStateOf(false) }
+    var showOutDialog by remember { mutableStateOf(false) }
+    var showZReportModal by remember { mutableStateOf(false) }
+
+    // Calculated totals from live orders
+    val totalSalesRevenue = orders.sumOf { it.total }
+    val cashSales = totalSalesRevenue * 0.65 // Simulated Cash breakdown
+    val cardSales = totalSalesRevenue * 0.25 // Simulated Card breakdown
+    val walletSales = totalSalesRevenue * 0.10 // Simulated Mobile QR breakdown
+
+    val openingFloat = openingFloatText.toDoubleOrNull() ?: 0.0
+    val totalCashIn = cashInLog.sumOf { it.second }
+    val totalCashOut = cashOutLog.sumOf { it.second }
+
+    val expectedRegisterCash = openingFloat + cashSales + totalCashIn - totalCashOut
+    val physicalCash = physicalCashText.toDoubleOrNull() ?: expectedRegisterCash
+    val variance = physicalCash - expectedRegisterCash
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Top Banner
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Calculate, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Cash Register Reconciliation & Daily Z-Report", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Manage opening float, petty cash in/out entries, payment tender breakdown, and perform end-of-day Z-Report closing.", fontSize = 11.sp, color = Color.DarkGray)
+                }
+            }
+        }
+
+        // Section 1: Opening Float & Cashier Name
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("1. Cashier & Opening Register Float", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = cashierName,
+                        onValueChange = { cashierName = it },
+                        label = { Text("Cashier Name / ID") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = openingFloatText,
+                        onValueChange = { openingFloatText = it },
+                        label = { Text("Opening Cash Float (Rs)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                }
+            }
+        }
+
+        // Section 2: Payment Tenders Breakdown
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("2. Payment Method Sales Summary (${orders.size} Orders)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Cash Sales", fontSize = 10.sp)
+                            Text("Rs ${String.format("%.0f", cashSales)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Card / POS Machine", fontSize = 10.sp)
+                            Text("Rs ${String.format("%.0f", cardSales)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.secondary)
+                        }
+                    }
+                    Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Mobile QR / Wallet", fontSize = 10.sp)
+                            Text("Rs ${String.format("%.0f", walletSales)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.tertiary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 3: Cash In / Out Register Ledger
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("3. Register Cash In / Out Ledger", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedButton(onClick = { showInDialog = true }, modifier = Modifier.height(32.dp)) {
+                            Text("+ Cash In", fontSize = 10.sp)
+                        }
+                        OutlinedButton(onClick = { showOutDialog = true }, modifier = Modifier.height(32.dp)) {
+                            Text("- Cash Out", fontSize = 10.sp, color = Color.Red)
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Cash In (Top-ups): Rs $totalCashIn", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF2E7D32))
+                        cashInLog.forEach { (desc, amt) ->
+                            Text("• $desc: Rs $amt", fontSize = 10.sp, color = Color.Gray)
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Cash Out (Petty): Rs $totalCashOut", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Red)
+                        cashOutLog.forEach { (desc, amt) ->
+                            Text("• $desc: Rs $amt", fontSize = 10.sp, color = Color.Gray)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 4: Expected vs Physical Count & Z-Report
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("4. Expected Cash & End-of-Shift Reconciliation", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("System Expected Cash in Register:", fontSize = 12.sp)
+                    Text("Rs ${String.format("%.2f", expectedRegisterCash)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                }
+
+                OutlinedTextField(
+                    value = physicalCashText,
+                    onValueChange = { physicalCashText = it },
+                    label = { Text("Actual Physical Cash Counted in Drawer (Rs)") },
+                    placeholder = { Text("${expectedRegisterCash.toInt()}") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                if (physicalCashText.isNotBlank()) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Cash Drawer Variance (Over/Short):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (variance == 0.0) "Rs 0 (EXACT MATCH)" else if (variance > 0) "+ Rs ${String.format("%.2f", variance)} (OVER)" else "- Rs ${String.format("%.2f", kotlin.math.abs(variance))} (SHORT)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = if (variance == 0.0) Color(0xFF2E7D32) else if (variance > 0) Color(0xFFE65100) else Color.Red
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = { showZReportModal = true },
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D47A1))
+                ) {
+                    Icon(Icons.Default.Receipt, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Generate Official Shift Z-Report Modal", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+
+    // Cash In Dialog
+    if (showInDialog) {
+        var desc by remember { mutableStateOf("") }
+        var amt by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showInDialog = false },
+            title = { Text("Add Cash In Entry") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = desc, onValueChange = { desc = it }, label = { Text("Reason / Source") }, singleLine = true)
+                    OutlinedTextField(value = amt, onValueChange = { amt = it }, label = { Text("Amount (Rs)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val a = amt.toDoubleOrNull() ?: 0.0
+                    if (desc.isNotBlank() && a > 0) cashInLog.add(Pair(desc, a))
+                    showInDialog = false
+                }) { Text("Add Cash In") }
+            },
+            dismissButton = { TextButton(onClick = { showInDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    // Cash Out Dialog
+    if (showOutDialog) {
+        var desc by remember { mutableStateOf("") }
+        var amt by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showOutDialog = false },
+            title = { Text("Add Petty Cash Out Entry") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = desc, onValueChange = { desc = it }, label = { Text("Reason / Expense") }, singleLine = true)
+                    OutlinedTextField(value = amt, onValueChange = { amt = it }, label = { Text("Amount (Rs)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val a = amt.toDoubleOrNull() ?: 0.0
+                    if (desc.isNotBlank() && a > 0) cashOutLog.add(Pair(desc, a))
+                    showOutDialog = false
+                }) { Text("Add Cash Out") }
+            },
+            dismissButton = { TextButton(onClick = { showOutDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    // Z-Report Modal Dialog
+    if (showZReportModal) {
+        val zReportText = buildString {
+            appendLine("==================================")
+            appendLine("       OMNIPOS ENTERPRISE SUITE   ")
+            appendLine("       OFFICIAL SHIFT Z-REPORT    ")
+            appendLine("==================================")
+            appendLine("Cashier: $cashierName")
+            appendLine("Date/Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())}")
+            appendLine("----------------------------------")
+            appendLine("Opening Float:      Rs ${openingFloat.toInt()}")
+            appendLine("Total Sales Rev:    Rs ${totalSalesRevenue.toInt()} (${orders.size} Orders)")
+            appendLine("  • Cash Sales:     Rs ${cashSales.toInt()}")
+            appendLine("  • Card Machine:   Rs ${cardSales.toInt()}")
+            appendLine("  • Mobile QR:      Rs ${walletSales.toInt()}")
+            appendLine("----------------------------------")
+            appendLine("Cash In (Topups):   Rs ${totalCashIn.toInt()}")
+            appendLine("Cash Out (Petty):  -Rs ${totalCashOut.toInt()}")
+            appendLine("----------------------------------")
+            appendLine("Expected Cash:      Rs ${expectedRegisterCash.toInt()}")
+            appendLine("Physical Count:     Rs ${physicalCash.toInt()}")
+            appendLine("Drawer Variance:    Rs ${variance.toInt()}")
+            appendLine("==================================")
+            appendLine("Manager Sign: _____________________")
+        }
+
+        AlertDialog(
+            onDismissRequest = { showZReportModal = false },
+            title = { Text("Official Shift Z-Report Summary") },
+            text = {
+                Text(zReportText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = {
+                        val printers = BluetoothThermalPrinterHelper.getAvailablePrinters(context)
+                        val targetAddr = printers.firstOrNull()?.address ?: "00:11:22:33:44:55"
+                        val payload = BluetoothThermalPrinterHelper.buildZReportPayload(
+                            cashier = cashierName,
+                            dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()),
+                            openingFloat = openingFloat,
+                            salesRev = totalSalesRevenue,
+                            cashSales = cashSales,
+                            cardSales = cardSales,
+                            walletSales = walletSales,
+                            expectedCash = expectedRegisterCash,
+                            actualCash = physicalCash,
+                            variance = variance
+                        )
+                        val (success, msg) = BluetoothThermalPrinterHelper.printPayload(context, targetAddr, payload)
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)) {
+                        Icon(Icons.Default.Bluetooth, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Thermal Print Z-Report", fontSize = 11.sp)
+                    }
+
+                    Button(onClick = {
+                        val sendIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, zReportText)
+                            type = "text/plain"
+                        }
+                        context.startActivity(Intent.createChooser(sendIntent, "Share Z-Report"))
+                        showZReportModal = false
+                    }) {
+                        Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Share Z-Report", fontSize = 11.sp)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showZReportModal = false }) { Text("Close") }
+            }
+        )
+    }
+}
+
+// -------------------------------------------------------------
+// OMNIPOS MISSING ENTERPRISE SERVICE 3: OPERATIONAL EXPENSE TRACKER & P&L
+// -------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniPosExpensesTab(viewModel: StudentKitViewModel) {
+    val orders by viewModel.allPosOrders.collectAsState(initial = emptyList())
+    
+    // Sample expenses ledger
+    val expensesList = remember {
+        mutableStateListOf(
+            Triple("Commercial Store Rent", "Rent", 45000.0),
+            Triple("Electricity & Utility Bill", "Utilities", 18500.0),
+            Triple("Staff Salaries (2 Cashiers)", "Salaries", 60000.0),
+            Triple("Software License & Cloud POS", "Software", 3500.0),
+            Triple("Cleaning & Maintenance", "Maintenance", 2500.0)
+        )
+    }
+
+    var showAddExpenseDialog by remember { mutableStateOf(false) }
+
+    val grossRevenue = orders.sumOf { it.total }
+    val totalExpenses = expensesList.sumOf { it.third }
+    val estimatedCogs = grossRevenue * 0.55 // Estimated Cost of Goods Sold
+    val netProfit = grossRevenue - estimatedCogs - totalExpenses
+    val netMarginPct = if (grossRevenue > 0) (netProfit / grossRevenue) * 100 else 0.0
+
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        // Top Banner
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+        ) {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Expense Ledger & Executive Profit & Loss (P&L)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Track store overheads, utilities, salaries, and view real-time net operating margins.", fontSize = 11.sp, color = Color.DarkGray)
+                }
+            }
+        }
+
+        // P&L Executive Summary Cards
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))) {
+                Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Gross Revenue", fontSize = 10.sp, color = Color.DarkGray)
+                    Text("Rs ${String.format("%.0f", grossRevenue)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF2E7D32))
+                }
+            }
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))) {
+                Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Total Expenses", fontSize = 10.sp, color = Color.DarkGray)
+                    Text("Rs ${String.format("%.0f", totalExpenses)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Red)
+                }
+            }
+            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = if (netProfit >= 0) Color(0xFFE3F2FD) else Color(0xFFFFEBEE))) {
+                Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Net Profit / Margin", fontSize = 10.sp, color = Color.DarkGray)
+                    Text("Rs ${String.format("%.0f", netProfit)} (${String.format("%.1f%%", netMarginPct)})", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (netProfit >= 0) Color(0xFF1565C0) else Color.Red)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Operational Expense Ledger", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Button(
+                onClick = { showAddExpenseDialog = true },
+                modifier = Modifier.height(36.dp)
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Record Expense", fontSize = 11.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(expensesList) { (desc, category, amount) ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(desc, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Category: $category", fontSize = 10.sp, color = Color.Gray)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Rs ${String.format("%.0f", amount)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Red)
+                            IconButton(onClick = { expensesList.remove(Triple(desc, category, amount)) }) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddExpenseDialog) {
+        var title by remember { mutableStateOf("") }
+        var category by remember { mutableStateOf("Utilities") }
+        var amountText by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showAddExpenseDialog = false },
+            title = { Text("Record Business Expense") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Expense Title / Description") }, singleLine = true)
+                    OutlinedTextField(value = category, onValueChange = { category = it }, label = { Text("Category (Rent/Utilities/Salaries/Logistics/Misc)") }, singleLine = true)
+                    OutlinedTextField(value = amountText, onValueChange = { amountText = it }, label = { Text("Amount (Rs)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val amt = amountText.toDoubleOrNull() ?: 0.0
+                    if (title.isNotBlank() && amt > 0) {
+                        expensesList.add(Triple(title, category, amt))
+                    }
+                    showAddExpenseDialog = false
+                }) { Text("Save Expense") }
+            },
+            dismissButton = { TextButton(onClick = { showAddExpenseDialog = false }) { Text("Cancel") } }
+        )
+    }
+}

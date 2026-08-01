@@ -4,6 +4,10 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.media.AudioManager
+import android.os.BatteryManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioAttributes
@@ -60,7 +64,13 @@ import com.example.data.IntruderDeviceAdminReceiver
 import com.example.data.IntruderLog
 import com.example.data.KeystoreHelper
 import com.example.data.SteganographyHelper
+import com.example.data.SteganalysisHelper
 import androidx.core.content.FileProvider
+import android.content.ContentValues
+import android.provider.MediaStore
+import android.provider.OpenableColumns
+import android.media.MediaScannerConnection
+import android.os.Build
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.launch
@@ -90,9 +100,18 @@ object SirenPlayer {
     @Volatile
     private var isPlaying = false
 
-    fun start() {
+    fun start(context: Context) {
         if (isPlaying) return
         isPlaying = true
+
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVol, 0)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         Thread {
             val sampleRate = 44100
             val minBufferSize = AudioTrack.getMinBufferSize(
@@ -119,21 +138,25 @@ object SirenPlayer {
                 .build()
 
             audioTrack = audioTrackLocal
-            audioTrackLocal.play()
+            try {
+                audioTrackLocal.play()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
 
             val buffer = ShortArray(1024)
             var angle = 0.0
             var time = 0.0
 
             while (isPlaying) {
-                // Modulate frequency between 700Hz and 1300Hz to make a convincing siren
-                val baseFreq = 1000.0
-                val modulationMax = 300.0
-                val modulationRate = 2.0 // sweeps per second
+                // Modulate frequency between 700Hz and 1400Hz to make a convincing siren
+                val baseFreq = 1050.0
+                val modulationMax = 350.0
+                val modulationRate = 2.5 // sweeps per second
                 val currentFreq = baseFreq + modulationMax * sin(2.0 * Math.PI * modulationRate * time)
 
                 for (i in buffer.indices) {
-                    val sampleValue = (sin(angle) * Short.MAX_VALUE * 0.75).toInt().toShort()
+                    val sampleValue = (sin(angle) * Short.MAX_VALUE * 0.85).toInt().toShort()
                     buffer[i] = sampleValue
                     angle += 2.0 * Math.PI * currentFreq / sampleRate
                     if (angle > 2.0 * Math.PI) {
@@ -162,7 +185,8 @@ object SirenPlayer {
 @Composable
 fun CameraCaptureHelper(
     triggerCapture: Boolean,
-    onImageCaptured: (File) -> Unit,
+    useFrontCamera: Boolean = true,
+    onImageCaptured: (File, String) -> Unit,
     onCaptureHandled: () -> Unit
 ) {
     val context = LocalContext.current
@@ -170,61 +194,70 @@ fun CameraCaptureHelper(
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
 
     if (!cameraPermissionState.status.isGranted) {
-        LaunchedEffect(Unit) {
-            cameraPermissionState.launchPermissionRequest()
+        if (triggerCapture) {
+            LaunchedEffect(Unit) {
+                cameraPermissionState.launchPermissionRequest()
+            }
         }
         return
     }
 
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
-    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
-
-    LaunchedEffect(cameraProviderFuture) {
-        val cameraProvider = cameraProviderFuture.get()
-        val preview = Preview.Builder().build()
-        val imageCaptureLocal = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .build()
-        val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
-        try {
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview,
-                imageCaptureLocal
-            )
-            imageCapture = imageCaptureLocal
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
 
     LaunchedEffect(triggerCapture) {
         if (triggerCapture) {
-            val imgCapture = imageCapture
-            if (imgCapture != null) {
+            try {
+                val cameraProvider = cameraProviderFuture.get()
+                val imageCaptureLocal = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .build()
+
+                var chosenSelector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+                var usedFacingLabel = if (useFrontCamera) "Front Camera" else "Rear Camera"
+
+                if (useFrontCamera && !cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
+                    chosenSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                    usedFacingLabel = "Rear Camera (Fallback)"
+                }
+
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    chosenSelector,
+                    imageCaptureLocal
+                )
+
                 val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
                 val photoFile = File(storageDir, "intruder_${System.currentTimeMillis()}.jpg")
                 val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
-                imgCapture.takePicture(
+                imageCaptureLocal.takePicture(
                     outputOptions,
                     ContextCompat.getMainExecutor(context),
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            onImageCaptured(photoFile)
+                            onImageCaptured(photoFile, usedFacingLabel)
+                            try {
+                                cameraProvider.unbindAll()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
                             onCaptureHandled()
                         }
 
                         override fun onError(exception: ImageCaptureException) {
                             exception.printStackTrace()
+                            try {
+                                cameraProvider.unbindAll()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
                             onCaptureHandled()
                         }
                     }
                 )
-            } else {
+            } catch (e: Exception) {
+                e.printStackTrace()
                 onCaptureHandled()
             }
         }
@@ -238,10 +271,15 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
     val scope = rememberCoroutineScope()
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
     val locationPermissionState = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
-    
+
+    // Android 13+ Notification Permission State
+    val notificationPermissionState = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        rememberPermissionState(android.Manifest.permission.POST_NOTIFICATIONS)
+    } else null
+
     val logs by viewModel.intruderLogs.collectAsStateWithLifecycle()
 
-    // Configurable security configurations (remembered across compositions)
+    // Configurable security configurations
     var userPIN by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("1234") }
     var decoyPIN by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("0000") }
     var failedThreshold by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(1) }
@@ -251,19 +289,41 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
     var isSirenMuted by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var isMotionShieldArmed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var isPocketShieldArmed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var isChargerShieldArmed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var useNightFlash by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    var motionSensitivityThreshold by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(3.0f) } // 1.5 High, 3.0 Med, 5.0 Low
 
     // Live attempt and visual states
     var showLockScreen by remember { mutableStateOf(false) }
     var enteredPIN by remember { mutableStateOf("") }
     var attemptCount by remember { mutableStateOf(0) }
     var lastTriggerReason by remember { mutableStateOf("Failed Unlock Attempt") }
-    val latestLocation = remember { mutableStateOf(Pair(40.7128, -74.0060)) }
+    val latestLocation = remember { mutableStateOf(Pair(34.2000, 71.3000)) } // Swat / KPK default regional coordinates
     var triggerCameraSnap by remember { mutableStateOf(false) }
+    var cameraFacingLabel by remember { mutableStateOf("Front Camera") }
     var selectedLogForDialog by remember { mutableStateOf<IntruderLog?>(null) }
     var showEmailDispatchBanner by remember { mutableStateOf(false) }
+    var showWhiteFlashOverlay by remember { mutableStateOf(false) }
+
+    // Unhandled Lockscreen Breach Banner state
+    var unhandledBreachCount by remember { mutableStateOf(0) }
+    var hasUnhandledBreachAlert by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        try {
+            val prefs = context.getSharedPreferences("intruder_guard_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("has_unhandled_lockscreen_breach", false)) {
+                hasUnhandledBreachAlert = true
+                unhandledBreachCount = prefs.getInt("unhandled_breach_count", 1)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     // Decoy Calculator state variables
     var isDecoyModeActive by remember { mutableStateOf(false) }
+    var isFakeCrashActive by remember { mutableStateOf(false) }
     var calcInput by remember { mutableStateOf("") }
     var calcResult by remember { mutableStateOf("") }
 
@@ -300,23 +360,44 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
         refreshAdminStatus()
     }
 
-    // Helper to request latest network/GPS coordinates
+    // Helper to request latest network/GPS coordinates safely across Android versions
     fun getLatestCoordinates(): Pair<Double, Double> {
         try {
-            val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                context.createAttributionContext("default")
+            } else {
+                context
+            }
+            val lm = attributionContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            if (ContextCompat.checkSelfPermission(attributionContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                    ?: lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
                 if (loc != null) {
                     return Pair(loc.latitude, loc.longitude)
                 }
             }
         } catch (e: Exception) {
-            // silent
+            e.printStackTrace()
         }
-        // Simulated accurate coordinate generator with random jitter for high-fidelity demonstration
-        val randomOffsetLat = (Math.random() - 0.5) * 0.008
-        val randomOffsetLng = (Math.random() - 0.5) * 0.008
-        return Pair(40.7128 + randomOffsetLat, -74.0060 + randomOffsetLng)
+        val randomOffsetLat = (Math.random() - 0.5) * 0.005
+        val randomOffsetLng = (Math.random() - 0.5) * 0.005
+        return Pair(34.2000 + randomOffsetLat, 71.3000 + randomOffsetLng)
+    }
+
+    // Read battery status helper
+    fun getBatteryInfo(): Pair<Int, String> {
+        return try {
+            val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { filter ->
+                context.registerReceiver(null, filter)
+            }
+            val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            Pair(if (level > 0) level else 85, if (isCharging) "AC Charging" else "Battery Discharging")
+        } catch (e: Exception) {
+            Pair(85, "Battery Power")
+        }
     }
 
     // Hardware Sensor integration: Accelerometer movement detector
@@ -325,36 +406,44 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
     val proximitySensor = remember { sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY) }
 
     // Accelerometer movement violation trigger
-    DisposableEffect(isMotionShieldArmed) {
+    DisposableEffect(isMotionShieldArmed, motionSensitivityThreshold) {
         if (isMotionShieldArmed && accelerometer != null) {
             var lastAcceleration = 0f
+            var lastTriggerTime = 0L
             val listener = object : SensorEventListener {
                 override fun onSensorChanged(event: SensorEvent?) {
                     if (event == null) return
                     val x = event.values[0]
                     val y = event.values[1]
                     val z = event.values[2]
-                    
+
                     val currentAcceleration = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
                     val delta = Math.abs(currentAcceleration - lastAcceleration)
                     lastAcceleration = currentAcceleration
-                    
-                    if (delta > 3.0f && lastAcceleration > 0) {
-                        scope.launch {
-                            val coords = getLatestCoordinates()
-                            lastTriggerReason = "Theft Motion Sensor Alert"
-                            latestLocation.value = coords
-                            
-                            if (!isSirenMuted) {
-                                SirenPlayer.start()
+
+                    if (delta > motionSensitivityThreshold && lastAcceleration > 0) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastTriggerTime > 5000L) {
+                            lastTriggerTime = now
+                            scope.launch {
+                                val coords = getLatestCoordinates()
+                                lastTriggerReason = "Theft Motion Sensor Alert"
+                                latestLocation.value = coords
+
+                                if (!isSirenMuted) {
+                                    SirenPlayer.start(context)
+                                }
+                                if (useNightFlash) {
+                                    showWhiteFlashOverlay = true
+                                }
+                                triggerCameraSnap = true
+                                showEmailDispatchBanner = true
+
+                                try {
+                                    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                                    vibrator.vibrate(500)
+                                } catch (e: Exception) {}
                             }
-                            triggerCameraSnap = true
-                            showEmailDispatchBanner = true
-                            
-                            try {
-                                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
-                                vibrator.vibrate(500)
-                            } catch (e: Exception) {}
                         }
                     }
                 }
@@ -372,27 +461,35 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
     // Proximity snatch trigger
     DisposableEffect(isPocketShieldArmed) {
         if (isPocketShieldArmed && proximitySensor != null) {
+            var lastTriggerTime = 0L
             val listener = object : SensorEventListener {
                 override fun onSensorChanged(event: SensorEvent?) {
                     if (event == null) return
                     val distance = event.values[0]
                     val maxRange = proximitySensor.maximumRange
                     if (distance >= maxRange || distance > 5.0f) {
-                        scope.launch {
-                            val coords = getLatestCoordinates()
-                            lastTriggerReason = "Pocket Snatch Protection Alert"
-                            latestLocation.value = coords
-                            
-                            if (!isSirenMuted) {
-                                SirenPlayer.start()
+                        val now = System.currentTimeMillis()
+                        if (now - lastTriggerTime > 5000L) {
+                            lastTriggerTime = now
+                            scope.launch {
+                                val coords = getLatestCoordinates()
+                                lastTriggerReason = "Pocket Snatch Protection Alert"
+                                latestLocation.value = coords
+
+                                if (!isSirenMuted) {
+                                    SirenPlayer.start(context)
+                                }
+                                if (useNightFlash) {
+                                    showWhiteFlashOverlay = true
+                                }
+                                triggerCameraSnap = true
+                                showEmailDispatchBanner = true
+
+                                try {
+                                    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                                    vibrator.vibrate(500)
+                                } catch (e: Exception) {}
                             }
-                            triggerCameraSnap = true
-                            showEmailDispatchBanner = true
-                            
-                            try {
-                                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
-                                vibrator.vibrate(500)
-                            } catch (e: Exception) {}
                         }
                     }
                 }
@@ -407,21 +504,71 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
         }
     }
 
-    // Camera Capture Helper
+    // Charger Unplugged Anti-Theft Shield
+    DisposableEffect(isChargerShieldArmed) {
+        if (isChargerShieldArmed) {
+            var lastTriggerTime = 0L
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    if (intent?.action == Intent.ACTION_POWER_DISCONNECTED) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastTriggerTime > 5000L) {
+                            lastTriggerTime = now
+                            scope.launch {
+                                val coords = getLatestCoordinates()
+                                lastTriggerReason = "Charger Disconnect Anti-Theft Alert"
+                                latestLocation.value = coords
+
+                                if (!isSirenMuted) {
+                                    SirenPlayer.start(context)
+                                }
+                                if (useNightFlash) {
+                                    showWhiteFlashOverlay = true
+                                }
+                                triggerCameraSnap = true
+                                showEmailDispatchBanner = true
+                            }
+                        }
+                    }
+                }
+            }
+            val filter = IntentFilter(Intent.ACTION_POWER_DISCONNECTED)
+            context.registerReceiver(receiver, filter)
+            onDispose {
+                try {
+                    context.unregisterReceiver(receiver)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        } else {
+            onDispose {}
+        }
+    }
+
+    // Camera Capture Helper with auto front/rear fallback
     CameraCaptureHelper(
         triggerCapture = triggerCameraSnap,
-        onImageCaptured = { file ->
+        useFrontCamera = true,
+        onImageCaptured = { file, usedFacing ->
+            cameraFacingLabel = usedFacing
             val loc = latestLocation.value
+            val batInfo = getBatteryInfo()
             viewModel.addIntruderLog(
                 photoPath = file.absolutePath,
                 status = lastTriggerReason,
-                notes = "GPS Lock: ${String.format(Locale.US, "%.5f, %.5f", loc.first, loc.second)}. Full break-in report auto-dispatched to backup owner address $alertEmail.",
+                notes = "GPS Lock: ${String.format(Locale.US, "%.5f, %.5f", loc.first, loc.second)}. Battery: ${batInfo.first}% (${batInfo.second}). Report dispatched to $alertEmail.",
                 latitude = loc.first,
-                longitude = loc.second
+                longitude = loc.second,
+                batteryLevel = batInfo.first,
+                networkStatus = batInfo.second,
+                cameraFacing = usedFacing
             )
+            showWhiteFlashOverlay = false
         },
         onCaptureHandled = {
             triggerCameraSnap = false
+            showWhiteFlashOverlay = false
         }
     )
 
@@ -441,7 +588,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             isDecoyModeActive = false
                             calcInput = ""
                             calcResult = ""
-                            Toast.makeText(context, "True Guard Vault Decoded", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "True Security Vault Unlocked", Toast.LENGTH_SHORT).show()
                         } else {
                             calcResult = evaluateSimpleMath(calcInput)
                         }
@@ -455,6 +602,73 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                 isDecoyModeActive = false
             }
         )
+        return
+    }
+
+    // Fake System Crash Overlay Decoy
+    if (isFakeCrashActive) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable {
+                    // Secret triple tap area or long press to unlock
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "System Crash",
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clickable {
+                                // Secret escape from fake crash: tap warning icon 3 times
+                                isFakeCrashActive = false
+                                Toast.makeText(context, "Fake Crash Bypassed", Toast.LENGTH_SHORT).show()
+                            }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("System UI Isn't Responding", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Do you want to close it or wait for process #402 response?", color = Color.LightGray, fontSize = 12.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                Toast.makeText(context, "System UI terminated", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Wait", color = Color.LightGray, fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = {
+                                Toast.makeText(context, "Closing application...", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Close App", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
         return
     }
 
@@ -522,7 +736,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                 letterSpacing = 2.sp
             )
             Text(
-                text = "Competitor-Beating Multi-Sensor Device Shield",
+                text = "Competitor-Beating Multi-Sensor Anti-Theft Shield",
                 fontSize = 11.sp,
                 color = Color.LightGray,
                 modifier = Modifier.padding(bottom = 12.dp)
@@ -564,6 +778,57 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        // Unhandled System Lockscreen Breach Alert Banner
+                        if (hasUnhandledBreachAlert) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFDC2626)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Warning, null, tint = Color.White)
+                                        Column {
+                                            Text(
+                                                text = "🚨 $unhandledBreachCount Lockscreen Breach(es) Recorded!",
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                fontSize = 12.sp
+                                            )
+                                            Text(
+                                                text = "Unauthorized unlock failure occurred on device lockscreen while app was closed.",
+                                                color = Color.White.copy(alpha = 0.9f),
+                                                fontSize = 9.sp
+                                            )
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            hasUnhandledBreachAlert = false
+                                            val prefs = context.getSharedPreferences("intruder_guard_prefs", Context.MODE_PRIVATE)
+                                            prefs.edit().putBoolean("has_unhandled_lockscreen_breach", false).putInt("unhandled_breach_count", 0).apply()
+                                            activeTab = 1
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                        shape = RoundedCornerShape(6.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("View Logs", fontSize = 10.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
                         // Quick Status Alert Banner
                         Card(
                             colors = CardDefaults.cardColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.15f)),
@@ -580,7 +845,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                 Icon(Icons.Default.Notifications, null, tint = Color(0xFFEF4444))
                                 Column {
                                     Text(
-                                        text = "Active Lock Protection Armed",
+                                        text = if (isAdminActive) "System Lockscreen Guard Armed" else "Local App Shield Armed",
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White,
                                         fontSize = 13.sp
@@ -601,14 +866,14 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Text(
-                                    text = "Lock Screen Simulation",
+                                    text = "Interactive Lock & Decoy Simulator",
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
                                     fontSize = 13.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Simulates locking your phone. Attempts to open with wrong credentials will take a front snapshot and fire the modulated police siren.",
+                                    text = "Simulates locking your phone or launching fake decoys. Wrong attempts trigger silent selfie, siren & location lock.",
                                     color = Color.LightGray,
                                     fontSize = 10.sp
                                 )
@@ -628,10 +893,10 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Icon(Icons.Default.Lock, null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Simulate Lock", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Simulate Lock", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
-                                    
+
                                     Button(
                                         onClick = {
                                             isDecoyModeActive = true
@@ -641,16 +906,29 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Icon(Icons.Default.Calculate, null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Launch Decoy Cal", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Decoy Cal", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            isFakeCrashActive = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.BugReport, null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Fake Crash", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
                         }
 
                         // Alarm and Sensor control grid
-                        Text("🛡️ Anti-Theft Sensor Shields", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                        
+                        Text("🛡️ Anti-Theft Sensor Suite", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+
                         Card(
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
                             shape = RoundedCornerShape(12.dp)
@@ -668,8 +946,8 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                     ) {
                                         Icon(Icons.Default.MoveToInbox, null, tint = if (isPocketShieldArmed) Color(0xFF10B981) else Color.Gray)
                                         Column {
-                                            Text("Pocket Theft Detection", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            Text("Sounds alarm if phone is snatched out of your pocket or bag.", color = Color.LightGray, fontSize = 9.sp)
+                                            Text("Pocket & Bag Snatch Protection", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("Sounds siren if phone is pulled out of your pocket or handbag.", color = Color.LightGray, fontSize = 9.sp)
                                         }
                                     }
                                     Switch(
@@ -694,12 +972,37 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                         Icon(Icons.Default.ScreenRotation, null, tint = if (isMotionShieldArmed) Color(0xFF10B981) else Color.Gray)
                                         Column {
                                             Text("Don't Touch My Phone (Motion)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            Text("Siren triggers if any unauthorized user picks up or moves the device.", color = Color.LightGray, fontSize = 9.sp)
+                                            Text("Triggers siren if anyone picks up or moves your device.", color = Color.LightGray, fontSize = 9.sp)
                                         }
                                     }
                                     Switch(
                                         checked = isMotionShieldArmed,
                                         onCheckedChange = { isMotionShieldArmed = it },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF10B981))
+                                    )
+                                }
+
+                                Divider(color = Color.Gray.copy(alpha = 0.2f))
+
+                                // Charger Unplugged Row
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.PowerOff, null, tint = if (isChargerShieldArmed) Color(0xFF10B981) else Color.Gray)
+                                        Column {
+                                            Text("Charger Unplug Anti-Theft", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("Triggers alert if phone cable is unplugged while locked.", color = Color.LightGray, fontSize = 9.sp)
+                                        }
+                                    }
+                                    Switch(
+                                        checked = isChargerShieldArmed,
+                                        onCheckedChange = { isChargerShieldArmed = it },
                                         colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF10B981))
                                     )
                                 }
@@ -725,7 +1028,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isSirenMuted) "Siren Silent Mode" else "Siren Ringing Mode Enabled", fontSize = 11.sp)
+                            Text(if (isSirenMuted) "Siren Silent Mode" else "Police Siren Ringing Mode Enabled", fontSize = 11.sp)
                         }
                     }
                 }
@@ -808,7 +1111,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(50.dp)
+                                            .size(54.dp)
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(Color(0xFF0F172A)),
                                         contentAlignment = Alignment.Center
@@ -886,6 +1189,58 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        // Night Flash & Motion Sensitivity card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("📷 Stealth Camera & Low-Light Flash", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Screen Flash in Low Light", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text("Brief white screen flash for night/dark intruder selfies.", color = Color.LightGray, fontSize = 9.sp)
+                                        }
+                                        Switch(
+                                            checked = useNightFlash,
+                                            onCheckedChange = { useNightFlash = it },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF10B981))
+                                        )
+                                    }
+
+                                    Divider(color = Color.Gray.copy(alpha = 0.2f))
+
+                                    Text("Motion Sensitivity (Accelerometer)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = motionSensitivityThreshold == 1.5f,
+                                            onClick = { motionSensitivityThreshold = 1.5f },
+                                            label = { Text("High (1.5g)", fontSize = 10.sp) }
+                                        )
+                                        FilterChip(
+                                            selected = motionSensitivityThreshold == 3.0f,
+                                            onClick = { motionSensitivityThreshold = 3.0f },
+                                            label = { Text("Medium (3.0g)", fontSize = 10.sp) }
+                                        )
+                                        FilterChip(
+                                            selected = motionSensitivityThreshold == 5.0f,
+                                            onClick = { motionSensitivityThreshold = 5.0f },
+                                            label = { Text("Low (5.0g)", fontSize = 10.sp) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // PIN settings card
                         item {
                             Card(
@@ -894,7 +1249,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             ) {
                                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text("🔑 Access & Security PINs", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                                    
+
                                     OutlinedTextField(
                                         value = userPIN,
                                         onValueChange = { if (it.length <= 8) userPIN = it },
@@ -935,7 +1290,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text("Triggers background snapshot + alert emails after selected consecutive wrong attempts.", color = Color.LightGray, fontSize = 10.sp)
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -964,7 +1319,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text("📧 Emergency Backup Email", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                                     Text("When a breach happens, full telemetry + pictures are securely auto-dispatched to this backup alert address.", color = Color.LightGray, fontSize = 10.sp)
-                                    
+
                                     OutlinedTextField(
                                         value = alertEmail,
                                         onValueChange = { alertEmail = it },
@@ -1063,7 +1418,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                     ) {
                         Icon(Icons.Default.Email, null, tint = Color.White)
                         Text(
-                            text = "Email notification dispatch successfully transmitted to backup address $alertEmail with locked satellite target telemetry.",
+                            text = "Email notification dispatch transmitted to $alertEmail with satellite telemetry.",
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
@@ -1181,13 +1536,14 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                                                 } else {
                                                                     attemptCount++
                                                                     enteredPIN = ""
-                                                                    
+
                                                                     if (attemptCount >= failedThreshold) {
-                                                                        // Play Modulated Siren
                                                                         if (!isSirenMuted) {
-                                                                            SirenPlayer.start()
+                                                                            SirenPlayer.start(context)
                                                                         }
-                                                                        // Snatch Location & Selfie
+                                                                        if (useNightFlash) {
+                                                                            showWhiteFlashOverlay = true
+                                                                        }
                                                                         scope.launch {
                                                                             val coords = getLatestCoordinates()
                                                                             lastTriggerReason = "Failed Unlock Attempt"
@@ -1229,7 +1585,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
             }
         }
 
-        // High-Tech Detailed log Alert Dialog
+        // High-Tech Detailed Log Alert Dialog with Forensic Tools & Sharing
         selectedLogForDialog?.let { log ->
             AlertDialog(
                 onDismissRequest = { selectedLogForDialog = null },
@@ -1245,7 +1601,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                     ) {
                         Icon(Icons.Default.Warning, null, tint = Color(0xFFEF4444))
                         Text(
-                            text = "Intruder Breach File Details",
+                            text = "Intruder Forensic Report",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = Color.White
@@ -1288,6 +1644,40 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             }
                         }
 
+                        // Share Forensic Report Button
+                        Button(
+                            onClick = {
+                                try {
+                                    val reportText = """
+                                        🚨 INTRUDER GUARD BREACH REPORT
+                                        --------------------------------
+                                        Status: ${log.attemptStatus}
+                                        Timestamp: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(log.timestamp))}
+                                        GPS Coords: ${log.latitude ?: 34.2000}, ${log.longitude ?: 71.3000}
+                                        Notes: ${log.notes ?: "System Lockscreen Failure"}
+                                        
+                                        Dispatched from Device Guardian Shield.
+                                    """.trimIndent()
+
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, "🚨 Intruder Security Alert Report")
+                                        putExtra(Intent.EXTRA_TEXT, reportText)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Security Report"))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Unable to share report", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Export Forensic Report", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
                         // Drawing our state-of-the-art interactive Radar map
                         Text(
                             text = "📍 Tactical Coordinate Lock-On",
@@ -1296,17 +1686,17 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             color = Color(0xFF10B981),
                             modifier = Modifier.align(Alignment.Start)
                         )
-                        
+
                         TacticalRadarMap(
-                            latitude = log.latitude ?: 40.7128,
-                            longitude = log.longitude ?: -74.0060
+                            latitude = log.latitude ?: 34.2000,
+                            longitude = log.longitude ?: 71.3000
                         )
 
                         // Maps Link launch
                         Button(
                             onClick = {
                                 try {
-                                    val geoUri = Uri.parse("geo:${log.latitude ?: 40.7128},${log.longitude ?: -74.0060}?q=${log.latitude ?: 40.7128},${log.longitude ?: -74.0060}(Intruder+Breach)")
+                                    val geoUri = Uri.parse("geo:${log.latitude ?: 34.2000},${log.longitude ?: 71.3000}?q=${log.latitude ?: 34.2000},${log.longitude ?: 71.3000}(Intruder+Breach)")
                                     val intent = Intent(Intent.ACTION_VIEW, geoUri)
                                     context.startActivity(intent)
                                 } catch (e: Exception) {
@@ -2221,6 +2611,92 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
         }
     }
 
+    // Direct WhatsApp share for Stego Image
+    fun shareStegoBitmapWhatsApp(bitmap: Bitmap) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val file = File(context.cacheDir, "stego_image_${System.currentTimeMillis()}.png")
+                FileOutputStream(file).use { out ->
+                    bitmap.compress(CompressFormat.PNG, 100, out)
+                }
+                val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", file)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "image/png"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    setPackage("com.whatsapp")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                scope.launch(Dispatchers.Main) {
+                    try {
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            val w4bIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/png"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                setPackage("com.whatsapp.w4b")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(w4bIntent)
+                        } catch (ex: Exception) {
+                            shareSecureFile(context, file, "image/png")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "WhatsApp sharing error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // Save Stego Image to Device Photo Gallery (Lossless PNG to protect pixels)
+    fun saveStegoBitmapToGallery(bitmap: Bitmap) {
+        scope.launch(Dispatchers.IO) {
+            val fileName = "Stego_Photo_${System.currentTimeMillis()}.png"
+            try {
+                var savedPath: String? = null
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Steganography")
+                    }
+                    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            bitmap.compress(CompressFormat.PNG, 100, out)
+                        }
+                        savedPath = "Pictures/Steganography/$fileName"
+                    }
+                } else {
+                    val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+                    val stegoDir = File(picturesDir, "Steganography")
+                    if (!stegoDir.exists()) stegoDir.mkdirs()
+                    val imageFile = File(stegoDir, fileName)
+                    FileOutputStream(imageFile).use { out ->
+                        bitmap.compress(CompressFormat.PNG, 100, out)
+                    }
+                    MediaScannerConnection.scanFile(context, arrayOf(imageFile.absolutePath), arrayOf("image/png"), null)
+                    savedPath = imageFile.absolutePath
+                }
+
+                scope.launch(Dispatchers.Main) {
+                    if (savedPath != null) {
+                        Toast.makeText(context, "Saved to Device Gallery! ($savedPath)", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Failed to save image to Gallery.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "Save error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     // Exporting extracted files
     fun shareExtractedFile(payload: SteganographyHelper.DecodedPayload.FilePayload) {
         scope.launch(Dispatchers.IO) {
@@ -2235,6 +2711,104 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
             } catch (e: Exception) {
                 scope.launch(Dispatchers.Main) {
                     Toast.makeText(context, "Failed to save file: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // Share Extracted File Payload via WhatsApp
+    fun shareExtractedFileWhatsApp(payload: SteganographyHelper.DecodedPayload.FilePayload) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val file = File(context.cacheDir, payload.fileName)
+                FileOutputStream(file).use { out ->
+                    out.write(payload.fileBytes)
+                }
+                val isImg = payload.fileName.endsWith(".png", true) || payload.fileName.endsWith(".jpg", true) || payload.fileName.endsWith(".jpeg", true)
+                val mime = if (isImg) "image/*" else "*/*"
+                val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", file)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = mime
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    setPackage("com.whatsapp")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                scope.launch(Dispatchers.Main) {
+                    try {
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            val w4bIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = mime
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                setPackage("com.whatsapp.w4b")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(w4bIntent)
+                        } catch (ex: Exception) {
+                            shareSecureFile(context, file, mime)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "WhatsApp sharing error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // Save Extracted File to Device Storage / Gallery
+    fun saveExtractedFileToGalleryOrStorage(payload: SteganographyHelper.DecodedPayload.FilePayload) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val isImage = payload.fileName.endsWith(".png", true) || 
+                              payload.fileName.endsWith(".jpg", true) || 
+                              payload.fileName.endsWith(".jpeg", true) ||
+                              payload.fileName.endsWith(".webp", true)
+                var savedLocation: String? = null
+
+                if (isImage && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, payload.fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, if (payload.fileName.endsWith(".png", true)) "image/png" else "image/jpeg")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Steganography")
+                    }
+                    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            out.write(payload.fileBytes)
+                        }
+                        savedLocation = "Pictures/Steganography/${payload.fileName}"
+                    }
+                } else {
+                    val dir = if (isImage) {
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+                    } else {
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    }
+                    val stegoDir = File(dir, "Steganography")
+                    if (!stegoDir.exists()) stegoDir.mkdirs()
+                    val targetFile = File(stegoDir, payload.fileName)
+                    FileOutputStream(targetFile).use { out ->
+                        out.write(payload.fileBytes)
+                    }
+                    if (isImage) {
+                        MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), null, null)
+                    }
+                    savedLocation = targetFile.absolutePath
+                }
+
+                scope.launch(Dispatchers.Main) {
+                    if (savedLocation != null) {
+                        Toast.makeText(context, "Saved! ($savedLocation)", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Failed to save file.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "Save error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -2281,12 +2855,17 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                 Tab(
                     selected = activeTab == 0,
                     onClick = { activeTab = 0 },
-                    text = { Text("Encode (Hide)", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    text = { Text("Encode (Hide)", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 )
                 Tab(
                     selected = activeTab == 1,
                     onClick = { activeTab = 1 },
-                    text = { Text("Decode (Extract)", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    text = { Text("Decode (Extract)", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+                Tab(
+                    selected = activeTab == 2,
+                    onClick = { activeTab = 2 },
+                    text = { Text("Steganalysis", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 )
             }
         }
@@ -2687,7 +3266,7 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                 }
             }
 
-            // 5. Result Output & Share Action
+            // 5. Result Output & Share / Save to Gallery Action
             item {
                 stegoBitmapResult?.let { resultBitmap ->
                     Card(
@@ -2700,32 +3279,71 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("🎉 Stego-Image Success", fontWeight = FontWeight.Bold, color = Color(0xFF10B981), fontSize = 13.sp)
+                            Text("🎉 Stego-Image Created & Ready", fontWeight = FontWeight.Bold, color = Color(0xFF10B981), fontSize = 14.sp)
                             androidx.compose.foundation.Image(
                                 bitmap = resultBitmap.asImageBitmap(),
                                 contentDescription = "Stego Result Preview",
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(150.dp)
+                                    .height(160.dp)
                                     .clip(RoundedCornerShape(8.dp)),
                                 contentScale = ContentScale.Fit
                             )
-                            Button(
-                                onClick = { shareStegoBitmap(resultBitmap) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth()
+
+                            Text(
+                                "Note: Stego images are saved lossless as PNG to protect hidden payload pixels.",
+                                fontSize = 10.sp,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+
+                            // Action Buttons: Save to Gallery, WhatsApp Share, More Options
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Share / Save Stego PNG")
+                                // Save to Gallery Button
+                                Button(
+                                    onClick = { saveStegoBitmapToGallery(resultBitmap) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1.1f)
+                                ) {
+                                    Icon(Icons.Default.Download, null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Save Gallery", fontSize = 11.sp)
+                                }
+
+                                // Direct WhatsApp Share Button
+                                Button(
+                                    onClick = { shareStegoBitmapWhatsApp(resultBitmap) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1.1f)
+                                ) {
+                                    Icon(Icons.Default.Share, null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("WhatsApp", fontSize = 11.sp)
+                                }
+
+                                // General Chooser Share
+                                Button(
+                                    onClick = { shareStegoBitmap(resultBitmap) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Send, null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Share", fontSize = 11.sp)
+                                }
                             }
                         }
                     }
                 }
             }
 
-        } else {
+        } else if (activeTab == 1) {
             // -----------------------------------------------------------------
             // DECODE SECTION
             // -----------------------------------------------------------------
@@ -2926,6 +3544,20 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                             }
                         }
                         is SteganographyHelper.DecodedPayload.FilePayload -> {
+                            val isImageFile = remember(payload.fileName) {
+                                payload.fileName.endsWith(".png", true) || 
+                                payload.fileName.endsWith(".jpg", true) || 
+                                payload.fileName.endsWith(".jpeg", true) ||
+                                payload.fileName.endsWith(".webp", true)
+                            }
+                            val extractedBitmap = remember(payload.fileBytes) {
+                                if (isImageFile) {
+                                    try {
+                                        BitmapFactory.decodeByteArray(payload.fileBytes, 0, payload.fileBytes.size)
+                                    } catch (e: Exception) { null }
+                                } else null
+                            }
+
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
@@ -2938,7 +3570,20 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(Icons.Default.CheckCircle, "Extracted", tint = Color(0xFF10B981))
-                                        Text("Extracted Hidden File Payload!", fontWeight = FontWeight.Bold, color = Color(0xFF10B981), fontSize = 13.sp)
+                                        Text("Extracted Hidden Payload!", fontWeight = FontWeight.Bold, color = Color(0xFF10B981), fontSize = 13.sp)
+                                    }
+
+                                    if (extractedBitmap != null) {
+                                        Text("Extracted Image Photo:", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 11.sp)
+                                        androidx.compose.foundation.Image(
+                                            bitmap = extractedBitmap.asImageBitmap(),
+                                            contentDescription = "Extracted Image Preview",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(160.dp)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                            contentScale = ContentScale.Fit
+                                        )
                                     }
                                     
                                     Row(
@@ -2949,7 +3594,12 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Icon(Icons.Default.Description, "File Icon", tint = Color(0xFF3B82F6), modifier = Modifier.size(36.dp))
+                                        Icon(
+                                            if (isImageFile) Icons.Default.Image else Icons.Default.Description,
+                                            "File Icon",
+                                            tint = Color(0xFF3B82F6),
+                                            modifier = Modifier.size(36.dp)
+                                        )
                                         Column {
                                             Text(
                                                 text = payload.fileName,
@@ -2965,16 +3615,46 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                                             )
                                         }
                                     }
-                                    
-                                    Button(
-                                        onClick = { shareExtractedFile(payload) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Export & Share Decoded File")
+                                        // Save to Gallery / Downloads
+                                        Button(
+                                            onClick = { saveExtractedFileToGalleryOrStorage(payload) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1.1f)
+                                        ) {
+                                            Icon(Icons.Default.Download, null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Save to Storage", fontSize = 11.sp)
+                                        }
+
+                                        // WhatsApp Direct Share
+                                        Button(
+                                            onClick = { shareExtractedFileWhatsApp(payload) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1.1f)
+                                        ) {
+                                            Icon(Icons.Default.Share, null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("WhatsApp", fontSize = 11.sp)
+                                        }
+
+                                        // General Export / Share
+                                        Button(
+                                            onClick = { shareExtractedFile(payload) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.Send, null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Share", fontSize = 11.sp)
+                                        }
                                     }
                                 }
                             }
@@ -3000,6 +3680,481 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        } else if (activeTab == 2) {
+            item {
+                SteganalysisContent()
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// STEGANALYSIS SCREEN & COMPONENT (Digital Forensics)
+// -------------------------------------------------------------
+@Composable
+fun SteganalysisScreen(viewModel: StudentKitViewModel) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F172A))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            SteganalysisContent()
+        }
+    }
+}
+
+@Composable
+fun SteganalysisContent() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedFileName by remember { mutableStateOf("") }
+    var selectedFileSize by remember { mutableStateOf(0L) }
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var report by remember { mutableStateOf<SteganalysisHelper.AnalysisReport?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedFileUri = uri
+            var name = "selected_file"
+            var size = 0L
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (cursor.moveToFirst()) {
+                    if (nameIndex != -1) name = cursor.getString(nameIndex)
+                    if (sizeIndex != -1) size = cursor.getLong(sizeIndex)
+                }
+            }
+            selectedFileName = name
+            selectedFileSize = size
+            report = null
+        }
+    }
+
+    fun runForensicScan() {
+        val uri = selectedFileUri ?: return
+        isAnalyzing = true
+        scope.launch(Dispatchers.IO) {
+            val res = SteganalysisHelper.analyzeFile(context, uri, selectedFileName)
+            scope.launch(Dispatchers.Main) {
+                report = res
+                isAnalyzing = false
+            }
+        }
+    }
+
+    fun exportAppendedOverlay(bytes: ByteArray, parentName: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val extractedFile = File(context.cacheDir, "extracted_overlay_$parentName")
+                FileOutputStream(extractedFile).use { out -> out.write(bytes) }
+                val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", extractedFile)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                scope.launch(Dispatchers.Main) {
+                    context.startActivity(Intent.createChooser(intent, "Export Hidden Overlay File"))
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun sanitizeFileAndShare() {
+        val uri = selectedFileUri ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val (sanitizedFile, msg) = SteganalysisHelper.sanitizeFile(context, uri, selectedFileName)
+                val sanitizedUri = FileProvider.getUriForFile(context, "com.example.fileprovider", sanitizedFile)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_STREAM, sanitizedUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    context.startActivity(Intent.createChooser(intent, "Share Clean/Sanitized File"))
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "Sanitization error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun exportReportText(r: SteganalysisHelper.AnalysisReport) {
+        val reportText = buildString {
+            appendLine("🔍 DIGITAL FORENSICS STEGANALYSIS REPORT")
+            appendLine("---------------------------------------")
+            appendLine("File: ${r.fileName} (${String.format("%.2f KB", r.fileSize / 1024.0)})")
+            appendLine("Detected Category: ${r.detectedFileType} | Magic: ${r.magicBytesHex}")
+            appendLine("Risk Assessment: ${r.riskLevel.name} (Risk Score: ${r.riskScore}/100)")
+            appendLine("Summary: ${r.summaryText}")
+            appendLine()
+            appendLine("Detected Anomalies:")
+            r.detectedAnomalies.forEach { appendLine("• $it") }
+            if (r.lsbEntropy != null) appendLine("LSB Shannon Entropy: ${String.format("%.4f", r.lsbEntropy)} / 1.000")
+            if (r.chiSquarePValue != null) appendLine("Chi-Square Equalization: ${String.format("%.2f%%", r.chiSquarePValue * 100)}")
+            if (r.zeroWidthSecretText != null) appendLine("Extracted Zero-Width Text: ${r.zeroWidthSecretText}")
+            appendLine()
+            appendLine("Generated by Student Kit Steganalysis Engine")
+        }
+
+        val sendIntent = Intent().apply {
+            action = Intent.ACTION_SEND
+            putExtra(Intent.EXTRA_TEXT, reportText)
+            type = "text/plain"
+        }
+        context.startActivity(Intent.createChooser(sendIntent, "Export Forensics Report"))
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Applet Header Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Default.Analytics, "Steganalysis", tint = Color(0xFFFF9800), modifier = Modifier.size(24.dp))
+                    Text(
+                        text = "🔬 Steganalysis & Digital Forensics",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 17.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Detect hidden data across multiple formats: Images (LSB/Chi-Square/Entropy), Audio (PCM entropy/RIFF headers), Documents/PDF/Zip (File overlays/Trailer payloads), and Plain Text (Zero-Width unicode steganography).",
+                    color = Color.LightGray,
+                    fontSize = 12.sp
+                )
+            }
+        }
+
+        // 1. File Selector Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("1. Target File Selection", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+
+                Button(
+                    onClick = { filePickerLauncher.launch("*/*") },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (selectedFileUri == null) "Select Any File (Image, Audio, PDF, Zip, Text)" else "Change Selected File")
+                }
+
+                if (selectedFileUri != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.InsertDriveFile, "File", tint = Color(0xFF38BDF8), modifier = Modifier.size(32.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(selectedFileName, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                            Text(
+                                if (selectedFileSize > 0) String.format("%.2f KB", selectedFileSize / 1024.0) else "File loaded",
+                                color = Color.Gray,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = { runForensicScan() },
+                        enabled = !isAnalyzing,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isAnalyzing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Running Deep Forensic Scan...", fontSize = 13.sp)
+                        } else {
+                            Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Run Deep Steganalysis Scan", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Report Output Card
+        report?.let { r ->
+            val riskColor = when (r.riskLevel) {
+                SteganalysisHelper.RiskLevel.HIGH_STEGO -> Color(0xEF4444)
+                SteganalysisHelper.RiskLevel.SUSPICIOUS -> Color(0xFFF59E0B)
+                SteganalysisHelper.RiskLevel.CLEAN -> Color(0xFF10B981)
+            }
+
+            val riskTitle = when (r.riskLevel) {
+                SteganalysisHelper.RiskLevel.HIGH_STEGO -> "🚨 HIGH STEGANOGRAPHY PROBABILITY"
+                SteganalysisHelper.RiskLevel.SUSPICIOUS -> "⚠️ SUSPICIOUS FILE CHARACTERISTICS"
+                SteganalysisHelper.RiskLevel.CLEAN -> "✅ CLEAN / LOW RISK FILE"
+            }
+
+            // Risk Banner Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = riskColor.copy(alpha = 0.15f)),
+                border = BorderStroke(1.dp, riskColor),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(riskTitle, fontWeight = FontWeight.Bold, color = riskColor, fontSize = 14.sp)
+                        Surface(
+                            color = riskColor,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                "Risk Score: ${r.riskScore}/100",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Text(r.summaryText, color = Color.White, fontSize = 12.sp)
+                }
+            }
+
+            // Technical Metrics Grid
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("📊 Technical Metrics & Header Analysis", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Category:", color = Color.Gray, fontSize = 11.sp)
+                            Text("${r.detectedFileType} (${String.format("%.2f KB", r.fileSize / 1024.0)})", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Magic Signature:", color = Color.Gray, fontSize = 11.sp)
+                            Text(r.magicBytesHex, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                        r.lsbEntropy?.let { entropy ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("LSB Shannon Entropy:", color = Color.Gray, fontSize = 11.sp)
+                                Text("${String.format("%.4f", entropy)} / 1.000", color = if (entropy > 0.95) Color.Red else Color.Green, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                        r.chiSquarePValue?.let { chi ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Chi-Square Equalization:", color = Color.Gray, fontSize = 11.sp)
+                                Text("${String.format("%.1f%%", chi * 100.0)}", color = if (chi > 0.8) Color.Red else Color.Green, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                        r.appendedPayloadBytes?.let { appended ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Appended Overlay:", color = Color.Gray, fontSize = 11.sp)
+                                Text("${String.format("%.2f KB", appended.size / 1024.0)} past EOF", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Image LSB Bit-Plane Preview
+            r.lsbPreviewBitmap?.let { bitMap ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("🖼️ Visual Bit-Plane 0 (LSB Plane)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                        Text("Monochrome rendering of pixel LSB bit 0. Uniform noisy static blocks indicate LSB bit replacement payload.", color = Color.Gray, fontSize = 10.sp, textAlign = TextAlign.Center)
+
+                        androidx.compose.foundation.Image(
+                            bitmap = bitMap.asImageBitmap(),
+                            contentDescription = "LSB Bit-plane",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                }
+            }
+
+            // Zero-Width Decoded Text Card
+            r.zeroWidthSecretText?.let { zwText ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF10B981).copy(alpha = 0.15f)),
+                    border = BorderStroke(1.dp, Color(0xFF10B981)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Visibility, "Decoded Text", tint = Color(0xFF10B981))
+                            Text("Extracted Zero-Width Hidden Message!", fontWeight = FontWeight.Bold, color = Color(0xFF10B981), fontSize = 13.sp)
+                        }
+
+                        Text(
+                            text = zwText,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                                .padding(12.dp)
+                        )
+
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        Button(
+                            onClick = {
+                                val clip = android.content.ClipData.newPlainText("Decoded ZeroWidth", zwText)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Copied secret message!", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy Secret Message", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            // Anomalies List Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("🔎 Discovered Anomalies & Structural Checks", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+
+                    r.detectedAnomalies.forEach { anomaly ->
+                        Text(anomaly, color = Color.LightGray, fontSize = 11.sp)
+                    }
+                }
+            }
+
+            // Forensic Actions Toolbar
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("🛠️ Forensics Remediation & Export Actions", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Action 1: Extract Appended Overlay Payload
+                        r.appendedPayloadBytes?.let { overlayBytes ->
+                            Button(
+                                onClick = { exportAppendedOverlay(overlayBytes, r.fileName) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Extract Appended Payload File (${String.format("%.1f KB", overlayBytes.size / 1024.0)})")
+                            }
+                        }
+
+                        // Action 2: Sanitize / Clean File
+                        Button(
+                            onClick = { sanitizeFileAndShare() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CleaningServices, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sanitize & Clean File (Strip Overlays)")
+                        }
+
+                        // Action 3: Export Report
+                        Button(
+                            onClick = { exportReportText(r) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Export Forensics Text Report")
                         }
                     }
                 }

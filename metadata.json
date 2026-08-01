@@ -1,6 +1,6 @@
 {
-  "name": "StudentKit",
-  "description": "All-in-one student utility app for Pakistani students featuring finance trackers, document tools, calculator, QR utilities, focus timer, study notes, Islamic library, and BMI analytics.",
+  "name": "Hikmah Omni Suite",
+  "description": "All-in-one professional productivity suite integrating Hikmah Islamic knowledge library, financial management, document scanning & OCR, security vaults, clinical tools, and study resources.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

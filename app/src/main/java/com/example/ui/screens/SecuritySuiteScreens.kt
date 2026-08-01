@@ -411,6 +411,12 @@ fun SecurityHubScreen(viewModel: StudentKitViewModel) {
                     onClick = { viewModel.navigateTo(Screen.AppLock) }
                 )
                 SecurityToolItemRow(
+                    title = "Biometric Hardware Manager",
+                    desc = "Fingerprint sensor & Face Unlock hardware security console",
+                    iconType = SecurityIconType.KEY,
+                    onClick = { viewModel.navigateTo(Screen.BiometricManagerScreen) }
+                )
+                SecurityToolItemRow(
                     title = "Permission Auditor",
                     desc = "Analyze risk profiles and revoke permissions",
                     iconType = SecurityIconType.CUSTOM,
@@ -2028,6 +2034,24 @@ fun CalculatorVaultScreen(viewModel: StudentKitViewModel) {
         }
     }
 
+    // Auto trigger biometrics if configured
+    LaunchedEffect(Unit) {
+        if (isConfigured && !unlocked) {
+            showSystemBiometricPrompt(
+                context = context,
+                title = "Unlock Calculator Vault",
+                onSuccess = {
+                    unlocked = true
+                    isDecoyMode = false
+                    Toast.makeText(context, "Access Granted via Biometrics", Toast.LENGTH_SHORT).show()
+                },
+                onFallback = {
+                    // Manual entry on calculator keyboard
+                }
+            )
+        }
+    }
+
     // Handle back button presses gracefully
     BackHandler {
         if (unlocked) {
@@ -2070,7 +2094,22 @@ fun CalculatorVaultScreen(viewModel: StudentKitViewModel) {
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Box(modifier = Modifier.size(48.dp)) // Spacer
+                        IconButton(onClick = {
+                            showSystemBiometricPrompt(
+                                context = context,
+                                title = "Unlock Calculator Vault",
+                                onSuccess = {
+                                    unlocked = true
+                                    isDecoyMode = false
+                                    Toast.makeText(context, "Calculator Vault Unlocked", Toast.LENGTH_SHORT).show()
+                                },
+                                onFallback = {
+                                    Toast.makeText(context, "Biometric failed, use calculator passcode", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }) {
+                            Icon(Icons.Default.Fingerprint, contentDescription = "Use Biometrics", tint = Color(0xFF00897B))
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
