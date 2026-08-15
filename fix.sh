@@ -1,6 +1,4 @@
 #!/bin/bash
-# Run this after every AI Studio update: bash fix.sh
-
 echo "Fixing workflow..."
 cat > .github/workflows/build.yml << 'WORKFLOW'
 name: Build StudentKit APK
@@ -76,6 +74,11 @@ WORKFLOW
 
 echo "Fixing Gradle version..."
 sed -i 's/gradle-[0-9.]*-bin\.zip/gradle-9.3.1-bin.zip/' gradle/wrapper/gradle-wrapper.properties
+
+echo "Restoring gradle-wrapper.jar if missing..."
+if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+  gradle wrapper --gradle-version 9.3.1
+fi
 
 echo "Removing Flutter files..."
 rm -f pubspec.yaml pubspec.lock
