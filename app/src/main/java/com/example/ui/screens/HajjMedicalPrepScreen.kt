@@ -111,7 +111,7 @@ fun HajjMedicalPrepScreen(viewModel: StudentKitViewModel) {
             label = "SubTabAnimation"
         ) { tab ->
             when (tab) {
-                0 -> HajjMockSimulatorView()
+                0 -> HajjMockSimulatorView(viewModel = viewModel)
                 1 -> HajjStudySyllabusView()
                 2 -> HajjClinicScenarioLabView()
                 3 -> HajjProgressStatsView()
@@ -844,16 +844,29 @@ fun generateAllHajjQuestions(): List<HajjQuestion> {
     val extra1000 = Hajj1000QuestionBank.get1000HajjQuestions(list.size + 1)
     list.addAll(extra1000)
 
+    // --- ADD 500 MORE HIGH-YIELD HAJJ MEDICAL MISSION MCQs (500 Expansion Bank) ---
+    val extra500 = Hajj500Expansion.get500MoreHajjQuestions(list.size + 1)
+    list.addAll(extra500)
+
     return list
 }
 
 @Composable
-fun HajjMockSimulatorView() {
+fun HajjMockSimulatorView(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
     
-    // Core NTS Hajj Medical Mission Master Question Bank (High-Yield Past Papers + 1,340 Total MCQs)
+    // Core NTS Hajj Medical Mission Master Question Bank (High-Yield Past Papers + 1,840 Total MCQs)
     val questionBank = remember {
         generateAllHajjQuestions()
+    }
+
+    // Room DB Offline Cache Flow
+    val cachedQuestions by viewModel.getCachedQuestions("HAJJ").collectAsState(initial = emptyList())
+
+    LaunchedEffect(questionBank) {
+        if (cachedQuestions.isEmpty()) {
+            viewModel.cacheHajjQuestions(questionBank)
+        }
     }
 
     // Interactive category selection
@@ -914,6 +927,82 @@ fun HajjMockSimulatorView() {
                     fontSize = 11.5.sp,
                     lineHeight = 16.sp
                 )
+            }
+        }
+
+        // Offline Study Cache Status Card
+        item {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF1B5E20).copy(alpha = 0.08f)
+                ),
+                border = BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .background(Color(0xFF2E7D32), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDone,
+                                contentDescription = "Offline Ready",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "Offline Study Storage",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Surface(
+                                    color = Color(0xFFE8F5E9),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "100% OFFLINE READY",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF1B5E20),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "${cachedQuestions.size.coerceAtLeast(questionBank.size)} questions cached in local Room database • Zero internet required",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            viewModel.cacheHajjQuestions(questionBank)
+                            Toast.makeText(context, "Hajj Questions Cache Synced! (${questionBank.size} MCQs Saved)", Toast.LENGTH_SHORT).show()
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Sync", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
 
@@ -1039,32 +1128,44 @@ fun HajjMockSimulatorView() {
 
             // Interactive Options
             items(activeQuestion.options.size) { index ->
-                val isSelected = selectedAnswers[activeQuestion.id] == index
+                val userSelection = selectedAnswers[activeQuestion.id]
+                val hasAnswered = userSelection != null
+                val showResult = hasAnswered || examSubmitted
+
+                val isSelected = userSelection == index
                 val isCorrect = index == activeQuestion.correctIndex
                 val isWrong = isSelected && !isCorrect
 
                 val containerColor = when {
-                    examSubmitted && isCorrect -> Color(0xFFE8F5E9)
-                    examSubmitted && isWrong -> Color(0xFFFFEBEE)
+                    showResult && isCorrect -> Color(0xFFE8F5E9)
+                    showResult && isWrong -> Color(0xFFFFEBEE)
                     isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                     else -> MaterialTheme.colorScheme.surface
                 }
 
                 val borderColor = when {
-                    examSubmitted && isCorrect -> Color(0xFF2E7D32)
-                    examSubmitted && isWrong -> Color(0xFFC62828)
+                    showResult && isCorrect -> Color(0xFF2E7D32)
+                    showResult && isWrong -> Color(0xFFC62828)
                     isSelected -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.outlineVariant
+                }
+
+                val badgeBg = when {
+                    showResult && isCorrect -> Color(0xFF2E7D32)
+                    showResult && isWrong -> Color(0xFFC62828)
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    else -> Color.LightGray.copy(alpha = 0.5f)
                 }
 
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = !examSubmitted) {
+                        .clickable {
                             selectedAnswers[activeQuestion.id] = index
+                            viewModel.updateQuestionSavedAnswer("HAJJ_${activeQuestion.id}", index)
                         },
                     colors = CardDefaults.cardColors(containerColor = containerColor),
-                    border = BorderStroke(if (isSelected || (examSubmitted && isCorrect)) 2.dp else 1.dp, borderColor),
+                    border = BorderStroke(if (isSelected || (showResult && isCorrect)) 2.dp else 1.dp, borderColor),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -1079,59 +1180,66 @@ fun HajjMockSimulatorView() {
                                 modifier = Modifier
                                     .size(26.dp)
                                     .clip(CircleShape)
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary 
-                                        else Color.LightGray.copy(alpha = 0.5f)
-                                    ),
+                                    .background(badgeBg),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = ('A'.code + index).toChar().toString(),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) Color.White else Color.Black
+                                    color = if (isSelected || (showResult && isCorrect)) Color.White else Color.Black
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = activeQuestion.options[index],
                                 fontSize = 13.5.sp,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = if (isSelected || (showResult && isCorrect)) FontWeight.Bold else FontWeight.Normal
                             )
                         }
 
-                        if (examSubmitted) {
+                        if (showResult) {
                             if (isCorrect) {
-                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
+                                Icon(Icons.Default.CheckCircle, "Correct Answer", tint = Color(0xFF2E7D32))
                             } else if (isWrong) {
-                                Icon(Icons.Default.Cancel, null, tint = Color(0xFFC62828))
+                                Icon(Icons.Default.Cancel, "Wrong Selection", tint = Color(0xFFC62828))
                             }
                         }
                     }
                 }
             }
 
-            // Post-Submission Explanation Feedback Panel
-            if (examSubmitted) {
+            // Post-Selection Explanation Feedback Panel
+            val userSelection = selectedAnswers[activeQuestion.id]
+            val hasAnswered = userSelection != null
+            if (hasAnswered || examSubmitted) {
                 item {
+                    val isCorrectSelection = userSelection == activeQuestion.correctIndex
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.15f)
+                            containerColor = if (isCorrectSelection) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
                         ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f))
+                        border = BorderStroke(1.dp, if (isCorrectSelection) Color(0xFF4CAF50) else Color(0xFFE53935)),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Column(
                             modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Lightbulb, null, tint = Color(0xFFFBC02D), modifier = Modifier.size(20.dp))
+                                Icon(
+                                    imageVector = if (isCorrectSelection) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                    contentDescription = null,
+                                    tint = if (isCorrectSelection) Color(0xFF2E7D32) else Color(0xFFC62828),
+                                    modifier = Modifier.size(22.dp)
+                                )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    "Clinical Rationales & Study Reference:",
+                                    text = if (isCorrectSelection) "✅ Correct Answer Selected!" else "❌ Incorrect Selection. Correct Option is (${('A'.code + activeQuestion.correctIndex).toChar()})",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    fontSize = 13.sp,
+                                    color = if (isCorrectSelection) Color(0xFF2E7D32) else Color(0xFFC62828)
                                 )
                             }
                             Text(

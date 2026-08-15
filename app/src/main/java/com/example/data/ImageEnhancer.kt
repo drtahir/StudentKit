@@ -266,4 +266,126 @@ object ImageEnhancer {
         progressCallback(1.0f)
         return result
     }
+
+    /**
+     * Pass 1: Pre-processing Denoise Filter to suppress JPEG compression noise before upscaling.
+     */
+    fun applyPreDenoiseFilter(inputBitmap: Bitmap): Bitmap {
+        val width = inputBitmap.width
+        val height = inputBitmap.height
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(width * height)
+        val outPixels = IntArray(width * height)
+        inputBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        for (y in 1 until height - 1) {
+            for (x in 1 until width - 1) {
+                val idx = y * width + x
+                // 3x3 local weighted smoothing to eliminate sharp isolated specs/noise
+                var sumR = 0; var sumG = 0; var sumB = 0
+                for (dy in -1..1) {
+                    for (dx in -1..1) {
+                        val p = pixels[(y + dy) * width + (x + dx)]
+                        val weight = if (dx == 0 && dy == 0) 4 else 1
+                        sumR += ((p shr 16) and 0xFF) * weight
+                        sumG += ((p shr 8) and 0xFF) * weight
+                        sumB += (p and 0xFF) * weight
+                    }
+                }
+                val avgR = (sumR / 12).coerceIn(0, 255)
+                val avgG = (sumG / 12).coerceIn(0, 255)
+                val avgB = (sumB / 12).coerceIn(0, 255)
+                outPixels[idx] = (0xFF shl 24) or (avgR shl 16) or (avgG shl 8) or avgB
+            }
+        }
+        output.setPixels(outPixels, 0, width, 0, 0, width, height)
+        return output
+    }
+
+    /**
+     * Pass 3: Configurable Unsharp Masking for micro-detail edge recovery.
+     * strength ranges from 0.0f (no sharpening) to 1.0f (maximum sharpness).
+     */
+    fun applyUnsharpMask(inputBitmap: Bitmap, strength: Float): Bitmap {
+        if (strength <= 0.05f) return inputBitmap
+
+        val width = inputBitmap.width
+        val height = inputBitmap.height
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(width * height)
+        val outPixels = IntArray(width * height)
+        inputBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val factor = 1.0f + (strength * 1.5f)
+
+        for (y in 1 until height - 1) {
+            for (x in 1 until width - 1) {
+                val idx = y * width + x
+                val pCenter = pixels[idx]
+                val pTop = pixels[(y - 1) * width + x]
+                val pBottom = pixels[(y + 1) * width + x]
+                val pLeft = pixels[idx - 1]
+                val pRight = pixels[idx + 1]
+
+                val rC = (pCenter shr 16) and 0xFF
+                val rNeighborAvg = (((pTop shr 16) and 0xFF) + ((pBottom shr 16) and 0xFF) + ((pLeft shr 16) and 0xFF) + ((pRight shr 16) and 0xFF)) / 4f
+                val rOut = (rC + strength * (rC - rNeighborAvg) * factor).toInt().coerceIn(0, 255)
+
+                val gC = (pCenter shr 8) and 0xFF
+                val gNeighborAvg = (((pTop shr 8) and 0xFF) + ((pBottom shr 8) and 0xFF) + ((pLeft shr 8) and 0xFF) + ((pRight shr 8) and 0xFF)) / 4f
+                val gOut = (gC + strength * (gC - gNeighborAvg) * factor).toInt().coerceIn(0, 255)
+
+                val bC = pCenter and 0xFF
+                val bNeighborAvg = ((pTop and 0xFF) + (pBottom and 0xFF) + (pLeft and 0xFF) + (pRight and 0xFF)) / 4f
+                val bOut = (bC + strength * (bC - bNeighborAvg) * factor).toInt().coerceIn(0, 255)
+
+                outPixels[idx] = (0xFF shl 24) or (rOut shl 16) or (gOut shl 8) or bOut
+            }
+        }
+        output.setPixels(outPixels, 0, width, 0, 0, width, height)
+        return output
+    }
+
+    /**
+     * Pass 5: Studio Color & Dynamic Contrast Finishing Pass.
+     */
+    fun applyColorAndVibranceBoost(inputBitmap: Bitmap): Bitmap {
+        val width = inputBitmap.width
+        val height = inputBitmap.height
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(width * height)
+        val outPixels = IntArray(width * height)
+        inputBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            val r = (p shr 16) and 0xFF
+            val g = (p shr 8) and 0xFF
+            val b = p and 0xFF
+
+            // S-curve contrast boost
+            val rNorm = r / 255f
+            val gNorm = g / 255f
+            val bNorm = b / 255f
+
+            val rBoost = ((rNorm - 0.5f) * 1.12f + 0.5f).coerceIn(0f, 1f)
+            val gBoost = ((gNorm - 0.5f) * 1.12f + 0.5f).coerceIn(0f, 1f)
+            val bBoost = ((bNorm - 0.5f) * 1.12f + 0.5f).coerceIn(0f, 1f)
+
+            // Convert to HSV for slight vibrance adjustment
+            val hsv = FloatArray(3)
+            android.graphics.Color.RGBToHSV(
+                (rBoost * 255).toInt(),
+                (gBoost * 255).toInt(),
+                (bBoost * 255).toInt(),
+                hsv
+            )
+            hsv[1] = (hsv[1] * 1.15f).coerceIn(0f, 1f) // +15% saturation
+
+            outPixels[i] = android.graphics.Color.HSVToColor(hsv)
+        }
+
+        output.setPixels(outPixels, 0, width, 0, 0, width, height)
+        return output
+    }
 }

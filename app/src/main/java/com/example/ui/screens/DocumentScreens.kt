@@ -10,6 +10,7 @@ import java.text.SimpleDateFormat
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -46,6 +47,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +80,14 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.activity.compose.BackHandler
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,16 +99,21 @@ fun DocumentHubScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                 navigationIcon = {
                     IconButton(onClick = { viewModel.navigateBack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.navigateTo(Screen.Dashboard) }) {
+                        Icon(Icons.Default.Home, contentDescription = "Home", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             subScreen()
         }
     }
@@ -822,6 +839,16 @@ fun ImageToWordScreen(viewModel: StudentKitViewModel) {
         }
     }
 
+    val docCameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(context, "Camera permission granted. Tap 'Camera Scan' again.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -888,7 +915,25 @@ fun ImageToWordScreen(viewModel: StudentKitViewModel) {
             }
 
             Button(
-                onClick = { cameraCaptureLauncher.launch(null) },
+                onClick = {
+                    val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.CAMERA
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                    if (hasPermission) {
+                        try {
+                            cameraCaptureLauncher.launch(null)
+                        } catch (e: SecurityException) {
+                            docCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                            Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Unable to launch camera: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        docCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                    }
+                },
                 modifier = Modifier.weight(1f),
                 enabled = !isProcessingOcr,
                 shape = RoundedCornerShape(12.dp),
@@ -1953,6 +1998,8 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
     // Editor Modes
     var activeTabMode by remember { mutableStateOf("editor") } // "editor" vs "preview"
     var isFocusMode by remember { mutableStateOf(false) }
+    var isFullScreenViewer by remember { mutableStateOf(false) }
+    var previewZoomScale by remember { mutableFloatStateOf(1.0f) }
 
     var selectedCategoryFilter by remember { mutableStateOf("All") }
     var presetSearchQuery by remember { mutableStateOf("") }
@@ -2093,12 +2140,13 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
     // Top-level design: Adaptive List-Detail (Tablet) or Tab-toggle (Mobile)
     val widthClassIsExpanded = false // Standard mobile view is target. Let's make it fully responsive.
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-    ) {
-        // Elite header toolbar containing design indicators
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface)
+        ) {
+            // Elite header toolbar containing design indicators
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2300,35 +2348,242 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
             )
         }
 
-        // Segment switch: Form Editor vs WYSIWYG Live Page Preview
-        TabRow(
-            selectedTabIndex = if (activeTabMode == "editor") 0 else 1,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary
+        // High Quality Animated Hero Card to Launch Full Screen Builder
+        val infiniteTransition = rememberInfiniteTransition(label = "CreateCvAnimation")
+        val pulseScale by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.025f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulseScale"
+        )
+        val borderGlowAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 0.85f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1400, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "borderGlowAlpha"
+        )
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .graphicsLayer {
+                    scaleX = pulseScale
+                    scaleY = pulseScale
+                }
+                .clickable { isFocusMode = true },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            border = BorderStroke(
+                width = 2.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = borderGlowAlpha)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
-            Tab(
-                selected = activeTabMode == "editor",
-                onClick = { activeTabMode = "editor" },
-                text = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
-                    Text("Interactive Editor", fontWeight = FontWeight.Bold)
-                }}
-            )
-            Tab(
-                selected = activeTabMode == "preview",
-                onClick = { activeTabMode = "preview" },
-                text = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.Visibility, null, modifier = Modifier.size(16.dp))
-                    Text("Interactive WYSIWYG Preview", fontWeight = FontWeight.Bold)
-                }}
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.secondary
+                            )
+                        )
+                    )
+                    .padding(18.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.25f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Create CV",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "CREATE YOUR CV",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                letterSpacing = 0.5.sp
+                            )
+                            Text(
+                                text = "Full screen step-by-step wizard to build a professional CV",
+                                fontSize = 11.5.sp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { isFocusMode = true },
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = MaterialTheme.colorScheme.primary
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInFull,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "CREATE CV IN FULL SCREEN",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { showAiImportDialog = true },
+                            modifier = Modifier.height(42.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White
+                            ),
+                            border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.7f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "AI Import",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Quick Template Style Selector Bar
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.Palette, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Text("Select CV Template Theme:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+                val templatesList = listOf(
+                    "Modern Executive",
+                    "Clean Minimalist",
+                    "Classic Serif",
+                    "Tech Developer (Multi-Page)",
+                    "Creative Designer (Multi-Page)"
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(templatesList) { tmpl ->
+                        ElevatedFilterChip(
+                            selected = selectedTemplateTheme == tmpl,
+                            onClick = { selectedTemplateTheme = tmpl },
+                            label = { Text(tmpl, fontSize = 10.5.sp) },
+                            modifier = Modifier.height(30.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Mode Switcher Bar (Form Editor vs Live Preview)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val isEdit = activeTabMode == "editor"
+                Button(
+                    onClick = { activeTabMode = "editor" },
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isEdit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isEdit) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("1. Edit CV Data", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+                
+                val isPrev = activeTabMode == "preview"
+                Button(
+                    onClick = { activeTabMode = "preview" },
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isPrev) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isPrev) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("2. Live Preview", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         if (activeTabMode == "editor") {
+
             // Main Form Editor Layout - with a sidebar navigation for subsections
-            Row(modifier = Modifier.fillMaxSize().weight(1f)) {
+            Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 // Secondary Left Navigation to prevent vertical scroll fatigue!
                 Column(
                     modifier = Modifier
@@ -2378,7 +2633,7 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                 // Selected Section Form Panel
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -2903,9 +3158,7 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                             // Render high-quality card for each matching template theme
                             Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 280.dp)
-                                    .verticalScroll(rememberScrollState()),
+                                    .fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 allTemplates.forEach { tmName ->
@@ -2996,18 +3249,52 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Typography Style Font Class:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            val fontClasses = listOf("Sharp Sans-Serif", "Classic Serif", "Tech Monospace")
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Bottom Section Switcher in Main Editor
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                fontClasses.forEach { fn ->
-                                    ElevatedFilterChip(
-                                        selected = selectedTypography == fn,
-                                        onClick = { selectedTypography = fn },
-                                        label = { Text(fn, fontSize = 11.sp) }
+                                val sectionsList = listOf("basic", "work", "edu", "projects", "skills", "theme")
+                                val currentIdx = sectionsList.indexOf(selectedEditorSection).coerceAtLeast(0)
+                                
+                                if (currentIdx > 0) {
+                                    OutlinedButton(
+                                        onClick = { selectedEditorSection = sectionsList[currentIdx - 1] },
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.ArrowBack, null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Previous", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.width(1.dp))
+                                }
+                                
+                                Button(
+                                    onClick = {
+                                        if (currentIdx < sectionsList.size - 1) {
+                                            selectedEditorSection = sectionsList[currentIdx + 1]
+                                        } else {
+                                            activeTabMode = "preview"
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        if (currentIdx < sectionsList.size - 1) "Next Section" else "Finish & View Preview",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        if (currentIdx < sectionsList.size - 1) Icons.Default.ArrowForward else Icons.Default.Check,
+                                        null,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
@@ -3015,7 +3302,9 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                     }
                 }
             }
-        } else {
+        }
+
+        if (activeTabMode == "preview") {
             val isMultiPageNow = selectedTemplateTheme.contains("(Multi-Page)")
             val dynamicTitleLabel = if (isMultiPageNow) {
                 "Real-time live generated view of your 2-page Premium Multi-Page Resume:"
@@ -3029,9 +3318,56 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Full Screen Preview Launch Callout Banner
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isFullScreenViewer = true },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.ZoomIn, "Full screen viewer", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+                            }
+                            Column {
+                                Text("Preview CV", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text("Click sheet or button to view CV in full screen", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Button(
+                            onClick = { isFullScreenViewer = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Default.OpenInFull, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Full Screen", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
                 Text(dynamicTitleLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 
                 // Visual Mock Card representing A4 sheet
@@ -3039,13 +3375,35 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f / 1.414f) // Precise A4 Ratio!
-                        .shadow(6.dp, RoundedCornerShape(8.dp)),
+                        .shadow(6.dp, RoundedCornerShape(8.dp))
+                        .clickable { isFullScreenViewer = true },
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     border = BorderStroke(1.dp, Color.LightGray)
                 ) {
-                    val accentJavaColor = Color(android.graphics.Color.parseColor(selectedAccentColorHex))
-                    
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    CvResumeSheetBody(
+                        fullName = fullName,
+                        headline = headline,
+                        email = email,
+                        phone = phone,
+                        location = location,
+                        summaryText = summaryText,
+                        workExperiences = workExperiences,
+                        academicList = academicList,
+                        projectsList = projectsList,
+                        skillsCsv = skillsCsv,
+                        languagesCsv = languagesCsv,
+                        selectedTemplateTheme = selectedTemplateTheme,
+                        selectedTypography = selectedTypography,
+                        selectedAccentColorHex = selectedAccentColorHex,
+                        profilePicBitmap = profilePicBitmap,
+                        photoFrameShape = photoFrameShape
+                    )
+                }
+                
+                val accentJavaColor = try { Color(android.graphics.Color.parseColor(selectedAccentColorHex)) } catch (e: Exception) { Color.Black }
+                if (false) {}
+                if (false) {
+                    Box {
                         when (selectedTemplateTheme) {
                             "Canada Academic Standard" -> {
                                 Column(
@@ -3826,63 +4184,20 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f / 1.414f)
-                            .shadow(6.dp, RoundedCornerShape(8.dp)),
+                            .shadow(6.dp, RoundedCornerShape(8.dp))
+                            .clickable { isFullScreenViewer = true },
                         colors = CardDefaults.cardColors(containerColor = Color.White),
                         border = BorderStroke(1.dp, Color.LightGray)
                     ) {
-                        val accentJavaColor = Color(android.graphics.Color.parseColor(selectedAccentColorHex))
-                        val style = getTemplateStyleConfig(selectedTemplateTheme)
-                        val fontStyle = if (style.isClassicSerif) androidx.compose.ui.text.font.FontFamily.Serif else androidx.compose.ui.text.font.FontFamily.SansSerif
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            // Section header
-                            Text("ACADEMIC HISTORY", color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 10.sp, fontFamily = fontStyle)
-                            Divider(color = accentJavaColor, thickness = 1.dp)
-                            academicList.forEach { edu ->
-                                Column {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(edu.degree, fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 9.sp, fontFamily = fontStyle)
-                                        Text(edu.duration, fontSize = 8.sp, color = Color.Gray, fontFamily = fontStyle)
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(edu.school, fontSize = 8.sp, color = Color.Gray, fontFamily = fontStyle)
-                                        Text(edu.grade, fontSize = 8.sp, color = Color.DarkGray, fontWeight = FontWeight.SemiBold, fontFamily = fontStyle)
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Text("ENGINEERING & RESEARCH PROJECTS", color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 10.sp, fontFamily = fontStyle)
-                            Divider(color = accentJavaColor, thickness = 1.dp)
-                            projectsList.forEach { proj ->
-                                Column {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(proj.title + " (${proj.techStack})", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 8.5.sp, fontFamily = fontStyle)
-                                        Text(proj.url, fontSize = 8.sp, color = accentJavaColor, fontFamily = fontStyle)
-                                    }
-                                    Text(proj.impact, fontSize = 8.sp, color = Color.DarkGray, fontFamily = fontStyle)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.weight(1f))
-
-                            Text("CORE CAPABILITIES & VERIFIED SKILLS", color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 10.sp, fontFamily = fontStyle)
-                            Divider(color = accentJavaColor, thickness = 1.dp)
-                            Text("Capabilities: " + skillsCsv, fontSize = 8.5.sp, color = Color.Black, fontFamily = fontStyle)
-                            Text("Languages: " + languagesCsv, fontSize = 8.5.sp, color = Color.Black, fontFamily = fontStyle)
-                            
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Divider(color = Color.LightGray, thickness = 0.5.dp)
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Premium CV Feed System", fontSize = 7.5.sp, color = Color.Gray, fontFamily = fontStyle)
-                                Text("Page 2 of 2", fontSize = 7.5.sp, color = Color.Gray, fontFamily = fontStyle)
-                            }
-                        }
+                        CvResumeSheetPage2Body(
+                            academicList = academicList,
+                            projectsList = projectsList,
+                            skillsCsv = skillsCsv,
+                            languagesCsv = languagesCsv,
+                            selectedTemplateTheme = selectedTemplateTheme,
+                            selectedTypography = selectedTypography,
+                            selectedAccentColorHex = selectedAccentColorHex
+                        )
                     }
                 }
             }
@@ -3937,16 +4252,17 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                 }
             }
         }
+    }
 
         // ---------------------------------------------------------------------
-        // IMMERSIVE FULL-SCREEN DATA ENTRY DIALOG / WIZARD MODE (DISABLED)
+        // IMMERSIVE FULL-SCREEN DATA ENTRY DIALOG / WIZARD MODE
         // ---------------------------------------------------------------------
-        if (false) {
+        if (isFocusMode) {
             Dialog(
                 onDismissRequest = { isFocusMode = false },
                 properties = DialogProperties(
                     usePlatformDefaultWidth = false,
-                    decorFitsSystemWindows = false
+                    decorFitsSystemWindows = true
                 )
             ) {
                 Surface(
@@ -3970,10 +4286,7 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                     val currentStep = steps[currentStepIndex]
                     
                     Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .navigationBarsPadding()
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         // Dialog Header Toolbar
                         Card(
@@ -4000,13 +4313,13 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Close,
-                                            contentDescription = "Minimize Editor",
+                                            contentDescription = "Close Editor",
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                     Column {
                                         Text(
-                                            text = "Elite CV Builder",
+                                            text = "Create CV",
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 16.sp,
                                             color = MaterialTheme.colorScheme.primary
@@ -4025,6 +4338,7 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                                     onClick = {
                                         isFocusMode = false
                                         activeTabMode = "preview"
+                                        isFullScreenViewer = true
                                     },
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
@@ -4104,10 +4418,10 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                         // Scrollable Spacious Form Fields
                         Column(
                             modifier = Modifier
-                                .fillMaxSize()
+                                .fillMaxWidth()
                                 .weight(1f)
-                                .background(MaterialTheme.colorScheme.background)
                                 .verticalScroll(rememberScrollState())
+                                .background(MaterialTheme.colorScheme.background)
                                 .padding(horizontal = 20.dp, vertical = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(18.dp)
                         ) {
@@ -4767,8 +5081,6 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(max = 280.dp)
-                                            .verticalScroll(rememberScrollState())
                                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
                                             .padding(4.dp),
@@ -4822,7 +5134,6 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                                 }
                             }
                         }
-                    }
                     
                     // Full Screen Form Footer
                     Surface(
@@ -4859,6 +5170,7 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
                                     } else {
                                         isFocusMode = false
                                         activeTabMode = "preview"
+                                        isFullScreenViewer = true
                                         Toast.makeText(context, "All steps completed! Check your premium live layout.", Toast.LENGTH_SHORT).show()
                                     }
                                 },
@@ -4876,10 +5188,557 @@ fun CvBuilderScreen(viewModel: StudentKitViewModel) {
             }
         }
     }
+
+        // ---------------------------------------------------------------------
+        // FULL-SCREEN WYSIWYG RESUME VIEWER
+        // ---------------------------------------------------------------------
+        if (isFullScreenViewer) {
+            Dialog(
+                onDismissRequest = { isFullScreenViewer = false },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false
+                )
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF0F172A)),
+                    color = Color(0xFF0F172A)
+                ) {
+                    BackHandler { isFullScreenViewer = false }
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .imePadding()
+                ) {
+                        // Header bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF1E293B))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { isFullScreenViewer = false },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, "Close Full Screen", tint = Color.White)
+                                }
+                                Text(
+                                    "Preview CV",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { if (previewZoomScale > 0.6f) previewZoomScale -= 0.15f },
+                                    modifier = Modifier.size(32.dp).background(Color(0xFF334155), CircleShape)
+                                ) {
+                                    Icon(Icons.Default.Remove, "Zoom Out", tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+                                
+                                Text(
+                                    "${(previewZoomScale * 100).toInt()}%",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                
+                                IconButton(
+                                    onClick = { if (previewZoomScale < 2.0f) previewZoomScale += 0.15f },
+                                    modifier = Modifier.size(32.dp).background(Color(0xFF334155), CircleShape)
+                                ) {
+                                    Icon(Icons.Default.Add, "Zoom In", tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+                                
+                                Button(
+                                    onClick = {
+                                        isFullScreenViewer = false
+                                        isFocusMode = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Edit CV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                
+                                Button(
+                                    onClick = {
+                                        triggerNativePdfGeneration(
+                                            context = context,
+                                            name = fullName,
+                                            headline = headline,
+                                            email = email,
+                                            phone = phone,
+                                            location = location,
+                                            summary = summaryText,
+                                            workList = workExperiences.toList(),
+                                            academicList = academicList.toList(),
+                                            projectsList = projectsList.toList(),
+                                            skills = skillsCsv,
+                                            languages = languagesCsv,
+                                            styleTemplate = selectedTemplateTheme,
+                                            typography = selectedTypography,
+                                            colorHex = selectedAccentColorHex,
+                                            profilePic = profilePicBitmap,
+                                            photoFrameShape = photoFrameShape
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.PictureAsPdf, null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Export PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        
+                        Divider(color = Color(0xFF334155), thickness = 1.dp)
+                        
+                        val isMultiPageNow = selectedTemplateTheme.contains("(Multi-Page)")
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF0F172A))
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(20.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth(0.92f)
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f / 1.414f)
+                                        .shadow(12.dp, RoundedCornerShape(8.dp)),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.LightGray)
+                                ) {
+                                    CvResumeSheetBody(
+                                        fullName = fullName,
+                                        headline = headline,
+                                        email = email,
+                                        phone = phone,
+                                        location = location,
+                                        summaryText = summaryText,
+                                        workExperiences = workExperiences,
+                                        academicList = academicList,
+                                        projectsList = projectsList,
+                                        skillsCsv = skillsCsv,
+                                        languagesCsv = languagesCsv,
+                                        selectedTemplateTheme = selectedTemplateTheme,
+                                        selectedTypography = selectedTypography,
+                                        selectedAccentColorHex = selectedAccentColorHex,
+                                        profilePicBitmap = profilePicBitmap,
+                                        photoFrameShape = photoFrameShape
+                                    )
+                                }
+                                
+                                if (isMultiPageNow) {
+                                    Text(
+                                        "Page 2 of 2 — Credentials, Projects & Verified Skills",
+                                        color = Color.LightGray,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(1f / 1.414f)
+                                            .shadow(12.dp, RoundedCornerShape(8.dp)),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                                        border = BorderStroke(1.dp, Color.LightGray)
+                                    ) {
+                                        CvResumeSheetPage2Body(
+                                            academicList = academicList,
+                                            projectsList = projectsList,
+                                            skillsCsv = skillsCsv,
+                                            languagesCsv = languagesCsv,
+                                            selectedTemplateTheme = selectedTemplateTheme,
+                                            selectedTypography = selectedTypography,
+                                            selectedAccentColorHex = selectedAccentColorHex
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CvResumeSheetBody(
+    fullName: String,
+    headline: String,
+    email: String,
+    phone: String,
+    location: String,
+    summaryText: String,
+    workExperiences: List<ResumeWorkHistory>,
+    academicList: List<ResumeAcademic>,
+    projectsList: List<ResumeProject>,
+    skillsCsv: String,
+    languagesCsv: String,
+    selectedTemplateTheme: String,
+    selectedTypography: String,
+    selectedAccentColorHex: String,
+    profilePicBitmap: Bitmap?,
+    photoFrameShape: String
+) {
+    val accentJavaColor = try {
+        Color(android.graphics.Color.parseColor(selectedAccentColorHex))
+    } catch (e: Exception) {
+        Color(0xFF1E3A8A)
+    }
+    val style = getTemplateStyleConfig(selectedTemplateTheme)
+    val fontStyle = if (style.isClassicSerif) androidx.compose.ui.text.font.FontFamily.Serif else androidx.compose.ui.text.font.FontFamily.SansSerif
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+        when (selectedTemplateTheme) {
+            "Canada Academic Standard" -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(Color(0xFFFFEBEE)).padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, null, tint = Color(0xFFC62828), modifier = Modifier.size(12.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("🇨🇦 Canadian Standard: Photo omitted to prevent hiring bias.", color = Color(0xFFC62828), fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column {
+                        Text(fullName, color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        Text(headline, color = Color.Gray, fontWeight = FontWeight.SemiBold, fontSize = 9.sp)
+                        Text("📍 $location  |  ✉️ $email  |  📞 $phone", fontSize = 7.5.sp, color = Color.DarkGray)
+                    }
+                    Divider(color = accentJavaColor, thickness = 1.dp)
+                    Text("PROFILE SUMMARY", color = accentJavaColor, fontWeight = FontWeight.Bold, fontSize = 9.5.sp)
+                    Text(summaryText, fontSize = 8.sp, color = Color.DarkGray)
+                    
+                    Text("WORK EXPERIENCE", color = accentJavaColor, fontWeight = FontWeight.Bold, fontSize = 9.5.sp)
+                    workExperiences.take(2).forEach { exp ->
+                        Column {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("${exp.title} — ${exp.company}", fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = Color.Black)
+                                Text(exp.duration, fontSize = 8.sp, color = Color.Gray)
+                            }
+                            Text(exp.description, fontSize = 7.5.sp, color = Color.DarkGray)
+                        }
+                    }
+                }
+            }
+            "USA Executive Elite" -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        Text(fullName.uppercase(Locale.getDefault()), color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                        Text(headline, color = Color.DarkGray, fontSize = 9.sp)
+                        Text("$location • $email • $phone", fontSize = 7.5.sp, color = Color.Gray)
+                    }
+                    Divider(color = Color.Black, thickness = 1.5.dp)
+                    Text("EXECUTIVE SUMMARY", color = accentJavaColor, fontWeight = FontWeight.Bold, fontSize = 9.5.sp)
+                    Text(summaryText, fontSize = 8.sp, color = Color.Black)
+                    Text("PROFESSIONAL EXPERIENCE", color = accentJavaColor, fontWeight = FontWeight.Bold, fontSize = 9.5.sp)
+                    workExperiences.take(3).forEach { exp ->
+                        Column {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(exp.title, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = Color.Black)
+                                Text(exp.duration, fontSize = 8.sp, color = Color.Gray)
+                            }
+                            Text(exp.company, fontWeight = FontWeight.Medium, fontSize = 8.sp, color = accentJavaColor)
+                            Text(exp.description, fontSize = 7.5.sp, color = Color.DarkGray)
+                        }
+                    }
+                }
+            }
+            "UAE Modern Grid" -> {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier.weight(0.35f).fillMaxHeight().background(Color(0xFF0F172A)).padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        profilePicBitmap?.let { bmp ->
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Profile Photo",
+                                modifier = Modifier.size(54.dp).clip(CircleShape).align(Alignment.CenterHorizontally),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        }
+                        Text(fullName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text(headline, color = Color(0xFF38BDF8), fontSize = 8.sp)
+                        Divider(color = Color.Gray, thickness = 0.5.dp)
+                        Text("CONTACT", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 8.sp)
+                        Text(email, color = Color.LightGray, fontSize = 7.sp)
+                        Text(phone, color = Color.LightGray, fontSize = 7.sp)
+                        Text(location, color = Color.LightGray, fontSize = 7.sp)
+                        Divider(color = Color.Gray, thickness = 0.5.dp)
+                        Text("SKILLS", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 8.sp)
+                        Text(skillsCsv, color = Color.LightGray, fontSize = 7.sp)
+                    }
+                    Column(
+                        modifier = Modifier.weight(0.65f).fillMaxHeight().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("EXECUTIVE PROFILE", color = accentJavaColor, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        Text(summaryText, fontSize = 8.sp, color = Color.DarkGray)
+                        Divider(color = accentJavaColor, thickness = 1.dp)
+                        Text("WORK HISTORY", color = accentJavaColor, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        workExperiences.take(2).forEach { exp ->
+                            Column {
+                                Text(exp.title, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = Color.Black)
+                                Text("${exp.company} (${exp.duration})", fontSize = 7.5.sp, color = Color.Gray)
+                                Text(exp.description, fontSize = 7.5.sp, color = Color.DarkGray)
+                            }
+                        }
+                    }
+                }
+            }
+            else -> {
+                val finalAccentColor = accentJavaColor
+                val finalBackgroundColor = if (style.customBackgroundOverride != null) Color(android.graphics.Color.parseColor(style.customBackgroundOverride)) else Color.White
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(finalBackgroundColor)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                fullName.ifEmpty { "Alex Morgan" },
+                                color = if (style.isAtsFriendly) Color.Black else finalAccentColor,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 15.sp,
+                                fontFamily = fontStyle
+                            )
+                            Text(
+                                headline.ifEmpty { "Senior Software Architect & Full-Stack Engineer" },
+                                color = Color.Gray,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 8.5.sp,
+                                fontFamily = fontStyle
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "📍 ${location.ifEmpty { "San Francisco, CA" }}  |  ✉️ ${email.ifEmpty { "alex@example.com" }}  |  📞 ${phone.ifEmpty { "+1 (555) 019-2834" }}",
+                                fontSize = 7.5.sp,
+                                color = Color.DarkGray,
+                                fontFamily = fontStyle
+                            )
+                        }
+                        
+                        if (profilePicBitmap != null) {
+                            val shapeModifier = when (photoFrameShape) {
+                                "Rounded Square" -> RoundedCornerShape(8.dp)
+                                "Square" -> RoundedCornerShape(0.dp)
+                                else -> CircleShape
+                            }
+                            Image(
+                                bitmap = profilePicBitmap.asImageBitmap(),
+                                contentDescription = "Profile Photo",
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(shapeModifier)
+                                    .border(1.5.dp, finalAccentColor, shapeModifier),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        }
+                    }
+                    
+                    if (style.sectionHeaderBottomBorder) {
+                        Divider(color = finalAccentColor, thickness = 1.dp)
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            "PROFESSIONAL EXECUTIVE SUMMARY",
+                            color = if (style.isAtsFriendly) Color.Black else finalAccentColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            fontFamily = fontStyle
+                        )
+                        Text(
+                            summaryText.ifEmpty { "Results-driven Software Engineer with 6+ years of experience designing scalable distributed systems, cloud microservices, and modern user-facing applications." },
+                            fontSize = 7.5.sp,
+                            color = Color.DarkGray,
+                            fontFamily = fontStyle
+                        )
+                    }
+
+                    Divider(color = Color.LightGray, thickness = 0.5.dp)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            "CAREER TENURE PROFILE",
+                            color = if (style.isAtsFriendly) Color.Black else finalAccentColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            fontFamily = fontStyle
+                        )
+                        workExperiences.take(3).forEach { exp ->
+                            Column {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("${exp.title} — ${exp.company}", fontWeight = FontWeight.Bold, fontSize = 8.sp, color = Color.Black, fontFamily = fontStyle)
+                                    Text(exp.duration, fontSize = 7.5.sp, color = Color.Gray, fontFamily = fontStyle)
+                                }
+                                val cleanDesc = exp.description.ifEmpty { getDetailedDescription(exp.title, exp.company) }
+                                Text(cleanDesc, fontSize = 7.sp, color = Color.DarkGray, fontFamily = fontStyle, maxLines = 2)
+                            }
+                        }
+                    }
+
+                    Divider(color = Color.LightGray, thickness = 0.5.dp)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            "ACADEMIC CREDENTIALS",
+                            color = if (style.isAtsFriendly) Color.Black else finalAccentColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            fontFamily = fontStyle
+                        )
+                        academicList.take(2).forEach { edu ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("${edu.degree} (${edu.school})", fontWeight = FontWeight.SemiBold, fontSize = 7.5.sp, color = Color.Black, fontFamily = fontStyle)
+                                Text(edu.duration, fontSize = 7.sp, color = Color.Gray, fontFamily = fontStyle)
+                            }
+                        }
+                    }
+
+                    Divider(color = Color.LightGray, thickness = 0.5.dp)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            "CORE SKILLS & TECHNICAL COMPETENCIES",
+                            color = if (style.isAtsFriendly) Color.Black else finalAccentColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.5.sp,
+                            fontFamily = fontStyle
+                        )
+                        Text(skillsCsv, color = Color.DarkGray, fontSize = 7.5.sp, fontFamily = fontStyle)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CvResumeSheetPage2Body(
+    academicList: List<ResumeAcademic>,
+    projectsList: List<ResumeProject>,
+    skillsCsv: String,
+    languagesCsv: String,
+    selectedTemplateTheme: String,
+    selectedTypography: String,
+    selectedAccentColorHex: String
+) {
+    val accentJavaColor = try {
+        Color(android.graphics.Color.parseColor(selectedAccentColorHex))
+    } catch (e: Exception) {
+        Color(0xFF1E3A8A)
+    }
+    val style = getTemplateStyleConfig(selectedTemplateTheme)
+    val fontStyle = if (style.isClassicSerif) androidx.compose.ui.text.font.FontFamily.Serif else androidx.compose.ui.text.font.FontFamily.SansSerif
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("ACADEMIC HISTORY", color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 10.sp, fontFamily = fontStyle)
+        Divider(color = accentJavaColor, thickness = 1.dp)
+        academicList.forEach { edu ->
+            Column {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(edu.degree, fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 9.sp, fontFamily = fontStyle)
+                    Text(edu.duration, fontSize = 8.sp, color = Color.Gray, fontFamily = fontStyle)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(edu.school, fontSize = 8.sp, color = Color.Gray, fontFamily = fontStyle)
+                    Text(edu.grade, fontSize = 8.sp, color = Color.DarkGray, fontWeight = FontWeight.SemiBold, fontFamily = fontStyle)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text("ENGINEERING & RESEARCH PROJECTS", color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 10.sp, fontFamily = fontStyle)
+        Divider(color = accentJavaColor, thickness = 1.dp)
+        projectsList.forEach { proj ->
+            Column {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(proj.title + " (${proj.techStack})", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 8.5.sp, fontFamily = fontStyle)
+                    Text(proj.url, fontSize = 8.sp, color = accentJavaColor, fontFamily = fontStyle)
+                }
+                Text(proj.impact, fontSize = 8.sp, color = Color.DarkGray, fontFamily = fontStyle)
+            }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Text("CORE CAPABILITIES & VERIFIED SKILLS", color = accentJavaColor, fontWeight = FontWeight.Black, fontSize = 10.sp, fontFamily = fontStyle)
+        Divider(color = accentJavaColor, thickness = 1.dp)
+        Text("Capabilities: " + skillsCsv, fontSize = 8.5.sp, color = Color.Black, fontFamily = fontStyle)
+        Text("Languages: " + languagesCsv, fontSize = 8.5.sp, color = Color.Black, fontFamily = fontStyle)
+        
+        Spacer(modifier = Modifier.height(10.dp))
+        Divider(color = Color.LightGray, thickness = 0.5.dp)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Premium CV Feed System", fontSize = 7.5.sp, color = Color.Gray, fontFamily = fontStyle)
+            Text("Page 2 of 2", fontSize = 7.5.sp, color = Color.Gray, fontFamily = fontStyle)
+        }
+    }
 }
 
 /**
  * Super robust, native A4 PDF generation using standard vector graphics APIs.
+
  * Draws multiple bullet entries, custom colors, dynamic text wrap calculations to avoid cutoffs!
  */
 private fun triggerNativePdfGeneration(
@@ -4902,44 +5761,19 @@ private fun triggerNativePdfGeneration(
     photoFrameShape: String
 ) {
     try {
-        val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
-        if (printManager == null) {
-            Toast.makeText(context, "System printing engines not available.", Toast.LENGTH_SHORT).show()
+        val resolver = context.contentResolver
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "${name.replace(" ", "_")}_CV.pdf")
+            put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/pdf")
+            put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+        }
+        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+        if (uri == null) {
+            Toast.makeText(context, "Failed to create file in Downloads", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val printAdapter = object : android.print.PrintDocumentAdapter() {
-            private var pdfDoc: PdfDocument? = null
-
-            override fun onLayout(
-                oldAttributes: PrintAttributes?,
-                newAttributes: PrintAttributes?,
-                cancellationSignal: android.os.CancellationSignal?,
-                callback: LayoutResultCallback?,
-                extras: Bundle?
-            ) {
-                if (cancellationSignal?.isCanceled == true) {
-                    callback?.onLayoutCancelled()
-                    return
-                }
-
-                val isMultiPagePdf = styleTemplate.contains("(Multi-Page)")
-                val pageCount = if (isMultiPagePdf) 2 else 1
-                val info = android.print.PrintDocumentInfo.Builder("Academic_Professional_Resume.pdf")
-                    .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
-                    .setPageCount(pageCount)
-                    .build()
-
-                callback?.onLayoutFinished(info, true)
-            }
-
-            override fun onWrite(
-                pages: Array<out android.print.PageRange>?,
-                destination: android.os.ParcelFileDescriptor?,
-                cancellationSignal: android.os.CancellationSignal?,
-                callback: WriteResultCallback?
-            ) {
-                pdfDoc = PdfDocument()
+        var pdfDoc: PdfDocument? = PdfDocument()
                 val isMultiPagePdf = styleTemplate.contains("(Multi-Page)")
                 // A4 Sheet: 595 x 842 coordinates
                 val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
@@ -5960,19 +6794,25 @@ private fun triggerNativePdfGeneration(
                 }
 
                 try {
-                    val outputStream = java.io.FileOutputStream(destination?.fileDescriptor)
-                    pdfDoc?.writeTo(outputStream)
-                    callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                    resolver.openOutputStream(uri)?.use { outputStream ->
+                        pdfDoc?.writeTo(outputStream)
+                        Toast.makeText(context, "CV saved to Downloads!", Toast.LENGTH_LONG).show()
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/pdf")
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        try {
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // ignore
+                        }
+                    }
                 } catch (e: Exception) {
-                    callback?.onWriteFailed(e.toString())
+                    Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
                 } finally {
                     pdfDoc?.close()
                     pdfDoc = null
                 }
-            }
-        };
-
-        printManager.print("StudentKit_Elite_CV_Job", printAdapter, android.print.PrintAttributes.Builder().build())
     } catch (exc: Exception) {
         Toast.makeText(context, "Export Failure: ${exc.localizedMessage}", Toast.LENGTH_LONG).show()
     }
@@ -6191,6 +7031,117 @@ fun DocumentScannerScreen(viewModel: StudentKitViewModel) {
     }
 }
 
+data class EdgeCorners(
+    val tlX: Float, val tlY: Float,
+    val trX: Float, val trY: Float,
+    val brX: Float, val brY: Float,
+    val blX: Float, val blY: Float
+)
+
+fun detectRealDocumentEdges(bitmap: Bitmap): EdgeCorners {
+    return try {
+        val targetWidth = 180
+        val targetHeight = (180f * (bitmap.height.toFloat() / bitmap.width.toFloat().coerceAtLeast(1f))).toInt().coerceIn(100, 300)
+        val scaled = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+        val w = scaled.width
+        val h = scaled.height
+        val pixels = IntArray(w * h)
+        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val gray = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            gray[i] = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+        }
+
+        val grad = FloatArray(w * h)
+        var maxGrad = 1f
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val gx = (gray[y * w + (x + 1)] - gray[y * w + (x - 1)]).toFloat()
+                val gy = (gray[(y + 1) * w + x] - gray[(y - 1) * w + x]).toFloat()
+                val gVal = kotlin.math.sqrt(gx * gx + gy * gy)
+                grad[y * w + x] = gVal
+                if (gVal > maxGrad) maxGrad = gVal
+            }
+        }
+
+        val threshold = maxGrad * 0.22f
+
+        var bestTl = Pair(0.08f, 0.08f)
+        var minTlDist = Float.MAX_VALUE
+        for (y in 4 until h / 2) {
+            for (x in 4 until w / 2) {
+                if (grad[y * w + x] >= threshold) {
+                    val dist = (x.toFloat() / w) + (y.toFloat() / h)
+                    if (dist < minTlDist) {
+                        minTlDist = dist
+                        bestTl = Pair(x.toFloat() / w, y.toFloat() / h)
+                    }
+                }
+            }
+        }
+
+        var bestTr = Pair(0.92f, 0.08f)
+        var minTrDist = Float.MAX_VALUE
+        for (y in 4 until h / 2) {
+            for (x in w / 2 until w - 4) {
+                if (grad[y * w + x] >= threshold) {
+                    val dist = ((w - x).toFloat() / w) + (y.toFloat() / h)
+                    if (dist < minTrDist) {
+                        minTrDist = dist
+                        bestTr = Pair(x.toFloat() / w, y.toFloat() / h)
+                    }
+                }
+            }
+        }
+
+        var bestBr = Pair(0.92f, 0.92f)
+        var minBrDist = Float.MAX_VALUE
+        for (y in h / 2 until h - 4) {
+            for (x in w / 2 until w - 4) {
+                if (grad[y * w + x] >= threshold) {
+                    val dist = ((w - x).toFloat() / w) + ((h - y).toFloat() / h)
+                    if (dist < minBrDist) {
+                        minBrDist = dist
+                        bestBr = Pair(x.toFloat() / w, y.toFloat() / h)
+                    }
+                }
+            }
+        }
+
+        var bestBl = Pair(0.08f, 0.92f)
+        var minBlDist = Float.MAX_VALUE
+        for (y in h / 2 until h - 4) {
+            for (x in 4 until w / 2) {
+                if (grad[y * w + x] >= threshold) {
+                    val dist = (x.toFloat() / w) + ((h - y).toFloat() / h)
+                    if (dist < minBlDist) {
+                        minBlDist = dist
+                        bestBl = Pair(x.toFloat() / w, y.toFloat() / h)
+                    }
+                }
+            }
+        }
+
+        EdgeCorners(
+            tlX = bestTl.first.coerceIn(0.02f, 0.45f),
+            tlY = bestTl.second.coerceIn(0.02f, 0.45f),
+            trX = bestTr.first.coerceIn(0.55f, 0.98f),
+            trY = bestTr.second.coerceIn(0.02f, 0.45f),
+            brX = bestBr.first.coerceIn(0.55f, 0.98f),
+            brY = bestBr.second.coerceIn(0.55f, 0.98f),
+            blX = bestBl.first.coerceIn(0.02f, 0.45f),
+            blY = bestBl.second.coerceIn(0.55f, 0.98f)
+        )
+    } catch (e: Exception) {
+        EdgeCorners(0.05f, 0.05f, 0.95f, 0.05f, 0.95f, 0.95f, 0.05f, 0.95f)
+    }
+}
+
 // Helper to create a temporary image file URI for real camera scans
 fun createDocumentTempImageUri(context: Context): Uri? {
     return try {
@@ -6368,6 +7319,50 @@ fun CameraScannerTab(
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    val previewView = remember { PreviewView(context) }
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    LaunchedEffect(hasCameraPermission, flashMode) {
+        if (hasCameraPermission) {
+            try {
+                val cameraProvider = cameraProviderFuture.get()
+                val preview = androidx.camera.core.Preview.Builder().build()
+                preview.setSurfaceProvider(previewView.surfaceProvider)
+
+                val imageCaptureLocal = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setFlashMode(
+                        when (flashMode) {
+                            "On" -> ImageCapture.FLASH_MODE_ON
+                            "Auto" -> ImageCapture.FLASH_MODE_AUTO
+                            else -> ImageCapture.FLASH_MODE_OFF
+                        }
+                    )
+                    .build()
+
+                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview,
+                    imageCaptureLocal
+                )
+                imageCapture = imageCaptureLocal
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -6375,6 +7370,16 @@ fun CameraScannerTab(
         if (success && tempCameraUri != null) {
             activeBatch.add(ScannedPage(uri = tempCameraUri!!, preset = selectedPreset))
             Toast.makeText(context, "📸 Captured document page successfully!", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val docBatchCameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasCameraPermission = isGranted
+        if (isGranted) {
+            Toast.makeText(context, "Camera permission granted.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -6464,6 +7469,10 @@ fun CameraScannerTab(
                 }
             }
 
+            val imageBmp = remember(page.uri, page.preset) {
+                loadDocumentBitmapFromUri(context, page.uri, page.preset)
+            }
+
             // Warning banner for manual crop adjustment
             val edgeConfidenceLow = remember(tlX, trX, brX, blX) { (tlX > 0.3f || trX < 0.7f || brX < 0.7f || blX > 0.3f) }
             if (edgeConfidenceLow) {
@@ -6503,10 +7512,6 @@ fun CameraScannerTab(
                 val boxHeight = maxHeight
 
                 // Display base scanned image with dynamic Compose filter matrix applied
-                val imageBmp = remember(page.uri, page.preset) {
-                    loadDocumentBitmapFromUri(context, page.uri, page.preset)
-                }
-
                 if (imageBmp != null) {
                     Image(
                         bitmap = imageBmp.asImageBitmap(),
@@ -6701,12 +7706,20 @@ fun CameraScannerTab(
 
                 Button(
                     onClick = {
-                        // Simulate intelligent edge detection placement
-                        tlX = 0.12f; tlY = 0.08f
-                        trX = 0.88f; trY = 0.1f
-                        brX = 0.89f; brY = 0.88f
-                        blX = 0.11f; blY = 0.85f
-                        Toast.makeText(context, "AI Edge-Detection Applied", Toast.LENGTH_SHORT).show()
+                        if (imageBmp != null) {
+                            val corners = detectRealDocumentEdges(imageBmp)
+                            tlX = corners.tlX; tlY = corners.tlY
+                            trX = corners.trX; trY = corners.trY
+                            brX = corners.brX; brY = corners.brY
+                            blX = corners.blX; blY = corners.blY
+                            Toast.makeText(context, "Real Edge Contour Detection Applied", Toast.LENGTH_SHORT).show()
+                        } else {
+                            tlX = 0.08f; tlY = 0.08f
+                            trX = 0.92f; trY = 0.08f
+                            brX = 0.92f; brY = 0.92f
+                            blX = 0.08f; blY = 0.92f
+                            Toast.makeText(context, "Default Frame Edges Set", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     modifier = Modifier.weight(1.2f)
                 ) {
@@ -6989,7 +8002,7 @@ fun CameraScannerTab(
             }
 
             if (activeBatch.isEmpty()) {
-                // Viewfinder Simulated Preview Camera view
+                // Viewfinder Preview Camera view using CameraX
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -6999,6 +8012,29 @@ fun CameraScannerTab(
                         .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center
                 ) {
+                    if (hasCameraPermission) {
+                        AndroidView(
+                            factory = { previewView },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, "Camera Mode", modifier = Modifier.size(52.dp), tint = Color.White.copy(alpha = 0.8f))
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text("Camera Access Required for Edge Scanner", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = { docBatchCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA) }
+                            ) {
+                                Text("Grant Camera Permission", fontSize = 12.sp)
+                            }
+                        }
+                    }
+
                     // Viewfinder Corners Guide overlay
                     Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                         val len = 40f
@@ -7017,25 +8053,12 @@ fun CameraScannerTab(
                         drawLine(color = col, start = Offset(size.width, size.height), end = Offset(size.width, size.height - len), strokeWidth = 5f)
                     }
 
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Icon(Icons.Default.CameraAlt, "Camera Mode", modifier = Modifier.size(52.dp), tint = Color.White.copy(alpha = 0.8f))
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text("Live Cam Viewfinder Frame Active", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Preset: $selectedPreset", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Pinch to zoom: ${zoomFactor}x | Flash Mode: $flashMode", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
-                    }
-
-                    // Simulated Camera Settings Bottom Bar Inside
+                    // Camera Controls Bottom Bar Inside Viewfinder
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter)
-                            .background(Color.Black.copy(alpha = 0.6f))
+                            .background(Color.Black.copy(alpha = 0.65f))
                             .padding(8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -7050,20 +8073,43 @@ fun CameraScannerTab(
                             Text("⚡ $flashMode", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
 
-                        // Big Circle Capture Trigger
+                        // Circular Capture Trigger
                         Box(
                             modifier = Modifier
-                                .size(50.dp)
+                                .size(52.dp)
                                 .clip(CircleShape)
                                 .background(Color.White)
-                                .border(4.dp, Color.Gray, CircleShape)
+                                .border(4.dp, MaterialTheme.colorScheme.primary, CircleShape)
                                 .testTag("capture_scan_btn")
                                 .clickable {
-                                    // Generate a mock URI pointing to some default image or take a fresh scan
-                                    // Let's create a simulated file to append
-                                    val mockUri = Uri.parse("android.resource://" + context.packageName + "/" + com.example.MainActivity::class.java.hashCode())
-                                    activeBatch.add(ScannedPage(uri = mockUri, preset = selectedPreset))
-                                    Toast.makeText(context, "Page captured successfully into batch!", Toast.LENGTH_SHORT).show()
+                                    val uri = createDocumentTempImageUri(context)
+                                    val imgCap = imageCapture
+                                    if (hasCameraPermission && imgCap != null && uri != null) {
+                                        val file = File(context.cacheDir, "doc_scan_${System.currentTimeMillis()}.jpg")
+                                        val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
+                                        imgCap.takePicture(
+                                            outputOptions,
+                                            ContextCompat.getMainExecutor(context),
+                                            object : ImageCapture.OnImageSavedCallback {
+                                                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                                                    val savedUri = FileProvider.getUriForFile(context, "com.example.fileprovider", file)
+                                                    activeBatch.add(ScannedPage(uri = savedUri, preset = selectedPreset))
+                                                    Toast.makeText(context, "📸 Captured document page successfully!", Toast.LENGTH_SHORT).show()
+                                                }
+                                                override fun onError(exception: ImageCaptureException) {
+                                                    tempCameraUri = uri
+                                                    cameraLauncher.launch(uri)
+                                                }
+                                            }
+                                        )
+                                    } else {
+                                        if (uri != null) {
+                                            tempCameraUri = uri
+                                            cameraLauncher.launch(uri)
+                                        } else {
+                                            docBatchCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                        }
+                                    }
                                 }
                         )
 
@@ -7075,7 +8121,7 @@ fun CameraScannerTab(
                     }
                 }
 
-                // Import from gallery or launch real camera
+                // Import from gallery or launch system camera
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -7087,7 +8133,7 @@ fun CameraScannerTab(
                                 tempCameraUri = uri
                                 cameraLauncher.launch(uri)
                             } else {
-                                Toast.makeText(context, "Failed to initialize camera storage.", Toast.LENGTH_SHORT).show()
+                                docBatchCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                             }
                         },
                         modifier = Modifier.weight(1f).height(44.dp),
@@ -7096,7 +8142,7 @@ fun CameraScannerTab(
                     ) {
                         Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("📸 Real Camera Scan", fontSize = 12.sp)
+                        Text("📸 Fullscreen Camera", fontSize = 12.sp)
                     }
 
                     Button(
@@ -7134,7 +8180,7 @@ fun CameraScannerTab(
                                         tempCameraUri = uri
                                         cameraLauncher.launch(uri)
                                     } else {
-                                        Toast.makeText(context, "Failed to initialize camera storage.", Toast.LENGTH_SHORT).show()
+                                        docBatchCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                                     }
                                 },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -7142,20 +8188,17 @@ fun CameraScannerTab(
                             ) {
                                 Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Real Cam", fontSize = 11.sp)
+                                Text("Add Page", fontSize = 11.sp)
                             }
 
                             FilledTonalButton(
-                                onClick = {
-                                    val mockUri = Uri.parse("simulated_doc_" + System.currentTimeMillis())
-                                    activeBatch.add(ScannedPage(uri = mockUri, preset = selectedPreset))
-                                },
+                                onClick = { galleryLauncher.launch("image/*") },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Sim Scan", fontSize = 11.sp)
+                                Text("Add Gallery", fontSize = 11.sp)
                             }
                         }
                     }
@@ -8107,59 +9150,1394 @@ fun LegendItem(label: String, color: Color) {
 
 
 // -------------------------------------------------------------
-// MODULE 12: PDF TOOLS
+// MODULE 12: PDF TOOLS SUITE (FULL NATIVE IMPLEMENTATION)
 // -------------------------------------------------------------
+
+data class PdfToolFileItem(
+    val uri: Uri,
+    val name: String,
+    val sizeFormatted: String,
+    val sizeBytes: Long,
+    val pageCount: Int,
+    val previewBitmap: Bitmap?
+)
+
+enum class ActivePdfTool(
+    val title: String,
+    val description: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    NONE("PDF Tool Suite", "Select a PDF utility tool to begin", Icons.Default.Build),
+    MERGE("Merge PDFs", "Combine multiple PDF files into a single document", Icons.Default.MergeType),
+    SPLIT("Split PDF", "Extract specific pages or page ranges into a new PDF", Icons.Default.CallSplit),
+    COMPRESS("Compress PDF", "Reduce PDF file size with adjustable compression", Icons.Default.PhotoSizeSelectLarge),
+    PDF_TO_IMAGES("PDF to Images", "Convert PDF pages into high quality JPG or PNG images", Icons.Default.PictureInPicture),
+    WATERMARK("Add Watermark", "Overlay custom text stamp or watermark on PDF pages", Icons.Default.BrandingWatermark),
+    ROTATE("Rotate PDF", "Rotate PDF pages 90°, 180°, or 270° orientation", Icons.Default.RotateRight)
+}
+
+fun parsePdfFileItem(context: Context, uri: Uri): PdfToolFileItem? {
+    return try {
+        var name = "Document.pdf"
+        var sizeBytes = 0L
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            val sizeIdx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+            if (cursor.moveToFirst()) {
+                if (nameIdx != -1) name = cursor.getString(nameIdx) ?: name
+                if (sizeIdx != -1) sizeBytes = cursor.getLong(sizeIdx)
+            }
+        }
+        val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
+        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+        val pageCount = renderer.pageCount
+        var previewBmp: Bitmap? = null
+        if (pageCount > 0) {
+            val page = renderer.openPage(0)
+            val aspect = page.width.toFloat() / page.height.toFloat()
+            val targetW = 220
+            val targetH = (targetW / aspect).toInt().coerceIn(120, 320)
+            previewBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(previewBmp)
+            canvas.drawColor(android.graphics.Color.WHITE)
+            page.render(previewBmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.close()
+        }
+        renderer.close()
+        pfd.close()
+
+        val sizeFormatted = if (sizeBytes <= 0) "Unknown size" else {
+            val kb = sizeBytes / 1024.0
+            val mb = kb / 1024.0
+            if (mb >= 1.0) String.format(Locale.US, "%.2f MB", mb) else String.format(Locale.US, "%.1f KB", kb)
+        }
+        PdfToolFileItem(uri, name, sizeFormatted, sizeBytes, pageCount, previewBmp)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
+fun savePdfDocumentToDownloads(context: Context, pdfDoc: android.graphics.pdf.PdfDocument, fileName: String): Uri? {
+    val resolver = context.contentResolver
+    val contentValues = android.content.ContentValues().apply {
+        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+        }
+    }
+    val collectionUri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    } else {
+        android.provider.MediaStore.Files.getContentUri("external")
+    }
+    val uri = resolver.insert(collectionUri, contentValues) ?: return null
+    resolver.openOutputStream(uri)?.use { os ->
+        pdfDoc.writeTo(os)
+    }
+    return uri
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfToolsScreen(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
-    val listTools = listOf(
-        Triple("Merge PDFs", Icons.Default.MergeType, "Combine multiple files sequentially"),
-        Triple("Split PDF", Icons.Default.CallSplit, "Extract specific page arrays"),
-        Triple("Compress PDF", Icons.Default.PhotoSizeSelectLarge, "Reduce size without loss"),
-        Triple("PDF to Images", Icons.Default.PictureInPicture, "Extract JPG page panels"),
-        Triple("Add Watermark", Icons.Default.BrandingWatermark, "Overlay watermark text stamps"),
-        Triple("Rotate PDF", Icons.Default.RotateRight, "Orientate layouts 90/180 degrees")
-    )
+    val coroutineScope = rememberCoroutineScope()
+
+    var activeTool by remember { mutableStateOf(ActivePdfTool.NONE) }
+
+    // Multi-file state for Merge
+    var mergeFiles by remember { mutableStateOf<List<PdfToolFileItem>>(emptyList()) }
+
+    // Single-file state for Split, Compress, PdfToImages, Watermark, Rotate
+    var singleFile by remember { mutableStateOf<PdfToolFileItem?>(null) }
+
+    // Tool Configurations
+    var splitPageRangeText by remember { mutableStateOf("1") }
+    var splitSelectedMode by remember { mutableStateOf("All Pages") } // All Pages, Range, Custom
+
+    var compressQualityPreset by remember { mutableIntStateOf(60) } // 40, 60, 80
+    var compressMaxDimension by remember { mutableIntStateOf(1440) } // 1024, 1440, 1920
+
+    var watermarkText by remember { mutableStateOf("CONFIDENTIAL") }
+    var watermarkColor by remember { mutableStateOf(Color(0xFFE53935)) } // Default Red
+    var watermarkAngle by remember { mutableFloatStateOf(-45f) }
+    var watermarkOpacity by remember { mutableFloatStateOf(0.35f) }
+
+    var rotateAngleDegrees by remember { mutableFloatStateOf(90f) }
+
+    var isPngExportFormat by remember { mutableStateOf(false) }
+
+    // Progress Modal States
+    var isProcessingModalVisible by remember { mutableStateOf(false) }
+    var processingProgress by remember { mutableFloatStateOf(0f) }
+    var processingStatusText by remember { mutableStateOf("") }
+    var completedOutputUri by remember { mutableStateOf<Uri?>(null) }
+    var extractedImagesList by remember { mutableStateOf<List<Bitmap>?>(null) }
+    var isProcessFinished by remember { mutableStateOf(false) }
+
+    // Launchers
+    val pickSinglePdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val item = parsePdfFileItem(context, uri)
+            if (item != null) {
+                singleFile = item
+                if (item.pageCount > 0) {
+                    splitPageRangeText = "1-${item.pageCount}"
+                }
+            } else {
+                Toast.makeText(context, "Failed to read selected PDF file.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val pickMultiplePdfsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (!uris.isNullOrEmpty()) {
+            val newItems = uris.mapNotNull { parsePdfFileItem(context, it) }
+            mergeFiles = mergeFiles + newItems
+        }
+    }
+
+    BackHandler(enabled = activeTool != ActivePdfTool.NONE) {
+        activeTool = ActivePdfTool.NONE
+        singleFile = null
+        mergeFiles = emptyList()
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Utility PDF Handlers", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
-
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(listTools) { tl ->
-                Row(
+        // Top Header
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (activeTool != ActivePdfTool.NONE) {
+                IconButton(onClick = {
+                    activeTool = ActivePdfTool.NONE
+                    singleFile = null
+                    mergeFiles = emptyList()
+                }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back to PDF Tools")
+                }
+            } else {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                        .clickable {
-                            Toast.makeText(context, "${tl.first} operation executed on target!", Toast.LENGTH_SHORT).show()
-                            viewModel.navigateBack()
-                        }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
+                    Icon(
+                        imageVector = Icons.Default.Compress,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = activeTool.title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = activeTool.description,
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+        // Tool Selector Grid (When ActiveTool == NONE)
+        if (activeTool == ActivePdfTool.NONE) {
+            val toolsList = ActivePdfTool.values().filter { it != ActivePdfTool.NONE }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(toolsList) { tool ->
+                    OutlinedCard(
+                        onClick = {
+                            activeTool = tool
+                            singleFile = null
+                            mergeFiles = emptyList()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Icon(imageVector = tl.second, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(tl.first, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text(tl.third, fontSize = 12.sp, color = Color.Gray)
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = tool.icon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(tool.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text(tool.description, fontSize = 12.sp, color = Color.Gray)
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+                        }
                     }
                 }
             }
+        } else {
+            // ACTIVE TOOL WORKSPACE
+            when (activeTool) {
+                ActivePdfTool.MERGE -> {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Selected PDFs (${mergeFiles.size})",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            OutlinedButton(
+                                onClick = { pickMultiplePdfsLauncher.launch(arrayOf("application/pdf")) },
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add PDFs", fontSize = 12.sp)
+                            }
+                        }
+
+                        if (mergeFiles.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                    .clickable { pickMultiplePdfsLauncher.launch(arrayOf("application/pdf")) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Tap to Choose PDF Files", fontWeight = FontWeight.Bold)
+                                    Text("Select two or more PDF files to merge", fontSize = 12.sp, color = Color.Gray)
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(mergeFiles) { idx, item ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (item.previewBitmap != null) {
+                                                Image(
+                                                    bitmap = item.previewBitmap.asImageBitmap(),
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                )
+                                            } else {
+                                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                                                Text("${item.pageCount} pages • ${item.sizeFormatted}", fontSize = 11.sp, color = Color.Gray)
+                                            }
+                                            IconButton(onClick = {
+                                                mergeFiles = mergeFiles.filterIndexed { i, _ -> i != idx }
+                                            }) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (mergeFiles.size < 2) {
+                                        Toast.makeText(context, "Please select at least 2 PDF files to merge!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        isProcessingModalVisible = true
+                                        isProcessFinished = false
+                                        processingProgress = 0.05f
+                                        processingStatusText = "Preparing PDF merger..."
+                                        completedOutputUri = null
+
+                                        coroutineScope.launch {
+                                            processMergePdfs(
+                                                context = context,
+                                                files = mergeFiles,
+                                                onProgress = { prog, status ->
+                                                    processingProgress = prog
+                                                    processingStatusText = status
+                                                },
+                                                onComplete = { uri ->
+                                                    completedOutputUri = uri
+                                                    isProcessFinished = true
+                                                    if (uri != null) {
+                                                        processingProgress = 1.0f
+                                                        processingStatusText = "Merged PDF ready in Downloads!"
+                                                    } else {
+                                                        processingStatusText = "Failed to merge PDFs."
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.MergeType, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Merge ${mergeFiles.size} PDFs")
+                            }
+                        }
+                    }
+                }
+
+                // SPLIT, COMPRESS, PDF_TO_IMAGES, WATERMARK, ROTATE (Single File Selector Studio)
+                else -> {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // File Selector Box
+                        if (singleFile == null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                    .clickable { pickSinglePdfLauncher.launch(arrayOf("application/pdf")) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Tap to Select Target PDF", fontWeight = FontWeight.Bold)
+                                    Text("Choose a PDF document from your phone storage", fontSize = 12.sp, color = Color.Gray)
+                                }
+                            }
+                        } else {
+                            // Selected File Card
+                            OutlinedCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (singleFile?.previewBitmap != null) {
+                                        Image(
+                                            bitmap = singleFile!!.previewBitmap!!.asImageBitmap(),
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(singleFile!!.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                                        Text("${singleFile!!.pageCount} Pages • ${singleFile!!.sizeFormatted}", fontSize = 12.sp, color = Color.Gray)
+                                    }
+                                    TextButton(onClick = { pickSinglePdfLauncher.launch(arrayOf("application/pdf")) }) {
+                                        Text("Change", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            // Tool-Specific Controls
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                when (activeTool) {
+                                    ActivePdfTool.SPLIT -> {
+                                        Text("Extraction Options:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            listOf("All Pages", "Odd Pages", "Even Pages", "Custom Range").forEach { mode ->
+                                                FilterChip(
+                                                    selected = splitSelectedMode == mode,
+                                                    onClick = {
+                                                        splitSelectedMode = mode
+                                                        if (mode == "All Pages") splitPageRangeText = "1-${singleFile?.pageCount}"
+                                                    },
+                                                    label = { Text(mode, fontSize = 11.sp) }
+                                                )
+                                            }
+                                        }
+
+                                        OutlinedTextField(
+                                            value = splitPageRangeText,
+                                            onValueChange = { splitPageRangeText = it },
+                                            label = { Text("Pages to extract (e.g. 1-3, 5)") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                    }
+
+                                    ActivePdfTool.COMPRESS -> {
+                                        Text("Compression Strength:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        listOf(
+                                            Triple("High Compression (~60% smaller)", 50, 1024),
+                                            Triple("Medium Compression (~40% smaller)", 65, 1440),
+                                            Triple("Light Compression (~20% smaller)", 80, 1920)
+                                        ).forEach { (label, qual, maxDim) ->
+                                            OutlinedCard(
+                                                onClick = {
+                                                    compressQualityPreset = qual
+                                                    compressMaxDimension = maxDim
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                border = BorderStroke(
+                                                    1.5.dp,
+                                                    if (compressQualityPreset == qual) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                                ),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    RadioButton(selected = compressQualityPreset == qual, onClick = null)
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    ActivePdfTool.PDF_TO_IMAGES -> {
+                                        Text("Export Image Format:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            FilterChip(
+                                                selected = !isPngExportFormat,
+                                                onClick = { isPngExportFormat = false },
+                                                label = { Text("JPG (Smaller Size)", fontSize = 12.sp) }
+                                            )
+                                            FilterChip(
+                                                selected = isPngExportFormat,
+                                                onClick = { isPngExportFormat = true },
+                                                label = { Text("PNG (Lossless High Quality)", fontSize = 12.sp) }
+                                            )
+                                        }
+                                    }
+
+                                    ActivePdfTool.WATERMARK -> {
+                                        Text("Watermark Stamp Settings:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        OutlinedTextField(
+                                            value = watermarkText,
+                                            onValueChange = { watermarkText = it },
+                                            label = { Text("Watermark Text") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+
+                                        Text("Text Color:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            listOf(
+                                                Color(0xFFE53935) to "Red",
+                                                Color(0xFF424242) to "Gray",
+                                                Color(0xFF1E88E5) to "Blue",
+                                                Color(0xFF43A047) to "Green"
+                                            ).forEach { (color, name) ->
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = color,
+                                                    modifier = Modifier
+                                                        .size(36.dp)
+                                                        .border(
+                                                            2.dp,
+                                                            if (watermarkColor == color) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                            CircleShape
+                                                        )
+                                                        .clickable { watermarkColor = color }
+                                                ) {}
+                                            }
+                                        }
+
+                                        Text("Stamp Angle:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            listOf(-45f to "-45° Diagonal", 0f to "0° Horizontal", 45f to "45° Diagonal").forEach { (angle, label) ->
+                                                FilterChip(
+                                                    selected = watermarkAngle == angle,
+                                                    onClick = { watermarkAngle = angle },
+                                                    label = { Text(label, fontSize = 11.sp) }
+                                                )
+                                            }
+                                        }
+
+                                        Text("Opacity (${(watermarkOpacity * 100).toInt()}%):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Slider(
+                                            value = watermarkOpacity,
+                                            onValueChange = { watermarkOpacity = it },
+                                            valueRange = 0.15f..0.8f
+                                        )
+                                    }
+
+                                    ActivePdfTool.ROTATE -> {
+                                        Text("Rotation Orientation:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            listOf(
+                                                90f to "90° Clockwise",
+                                                180f to "180° Flip",
+                                                270f to "270° CCW"
+                                            ).forEach { (angle, label) ->
+                                                FilterChip(
+                                                    selected = rotateAngleDegrees == angle,
+                                                    onClick = { rotateAngleDegrees = angle },
+                                                    label = { Text(label, fontSize = 12.sp) }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    else -> {}
+                                }
+                            }
+
+                            // Process Button
+                            Button(
+                                onClick = {
+                                    val targetFile = singleFile ?: return@Button
+                                    isProcessingModalVisible = true
+                                    isProcessFinished = false
+                                    processingProgress = 0.05f
+                                    processingStatusText = "Preparing operation..."
+                                    completedOutputUri = null
+                                    extractedImagesList = null
+
+                                    coroutineScope.launch {
+                                        when (activeTool) {
+                                            ActivePdfTool.SPLIT -> {
+                                                val total = targetFile.pageCount
+                                                val pagesSet = mutableSetOf<Int>()
+
+                                                if (splitSelectedMode == "Odd Pages") {
+                                                    for (p in 1..total step 2) pagesSet.add(p)
+                                                } else if (splitSelectedMode == "Even Pages") {
+                                                    for (p in 2..total step 2) pagesSet.add(p)
+                                                } else {
+                                                    // Parse range string e.g. "1-3, 5"
+                                                    val parts = splitPageRangeText.split(",")
+                                                    for (part in parts) {
+                                                        val trimmed = part.trim()
+                                                        if (trimmed.contains("-")) {
+                                                            val bounds = trimmed.split("-")
+                                                            val start = bounds.getOrNull(0)?.toIntOrNull() ?: 1
+                                                            val end = bounds.getOrNull(1)?.toIntOrNull() ?: total
+                                                            for (p in start..end) {
+                                                                if (p in 1..total) pagesSet.add(p)
+                                                            }
+                                                        } else {
+                                                            val p = trimmed.toIntOrNull()
+                                                            if (p != null && p in 1..total) pagesSet.add(p)
+                                                        }
+                                                    }
+                                                }
+
+                                                if (pagesSet.isEmpty()) {
+                                                    for (p in 1..total) pagesSet.add(p)
+                                                }
+
+                                                processSplitPdf(
+                                                    context = context,
+                                                    fileItem = targetFile,
+                                                    selectedPages = pagesSet,
+                                                    onProgress = { prog, status ->
+                                                        processingProgress = prog
+                                                        processingStatusText = status
+                                                    },
+                                                    onComplete = { uri ->
+                                                        completedOutputUri = uri
+                                                        isProcessFinished = true
+                                                        if (uri != null) {
+                                                            processingProgress = 1.0f
+                                                            processingStatusText = "Split PDF saved to Downloads!"
+                                                        } else {
+                                                            processingStatusText = "Failed to split PDF."
+                                                        }
+                                                    }
+                                                )
+                                            }
+
+                                            ActivePdfTool.COMPRESS -> {
+                                                processCompressPdf(
+                                                    context = context,
+                                                    fileItem = targetFile,
+                                                    qualityPercent = compressQualityPreset,
+                                                    maxDimension = compressMaxDimension,
+                                                    onProgress = { prog, status ->
+                                                        processingProgress = prog
+                                                        processingStatusText = status
+                                                    },
+                                                    onComplete = { uri ->
+                                                        completedOutputUri = uri
+                                                        isProcessFinished = true
+                                                        if (uri != null) {
+                                                            processingProgress = 1.0f
+                                                            processingStatusText = "Compressed PDF saved to Downloads!"
+                                                        } else {
+                                                            processingStatusText = "Failed to compress PDF."
+                                                        }
+                                                    }
+                                                )
+                                            }
+
+                                            ActivePdfTool.PDF_TO_IMAGES -> {
+                                                processPdfToImages(
+                                                    context = context,
+                                                    fileItem = targetFile,
+                                                    isPngFormat = isPngExportFormat,
+                                                    onProgress = { prog, status ->
+                                                        processingProgress = prog
+                                                        processingStatusText = status
+                                                    },
+                                                    onComplete = { list ->
+                                                        extractedImagesList = list
+                                                        isProcessFinished = true
+                                                        if (!list.isNullOrEmpty()) {
+                                                            processingProgress = 1.0f
+                                                            processingStatusText = "Extracted ${list.size} page images saved to Pictures/PDF_Images!"
+                                                        } else {
+                                                            processingStatusText = "Failed to extract images."
+                                                        }
+                                                    }
+                                                )
+                                            }
+
+                                            ActivePdfTool.WATERMARK -> {
+                                                processAddWatermarkPdf(
+                                                    context = context,
+                                                    fileItem = targetFile,
+                                                    watermarkText = watermarkText,
+                                                    textColor = watermarkColor,
+                                                    textSizeSp = 40f,
+                                                    rotationAngle = watermarkAngle,
+                                                    opacity = watermarkOpacity,
+                                                    onProgress = { prog, status ->
+                                                        processingProgress = prog
+                                                        processingStatusText = status
+                                                    },
+                                                    onComplete = { uri ->
+                                                        completedOutputUri = uri
+                                                        isProcessFinished = true
+                                                        if (uri != null) {
+                                                            processingProgress = 1.0f
+                                                            processingStatusText = "Watermarked PDF saved to Downloads!"
+                                                        } else {
+                                                            processingStatusText = "Failed to apply watermark."
+                                                        }
+                                                    }
+                                                )
+                                            }
+
+                                            ActivePdfTool.ROTATE -> {
+                                                processRotatePdf(
+                                                    context = context,
+                                                    fileItem = targetFile,
+                                                    rotationAngleDegrees = rotateAngleDegrees,
+                                                    onProgress = { prog, status ->
+                                                        processingProgress = prog
+                                                        processingStatusText = status
+                                                    },
+                                                    onComplete = { uri ->
+                                                        completedOutputUri = uri
+                                                        isProcessFinished = true
+                                                        if (uri != null) {
+                                                            processingProgress = 1.0f
+                                                            processingStatusText = "Rotated PDF saved to Downloads!"
+                                                        } else {
+                                                            processingStatusText = "Failed to rotate PDF."
+                                                        }
+                                                    }
+                                                )
+                                            }
+
+                                            else -> {}
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(activeTool.icon, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Execute ${activeTool.title}")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // REAL-TIME PROGRESS MODAL OVERLAY
+    if (isProcessingModalVisible) {
+        Dialog(
+            onDismissRequest = {
+                if (isProcessFinished) isProcessingModalVisible = false
+            },
+            properties = DialogProperties(dismissOnBackPress = isProcessFinished, dismissOnClickOutside = isProcessFinished)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isProcessFinished && (completedOutputUri != null || !extractedImagesList.isNullOrEmpty()))
+                                        Color(0xFF10B981).copy(alpha = 0.15f)
+                                    else
+                                        MaterialTheme.colorScheme.primaryContainer
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isProcessFinished && (completedOutputUri != null || !extractedImagesList.isNullOrEmpty()))
+                                    Icons.Default.CheckCircle
+                                else
+                                    activeTool.icon,
+                                contentDescription = null,
+                                tint = if (isProcessFinished && (completedOutputUri != null || !extractedImagesList.isNullOrEmpty()))
+                                    Color(0xFF10B981)
+                                else
+                                    MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = if (isProcessFinished) "Operation Complete!" else "Processing ${activeTool.title}...",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "PDF Tool Processor Engine",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // Percentage Badge & Animated Progress Bar
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        val pct = (processingProgress * 100).coerceIn(0f, 100f).toInt()
+                        Text(
+                            text = "$pct%",
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (isProcessFinished) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        LinearProgressIndicator(
+                            progress = { processingProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(12.dp)
+                                .clip(RoundedCornerShape(6.dp)),
+                            color = if (isProcessFinished) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = processingStatusText,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Extracted Images Preview Grid (For PDF to Images)
+                    if (isProcessFinished && !extractedImagesList.isNullOrEmpty()) {
+                        Text("Extracted Page Images (${extractedImagesList!!.size}):", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(extractedImagesList!!) { bmp ->
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(70.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                )
+                            }
+                        }
+                    }
+
+                    if (isProcessFinished) {
+                        Surface(
+                            color = Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Folder, contentDescription = null, tint = Color(0xFF0F172A), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (activeTool == ActivePdfTool.PDF_TO_IMAGES)
+                                        "Images saved into Pictures/PDF_Images folder on device."
+                                    else
+                                        "Result saved directly into Downloads folder on device phone storage.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF334155)
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (completedOutputUri != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(completedOutputUri, "application/pdf")
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "No PDF viewer app found", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Open PDF", fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                putExtra(Intent.EXTRA_STREAM, completedOutputUri)
+                                                type = "application/pdf"
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share Result PDF"))
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Cannot share file", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Share", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                isProcessingModalVisible = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Done")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper PDF execution functions
+suspend fun processMergePdfs(
+    context: Context,
+    files: List<PdfToolFileItem>,
+    onProgress: (Float, String) -> Unit,
+    onComplete: (Uri?) -> Unit
+) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            onProgress(0.05f, "Preparing PDF merger engine...")
+            val pdfDoc = android.graphics.pdf.PdfDocument()
+            val totalPages = files.sumOf { it.pageCount }.coerceAtLeast(1)
+            var currentProcessedPage = 0
+
+            for ((fileIdx, fileItem) in files.withIndex()) {
+                val pfd = context.contentResolver.openFileDescriptor(fileItem.uri, "r") ?: continue
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                val count = renderer.pageCount
+
+                for (i in 0 until count) {
+                    currentProcessedPage++
+                    val prog = 0.10f + (currentProcessedPage.toFloat() / totalPages.toFloat()) * 0.78f
+                    onProgress(prog, "Merging file ${fileIdx + 1} page ${i + 1} of $count ($currentProcessedPage/$totalPages)...")
+
+                    val page = renderer.openPage(i)
+                    val scale = 1.5f
+                    val w = (page.width * scale).toInt().coerceAtLeast(100)
+                    val h = (page.height * scale).toInt().coerceAtLeast(100)
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bmp)
+                    canvas.drawColor(android.graphics.Color.WHITE)
+                    page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(page.width, page.height, currentProcessedPage).create()
+                    val docPage = pdfDoc.startPage(pageInfo)
+                    val docCanvas = docPage.canvas
+                    val srcRect = android.graphics.Rect(0, 0, bmp.width, bmp.height)
+                    val destRect = android.graphics.RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
+                    val paint = android.graphics.Paint().apply {
+                        isAntiAlias = true
+                        isFilterBitmap = true
+                    }
+                    docCanvas.drawBitmap(bmp, srcRect, destRect, paint)
+                    pdfDoc.finishPage(docPage)
+                    bmp.recycle()
+                }
+                renderer.close()
+                pfd.close()
+            }
+
+            onProgress(0.92f, "Saving merged PDF file to Downloads...")
+            val resultUri = savePdfDocumentToDownloads(context, pdfDoc, "Merged_${System.currentTimeMillis()}.pdf")
+            pdfDoc.close()
+            onProgress(1.00f, "PDF Merge complete! File saved.")
+            onComplete(resultUri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onComplete(null)
+        }
+    }
+}
+
+suspend fun processSplitPdf(
+    context: Context,
+    fileItem: PdfToolFileItem,
+    selectedPages: Set<Int>,
+    onProgress: (Float, String) -> Unit,
+    onComplete: (Uri?) -> Unit
+) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            onProgress(0.05f, "Preparing PDF page extractor...")
+            val pdfDoc = android.graphics.pdf.PdfDocument()
+            val pfd = context.contentResolver.openFileDescriptor(fileItem.uri, "r")
+            if (pfd == null) {
+                onComplete(null)
+                return@withContext
+            }
+            val renderer = android.graphics.pdf.PdfRenderer(pfd)
+            val sortedPages = selectedPages.sorted()
+            val totalToExtract = sortedPages.size.coerceAtLeast(1)
+
+            for ((idx, pageNum) in sortedPages.withIndex()) {
+                if (pageNum in 1..renderer.pageCount) {
+                    val prog = 0.10f + ((idx + 1).toFloat() / totalToExtract.toFloat()) * 0.78f
+                    onProgress(prog, "Extracting page $pageNum (${idx + 1}/$totalToExtract)...")
+
+                    val page = renderer.openPage(pageNum - 1)
+                    val scale = 1.5f
+                    val w = (page.width * scale).toInt().coerceAtLeast(100)
+                    val h = (page.height * scale).toInt().coerceAtLeast(100)
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bmp)
+                    canvas.drawColor(android.graphics.Color.WHITE)
+                    page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+
+                    val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(page.width, page.height, idx + 1).create()
+                    val docPage = pdfDoc.startPage(pageInfo)
+                    val docCanvas = docPage.canvas
+                    val srcRect = android.graphics.Rect(0, 0, bmp.width, bmp.height)
+                    val destRect = android.graphics.RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
+                    val paint = android.graphics.Paint().apply {
+                        isAntiAlias = true
+                        isFilterBitmap = true
+                    }
+                    docCanvas.drawBitmap(bmp, srcRect, destRect, paint)
+                    pdfDoc.finishPage(docPage)
+                    bmp.recycle()
+                }
+            }
+            renderer.close()
+            pfd.close()
+
+            onProgress(0.92f, "Saving split PDF document...")
+            val resultUri = savePdfDocumentToDownloads(context, pdfDoc, "Split_${System.currentTimeMillis()}.pdf")
+            pdfDoc.close()
+            onProgress(1.00f, "PDF Split complete! File saved.")
+            onComplete(resultUri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onComplete(null)
+        }
+    }
+}
+
+suspend fun processCompressPdf(
+    context: Context,
+    fileItem: PdfToolFileItem,
+    qualityPercent: Int,
+    maxDimension: Int,
+    onProgress: (Float, String) -> Unit,
+    onComplete: (Uri?) -> Unit
+) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            onProgress(0.05f, "Initializing PDF compressor...")
+            val pdfDoc = android.graphics.pdf.PdfDocument()
+            val pfd = context.contentResolver.openFileDescriptor(fileItem.uri, "r") ?: return@withContext onComplete(null)
+            val renderer = android.graphics.pdf.PdfRenderer(pfd)
+            val totalPages = renderer.pageCount.coerceAtLeast(1)
+
+            for (i in 0 until totalPages) {
+                val prog = 0.10f + ((i + 1).toFloat() / totalPages.toFloat()) * 0.78f
+                onProgress(prog, "Compressing page ${i + 1} of $totalPages ($qualityPercent% quality)...")
+
+                val page = renderer.openPage(i)
+                val origW = page.width
+                val origH = page.height
+
+                val aspect = origW.toFloat() / origH.toFloat()
+                val targetW = if (origW > maxDimension || origH > maxDimension) {
+                    if (aspect > 1f) maxDimension else (maxDimension * aspect).toInt()
+                } else origW
+
+                val targetH = if (origW > maxDimension || origH > maxDimension) {
+                    if (aspect > 1f) (maxDimension / aspect).toInt() else maxDimension
+                } else origH
+
+                var rawBmp = Bitmap.createBitmap(targetW.coerceAtLeast(100), targetH.coerceAtLeast(100), Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(rawBmp)
+                canvas.drawColor(android.graphics.Color.WHITE)
+                page.render(rawBmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+
+                val baos = java.io.ByteArrayOutputStream()
+                rawBmp.compress(Bitmap.CompressFormat.JPEG, qualityPercent, baos)
+                val bytes = baos.toByteArray()
+                baos.close()
+                rawBmp.recycle()
+
+                val compressedBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+
+                val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(targetW, targetH, i + 1).create()
+                val docPage = pdfDoc.startPage(pageInfo)
+                val docCanvas = docPage.canvas
+                val srcRect = android.graphics.Rect(0, 0, compressedBmp.width, compressedBmp.height)
+                val destRect = android.graphics.RectF(0f, 0f, targetW.toFloat(), targetH.toFloat())
+                val paint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    isFilterBitmap = true
+                }
+                docCanvas.drawBitmap(compressedBmp, srcRect, destRect, paint)
+                pdfDoc.finishPage(docPage)
+                compressedBmp.recycle()
+            }
+            renderer.close()
+            pfd.close()
+
+            onProgress(0.92f, "Writing compressed PDF to storage...")
+            val resultUri = savePdfDocumentToDownloads(context, pdfDoc, "Compressed_${System.currentTimeMillis()}.pdf")
+            pdfDoc.close()
+            onProgress(1.00f, "PDF Compression complete!")
+            onComplete(resultUri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onComplete(null)
+        }
+    }
+}
+
+suspend fun processPdfToImages(
+    context: Context,
+    fileItem: PdfToolFileItem,
+    isPngFormat: Boolean,
+    onProgress: (Float, String) -> Unit,
+    onComplete: (List<Bitmap>?) -> Unit
+) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            onProgress(0.05f, "Rendering PDF pages into high-res images...")
+            val pfd = context.contentResolver.openFileDescriptor(fileItem.uri, "r") ?: return@withContext onComplete(null)
+            val renderer = android.graphics.pdf.PdfRenderer(pfd)
+            val totalPages = renderer.pageCount.coerceAtLeast(1)
+            val extractedBitmaps = mutableListOf<Bitmap>()
+
+            for (i in 0 until totalPages) {
+                val prog = 0.10f + ((i + 1).toFloat() / totalPages.toFloat()) * 0.85f
+                onProgress(prog, "Extracting page image ${i + 1} of $totalPages...")
+
+                val page = renderer.openPage(i)
+                val scale = 1.8f
+                val w = (page.width * scale).toInt().coerceAtLeast(100)
+                val h = (page.height * scale).toInt().coerceAtLeast(100)
+                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bmp)
+                canvas.drawColor(android.graphics.Color.WHITE)
+                page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+
+                val extension = if (isPngFormat) "png" else "jpg"
+                val mimeType = if (isPngFormat) "image/png" else "image/jpeg"
+                val name = "PDF_Page_${i + 1}_${System.currentTimeMillis()}.$extension"
+
+                val resolver = context.contentResolver
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/PDF_Images")
+                    }
+                }
+                val imageUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (imageUri != null) {
+                    resolver.openOutputStream(imageUri)?.use { os ->
+                        if (isPngFormat) {
+                            bmp.compress(Bitmap.CompressFormat.PNG, 100, os)
+                        } else {
+                            bmp.compress(Bitmap.CompressFormat.JPEG, 95, os)
+                        }
+                    }
+                }
+
+                extractedBitmaps.add(bmp)
+            }
+            renderer.close()
+            pfd.close()
+
+            onProgress(1.00f, "Extracted ${extractedBitmaps.size} page images successfully!")
+            onComplete(extractedBitmaps)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onComplete(null)
+        }
+    }
+}
+
+suspend fun processAddWatermarkPdf(
+    context: Context,
+    fileItem: PdfToolFileItem,
+    watermarkText: String,
+    textColor: Color,
+    textSizeSp: Float,
+    rotationAngle: Float,
+    opacity: Float,
+    onProgress: (Float, String) -> Unit,
+    onComplete: (Uri?) -> Unit
+) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            onProgress(0.05f, "Initializing watermark renderer...")
+            val pdfDoc = android.graphics.pdf.PdfDocument()
+            val pfd = context.contentResolver.openFileDescriptor(fileItem.uri, "r") ?: return@withContext onComplete(null)
+            val renderer = android.graphics.pdf.PdfRenderer(pfd)
+            val totalPages = renderer.pageCount.coerceAtLeast(1)
+
+            val paintColorInt = android.graphics.Color.argb(
+                (opacity * 255).toInt(),
+                (textColor.red * 255).toInt(),
+                (textColor.green * 255).toInt(),
+                (textColor.blue * 255).toInt()
+            )
+
+            for (i in 0 until totalPages) {
+                val prog = 0.10f + ((i + 1).toFloat() / totalPages.toFloat()) * 0.78f
+                onProgress(prog, "Watermarking page ${i + 1} of $totalPages...")
+
+                val page = renderer.openPage(i)
+                val scale = 1.5f
+                val w = (page.width * scale).toInt().coerceAtLeast(100)
+                val h = (page.height * scale).toInt().coerceAtLeast(100)
+                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bmp)
+                canvas.drawColor(android.graphics.Color.WHITE)
+                page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+
+                val wmPaint = android.graphics.Paint().apply {
+                    color = paintColorInt
+                    textSize = textSizeSp * scale
+                    isAntiAlias = true
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                    textAlign = android.graphics.Paint.Align.CENTER
+                }
+
+                canvas.save()
+                canvas.translate(w / 2f, h / 2f)
+                canvas.rotate(rotationAngle)
+                canvas.drawText(watermarkText, 0f, 0f, wmPaint)
+                canvas.restore()
+
+                val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(page.width, page.height, i + 1).create()
+                val docPage = pdfDoc.startPage(pageInfo)
+                val docCanvas = docPage.canvas
+                val srcRect = android.graphics.Rect(0, 0, bmp.width, bmp.height)
+                val destRect = android.graphics.RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
+                val paint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    isFilterBitmap = true
+                }
+                docCanvas.drawBitmap(bmp, srcRect, destRect, paint)
+                pdfDoc.finishPage(docPage)
+                bmp.recycle()
+            }
+            renderer.close()
+            pfd.close()
+
+            onProgress(0.92f, "Saving watermarked PDF file...")
+            val resultUri = savePdfDocumentToDownloads(context, pdfDoc, "Watermarked_${System.currentTimeMillis()}.pdf")
+            pdfDoc.close()
+            onProgress(1.00f, "Watermark applied successfully!")
+            onComplete(resultUri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onComplete(null)
+        }
+    }
+}
+
+suspend fun processRotatePdf(
+    context: Context,
+    fileItem: PdfToolFileItem,
+    rotationAngleDegrees: Float,
+    onProgress: (Float, String) -> Unit,
+    onComplete: (Uri?) -> Unit
+) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            onProgress(0.05f, "Preparing PDF rotator...")
+            val pdfDoc = android.graphics.pdf.PdfDocument()
+            val pfd = context.contentResolver.openFileDescriptor(fileItem.uri, "r") ?: return@withContext onComplete(null)
+            val renderer = android.graphics.pdf.PdfRenderer(pfd)
+            val totalPages = renderer.pageCount.coerceAtLeast(1)
+
+            for (i in 0 until totalPages) {
+                val prog = 0.10f + ((i + 1).toFloat() / totalPages.toFloat()) * 0.78f
+                onProgress(prog, "Rotating page ${i + 1} of $totalPages (${rotationAngleDegrees.toInt()}°)...")
+
+                val page = renderer.openPage(i)
+                val scale = 1.5f
+                val origW = (page.width * scale).toInt().coerceAtLeast(100)
+                val origH = (page.height * scale).toInt().coerceAtLeast(100)
+                val bmp = Bitmap.createBitmap(origW, origH, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bmp)
+                canvas.drawColor(android.graphics.Color.WHITE)
+                page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+
+                val matrix = android.graphics.Matrix().apply {
+                    postRotate(rotationAngleDegrees)
+                }
+                val rotatedBmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                bmp.recycle()
+
+                val newPdfPageWidth = if (rotationAngleDegrees == 90f || rotationAngleDegrees == 270f) page.height else page.width
+                val newPdfPageHeight = if (rotationAngleDegrees == 90f || rotationAngleDegrees == 270f) page.width else page.height
+
+                val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(newPdfPageWidth, newPdfPageHeight, i + 1).create()
+                val docPage = pdfDoc.startPage(pageInfo)
+                val docCanvas = docPage.canvas
+                val srcRect = android.graphics.Rect(0, 0, rotatedBmp.width, rotatedBmp.height)
+                val destRect = android.graphics.RectF(0f, 0f, newPdfPageWidth.toFloat(), newPdfPageHeight.toFloat())
+                val paint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    isFilterBitmap = true
+                }
+                docCanvas.drawBitmap(rotatedBmp, srcRect, destRect, paint)
+                pdfDoc.finishPage(docPage)
+                rotatedBmp.recycle()
+            }
+            renderer.close()
+            pfd.close()
+
+            onProgress(0.92f, "Saving rotated PDF file...")
+            val resultUri = savePdfDocumentToDownloads(context, pdfDoc, "Rotated_${System.currentTimeMillis()}.pdf")
+            pdfDoc.close()
+            onProgress(1.00f, "PDF pages rotated successfully!")
+            onComplete(resultUri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onComplete(null)
         }
     }
 }
@@ -8397,345 +10775,795 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
 
     val availableCategories = listOf("All") + products.map { it.category }.distinct()
 
-    Row(modifier = Modifier.fillMaxSize()) {
-        // LEFT COLUMN: Product Catalog & Terminal Selection
-        Column(modifier = Modifier.weight(1.8f).padding(8.dp)) {
-            // Top Industry Bar
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                items(industryModes) { mode ->
-                    FilterChip(
-                        selected = selectedIndustryMode == mode,
-                        onClick = { selectedIndustryMode = mode },
-                        label = { Text(mode, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                        leadingIcon = {
-                            if (selectedIndustryMode == mode) {
-                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
-                            }
-                        }
-                    )
-                }
-            }
+    var compactTab by remember { mutableStateOf(0) } // 0 = Catalog, 1 = Cart
+    val totalCartCount = cartItems.sumOf { it.quantity }
 
-            // Search Bar & Barcode Scanner Simulator
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search by Product Name, SKU, or Barcode...", fontSize = 12.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = null)
-                        }
-                    }
-                },
-                singleLine = true
-            )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWide = maxWidth >= 600.dp
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Categories Filter Chips
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(availableCategories) { cat ->
-                    ElevatedFilterChip(
-                        selected = selectedCategory == cat,
-                        onClick = { selectedCategory = cat },
-                        label = { Text(cat, fontSize = 10.sp) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Products Grid
-            if (filteredProducts.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.ProductionQuantityLimits, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.Gray)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("No products found", color = Color.Gray, fontSize = 13.sp)
-                        Button(
-                            onClick = { loadEnterpriseDemoData(viewModel) },
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Load Enterprise Demo Catalog", fontSize = 12.sp)
-                        }
-                    }
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(filteredProducts) { product ->
-                        Card(
-                            onClick = {
-                                val existing = cartItems.find { it.productId == product.id }
-                                if (existing != null) {
-                                    val idx = cartItems.indexOf(existing)
-                                    cartItems[idx] = existing.copy(quantity = existing.quantity + 1)
-                                } else {
-                                    cartItems.add(
-                                        PosOrderItem(
-                                            id = UUID.randomUUID().toString(),
-                                            orderId = "",
-                                            productId = product.id,
-                                            name = product.name,
-                                            quantity = 1,
-                                            price = product.price
-                                        )
-                                    )
+        if (isWide) {
+            // WIDE SCREEN LAYOUT (Tablets / Landscape)
+            Row(modifier = Modifier.fillMaxSize()) {
+                // LEFT COLUMN: Product Catalog
+                Column(modifier = Modifier.weight(1.8f).padding(8.dp)) {
+                    // Top Industry Bar
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                        items(industryModes) { mode ->
+                            FilterChip(
+                                selected = selectedIndustryMode == mode,
+                                onClick = { selectedIndustryMode = mode },
+                                label = { Text(mode, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                                leadingIcon = {
+                                    if (selectedIndustryMode == mode) {
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    }
                                 }
-                            },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (product.stock <= 0) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text(
-                                    product.name,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    maxLines = 2
-                                )
-                                Text(
-                                    product.category,
-                                    fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        "Rs ${String.format("%.0f", product.price)}",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.secondary
-                                    )
-                                    Text(
-                                        if (product.stock > 0) "${product.stock} ${product.unit}" else "Out of stock",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (product.stock > 10) Color(0xFF2E7D32) else if (product.stock > 0) Color(0xFFE65100) else Color.Red
-                                    )
-                                }
-                            }
+                            )
                         }
                     }
-                }
-            }
-        }
 
-        Divider(modifier = Modifier.width(1.dp).fillMaxHeight())
-
-        // RIGHT COLUMN: Live Order Cart & Payment Controller
-        Column(modifier = Modifier.weight(1.5f).padding(8.dp)) {
-            // Header Info
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Order Terminal Cart", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                if (cartItems.isNotEmpty()) {
-                    TextButton(onClick = { cartItems.clear() }) {
-                        Text("Clear All", color = Color.Red, fontSize = 11.sp)
-                    }
-                }
-            }
-
-            // Customer & Order Mode Selectors
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                var showClientPicker by remember { mutableStateOf(false) }
-                OutlinedButton(
-                    onClick = { showClientPicker = true },
-                    modifier = Modifier.weight(1f).height(38.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        selectedClient?.name ?: "Walk-in Customer",
-                        fontSize = 10.sp,
-                        maxLines = 1
-                    )
-                }
-
-                if (showClientPicker) {
-                    AlertDialog(
-                        onDismissRequest = { showClientPicker = false },
-                        title = { Text("Select Registered Client / Ledger") },
-                        text = {
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                item {
-                                    ListItem(
-                                        headlineContent = { Text("Walk-in Customer (Guest)", fontWeight = FontWeight.Bold) },
-                                        modifier = Modifier.clickable {
-                                            selectedClient = null
-                                            showClientPicker = false
-                                        }
-                                    )
-                                }
-                                items(clients) { client ->
-                                    ListItem(
-                                        headlineContent = { Text(client.name, fontWeight = FontWeight.Bold) },
-                                        supportingContent = { Text("${client.type} • ${client.phone}") },
-                                        modifier = Modifier.clickable {
-                                            selectedClient = client
-                                            showClientPicker = false
-                                        }
-                                    )
+                    // Search Bar
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search by Product Name, SKU, or Barcode...", fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = null)
                                 }
                             }
                         },
-                        confirmButton = { TextButton(onClick = { showClientPicker = false }) { Text("Close") } }
+                        singleLine = true
                     )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Categories Filter Chips
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(availableCategories) { cat ->
+                            ElevatedFilterChip(
+                                selected = selectedCategory == cat,
+                                onClick = { selectedCategory = cat },
+                                label = { Text(cat, fontSize = 10.sp) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Products Grid
+                    if (filteredProducts.isEmpty()) {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.ProductionQuantityLimits, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.Gray)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("No products found", color = Color.Gray, fontSize = 13.sp)
+                                Button(
+                                    onClick = { loadEnterpriseDemoData(viewModel) },
+                                    modifier = Modifier.padding(top = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Load Enterprise Demo Catalog", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(filteredProducts) { product ->
+                                Card(
+                                    onClick = {
+                                        val existing = cartItems.find { it.productId == product.id }
+                                        if (existing != null) {
+                                            val idx = cartItems.indexOf(existing)
+                                            cartItems[idx] = existing.copy(quantity = existing.quantity + 1)
+                                        } else {
+                                            cartItems.add(
+                                                PosOrderItem(
+                                                    id = UUID.randomUUID().toString(),
+                                                    orderId = "",
+                                                    productId = product.id,
+                                                    name = product.name,
+                                                    quantity = 1,
+                                                    price = product.price
+                                                )
+                                            )
+                                        }
+                                    },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (product.stock <= 0) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                        else MaterialTheme.colorScheme.surfaceVariant
+                                    ),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text(product.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 2)
+                                        Text(product.category, fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                "Rs ${String.format("%.0f", product.price)}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
+                                            Text(
+                                                if (product.stock > 0) "${product.stock} ${product.unit}" else "Out of stock",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (product.stock > 10) Color(0xFF2E7D32) else if (product.stock > 0) Color(0xFFE65100) else Color.Red
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Divider(modifier = Modifier.width(1.dp).fillMaxHeight())
+
+                // RIGHT COLUMN: Live Order Cart & Payment Controller
+                Column(modifier = Modifier.weight(1.2f).padding(8.dp)) {
+                    // Header Info
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Order Terminal Cart", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        if (cartItems.isNotEmpty()) {
+                            TextButton(onClick = { cartItems.clear() }) {
+                                Text("Clear All", color = Color.Red, fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    // Customer Selector
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        var showClientPicker by remember { mutableStateOf(false) }
+                        OutlinedButton(
+                            onClick = { showClientPicker = true },
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                selectedClient?.name ?: "Walk-in Customer",
+                                fontSize = 10.sp,
+                                maxLines = 1
+                            )
+                        }
+
+                        if (showClientPicker) {
+                            AlertDialog(
+                                onDismissRequest = { showClientPicker = false },
+                                title = { Text("Select Registered Client / Ledger") },
+                                text = {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        item {
+                                            ListItem(
+                                                headlineContent = { Text("Walk-in Customer (Guest)", fontWeight = FontWeight.Bold) },
+                                                modifier = Modifier.clickable {
+                                                    selectedClient = null
+                                                    showClientPicker = false
+                                                }
+                                            )
+                                        }
+                                        items(clients) { client ->
+                                            ListItem(
+                                                headlineContent = { Text(client.name, fontWeight = FontWeight.Bold) },
+                                                supportingContent = { Text("${client.type} • ${client.phone}") },
+                                                modifier = Modifier.clickable {
+                                                    selectedClient = client
+                                                    showClientPicker = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                },
+                                confirmButton = { TextButton(onClick = { showClientPicker = false }) { Text("Close") } }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Cart Items List
+                    if (cartItems.isEmpty()) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Cart is empty\nTap items on the left to add", color = Color.Gray, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            itemsIndexed(cartItems) { index, item ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(6.dp).fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(item.name, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            Text("Rs ${item.price} x ${item.quantity} = Rs ${item.price * item.quantity}", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    if (item.quantity > 1) {
+                                                        cartItems[index] = item.copy(quantity = item.quantity - 1)
+                                                    } else {
+                                                        cartItems.removeAt(index)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            }
+                                            Text("${item.quantity}", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                                            IconButton(
+                                                onClick = { cartItems[index] = item.copy(quantity = item.quantity + 1) },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { cartItems.removeAt(index) },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // PINNED BOTTOM TAX, DISCOUNT & GRAND TOTAL CHECKOUT CARD
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Tax Rate:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    items(taxOptions) { (label, rate) ->
+                                        FilterChip(
+                                            selected = selectedTaxRate == rate,
+                                            onClick = { selectedTaxRate = rate },
+                                            label = { Text(label, fontSize = 9.sp) },
+                                            modifier = Modifier.height(26.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Discount:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                OutlinedTextField(
+                                    value = discountText,
+                                    onValueChange = { discountText = it },
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                                FilterChip(
+                                    selected = discountIsPercent,
+                                    onClick = { discountIsPercent = !discountIsPercent },
+                                    label = { Text(if (discountIsPercent) "%" else "Rs", fontSize = 10.sp) },
+                                    modifier = Modifier.height(30.dp)
+                                )
+                            }
+
+                            Divider(modifier = Modifier.padding(vertical = 2.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Subtotal:", fontSize = 10.sp)
+                                Text("Rs ${String.format("%.2f", subtotal)}", fontSize = 10.sp)
+                            }
+                            if (discountAmount > 0) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Discount:", fontSize = 10.sp, color = Color(0xFF2E7D32))
+                                    Text("- Rs ${String.format("%.2f", discountAmount)}", fontSize = 10.sp, color = Color(0xFF2E7D32))
+                                }
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Tax (${selectedTaxRate.toInt()}%):", fontSize = 10.sp)
+                                Text("Rs ${String.format("%.2f", taxAmount)}", fontSize = 10.sp)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Grand Total RS:", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                    Text(
+                                        "Rs ${String.format("%.2f", grandTotal)}",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Button(
+                                onClick = { showPaymentDialog = true },
+                                modifier = Modifier.fillMaxWidth().height(44.dp),
+                                enabled = cartItems.isNotEmpty(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Process Payment & Receipt • Rs ${String.format("%.2f", grandTotal)}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Cart Items List
-            if (cartItems.isEmpty()) {
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
-                    contentAlignment = Alignment.Center
+        } else {
+            // COMPACT PORTRAIT LAYOUT (Smartphones < 600.dp)
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Top Segmented Mode Bar
+                TabRow(
+                    selectedTabIndex = compactTab,
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
                 ) {
-                    Text("Cart is empty\nTap items on the left to add", color = Color.Gray, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Tab(
+                        selected = compactTab == 0,
+                        onClick = { compactTab = 0 },
+                        text = { Text("🛒 Products (${filteredProducts.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = compactTab == 1,
+                        onClick = { compactTab = 1 },
+                        text = {
+                            Text(
+                                "📋 Cart ($totalCartCount • Rs ${String.format("%.0f", grandTotal)})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (cartItems.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    )
                 }
-            } else {
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    itemsIndexed(cartItems) { index, item ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
+
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    if (compactTab == 0) {
+                        // CATALOG VIEW WITH ALWAYS-VISIBLE STICKY BOTTOM BAR
+                        Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                            // Top Industry Bar
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                                items(industryModes) { mode ->
+                                    FilterChip(
+                                        selected = selectedIndustryMode == mode,
+                                        onClick = { selectedIndustryMode = mode },
+                                        label = { Text(mode, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                                        leadingIcon = {
+                                            if (selectedIndustryMode == mode) {
+                                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Search Bar
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Search by Product Name, SKU, or Barcode...", fontSize = 12.sp) },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { searchQuery = "" }) {
+                                            Icon(Icons.Default.Close, contentDescription = null)
+                                        }
+                                    }
+                                },
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Categories Filter Chips
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(availableCategories) { cat ->
+                                    ElevatedFilterChip(
+                                        selected = selectedCategory == cat,
+                                        onClick = { selectedCategory = cat },
+                                        label = { Text(cat, fontSize = 10.sp) }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Products Grid
+                            if (filteredProducts.isEmpty()) {
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(Icons.Default.ProductionQuantityLimits, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.Gray)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text("No products found", color = Color.Gray, fontSize = 13.sp)
+                                        Button(
+                                            onClick = { loadEnterpriseDemoData(viewModel) },
+                                            modifier = Modifier.padding(top = 8.dp)
+                                        ) {
+                                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Load Enterprise Demo Catalog", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(2),
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(filteredProducts) { product ->
+                                        Card(
+                                            onClick = {
+                                                val existing = cartItems.find { it.productId == product.id }
+                                                if (existing != null) {
+                                                    val idx = cartItems.indexOf(existing)
+                                                    cartItems[idx] = existing.copy(quantity = existing.quantity + 1)
+                                                } else {
+                                                    cartItems.add(
+                                                        PosOrderItem(
+                                                            id = UUID.randomUUID().toString(),
+                                                            orderId = "",
+                                                            productId = product.id,
+                                                            name = product.name,
+                                                            quantity = 1,
+                                                            price = product.price
+                                                        )
+                                                    )
+                                                }
+                                            },
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (product.stock <= 0) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                                else MaterialTheme.colorScheme.surfaceVariant
+                                            ),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                Text(product.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 2)
+                                                Text(product.category, fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        "Rs ${String.format("%.0f", product.price)}",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                    Text(
+                                                        if (product.stock > 0) "${product.stock} ${product.unit}" else "Out of stock",
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (product.stock > 10) Color(0xFF2E7D32) else if (product.stock > 0) Color(0xFFE65100) else Color.Red
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // STICKY BOTTOM BAR WHEN ITEMS ARE SELECTED
+                            if (cartItems.isNotEmpty()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shadowElevation = 6.dp
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("$totalCartCount Items Selected", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "Grand Total RS: Rs ${String.format("%.2f", grandTotal)}",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            OutlinedButton(
+                                                onClick = { compactTab = 1 },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(36.dp)
+                                            ) {
+                                                Text("View Cart", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Button(
+                                                onClick = { showPaymentDialog = true },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Checkout", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // CART & CHECKOUT TAB VIEW
+                        Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                            // Header Info
                             Row(
-                                modifier = Modifier.padding(6.dp).fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.name, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                                    Text("Rs ${item.price} x ${item.quantity} = Rs ${item.price * item.quantity}", fontSize = 10.sp, color = Color.Gray)
-                                }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = {
-                                            if (item.quantity > 1) {
-                                                cartItems[index] = item.copy(quantity = item.quantity - 1)
-                                            } else {
-                                                cartItems.removeAt(index)
+                                    IconButton(onClick = { compactTab = 0 }) {
+                                        Icon(Icons.Default.ArrowBack, contentDescription = "Back to Products")
+                                    }
+                                    Text("Order Terminal Cart", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                }
+                                if (cartItems.isNotEmpty()) {
+                                    TextButton(onClick = { cartItems.clear() }) {
+                                        Text("Clear All", color = Color.Red, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
+                            // Customer & Order Mode Selectors
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                var showClientPicker by remember { mutableStateOf(false) }
+                                OutlinedButton(
+                                    onClick = { showClientPicker = true },
+                                    modifier = Modifier.weight(1f).height(38.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        selectedClient?.name ?: "Walk-in Customer",
+                                        fontSize = 10.sp,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                if (showClientPicker) {
+                                    AlertDialog(
+                                        onDismissRequest = { showClientPicker = false },
+                                        title = { Text("Select Registered Client / Ledger") },
+                                        text = {
+                                            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                item {
+                                                    ListItem(
+                                                        headlineContent = { Text("Walk-in Customer (Guest)", fontWeight = FontWeight.Bold) },
+                                                        modifier = Modifier.clickable {
+                                                            selectedClient = null
+                                                            showClientPicker = false
+                                                        }
+                                                    )
+                                                }
+                                                items(clients) { client ->
+                                                    ListItem(
+                                                        headlineContent = { Text(client.name, fontWeight = FontWeight.Bold) },
+                                                        supportingContent = { Text("${client.type} • ${client.phone}") },
+                                                        modifier = Modifier.clickable {
+                                                            selectedClient = client
+                                                            showClientPicker = false
+                                                        }
+                                                    )
+                                                }
                                             }
                                         },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        confirmButton = { TextButton(onClick = { showClientPicker = false }) { Text("Close") } }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Cart Items List
+                            if (cartItems.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Cart is empty", color = Color.Gray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Tap items in catalog to add", color = Color.Gray, fontSize = 12.sp)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Button(onClick = { compactTab = 0 }) {
+                                            Text("Go to Catalog", fontSize = 12.sp)
+                                        }
                                     }
-                                    Text("${item.quantity}", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
-                                    IconButton(
-                                        onClick = { cartItems[index] = item.copy(quantity = item.quantity + 1) },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                }
+                            } else {
+                                LazyColumn(modifier = Modifier.weight(1f)) {
+                                    itemsIndexed(cartItems) { index, item ->
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(6.dp).fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(item.name, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                                    Text("Rs ${item.price} x ${item.quantity} = Rs ${item.price * item.quantity}", fontSize = 10.sp, color = Color.Gray)
+                                                }
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (item.quantity > 1) {
+                                                                cartItems[index] = item.copy(quantity = item.quantity - 1)
+                                                            } else {
+                                                                cartItems.removeAt(index)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    }
+                                                    Text("${item.quantity}", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                                                    IconButton(
+                                                        onClick = { cartItems[index] = item.copy(quantity = item.quantity + 1) },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    }
+                                                    IconButton(
+                                                        onClick = { cartItems.removeAt(index) },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                    IconButton(
-                                        onClick = { cartItems.removeAt(index) },
-                                        modifier = Modifier.size(24.dp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // PINNED BOTTOM TAX, DISCOUNT & GRAND TOTAL CHECKOUT CARD
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Tax Rate:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            items(taxOptions) { (label, rate) ->
+                                                FilterChip(
+                                                    selected = selectedTaxRate == rate,
+                                                    onClick = { selectedTaxRate = rate },
+                                                    label = { Text(label, fontSize = 9.sp) },
+                                                    modifier = Modifier.height(26.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Discount:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        OutlinedTextField(
+                                            value = discountText,
+                                            onValueChange = { discountText = it },
+                                            modifier = Modifier.weight(1f).height(40.dp),
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                        )
+                                        FilterChip(
+                                            selected = discountIsPercent,
+                                            onClick = { discountIsPercent = !discountIsPercent },
+                                            label = { Text(if (discountIsPercent) "%" else "Rs", fontSize = 10.sp) },
+                                            modifier = Modifier.height(30.dp)
+                                        )
+                                    }
+
+                                    Divider(modifier = Modifier.padding(vertical = 2.dp))
+
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Subtotal:", fontSize = 10.sp)
+                                        Text("Rs ${String.format("%.2f", subtotal)}", fontSize = 10.sp)
+                                    }
+                                    if (discountAmount > 0) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Discount:", fontSize = 10.sp, color = Color(0xFF2E7D32))
+                                            Text("- Rs ${String.format("%.2f", discountAmount)}", fontSize = 10.sp, color = Color(0xFF2E7D32))
+                                        }
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Tax (${selectedTaxRate.toInt()}%):", fontSize = 10.sp)
+                                        Text("Rs ${String.format("%.2f", taxAmount)}", fontSize = 10.sp)
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Grand Total RS:", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                            Text(
+                                                "Rs ${String.format("%.2f", grandTotal)}",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Button(
+                                        onClick = { showPaymentDialog = true },
+                                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                                        enabled = cartItems.isNotEmpty(),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Process Payment & Receipt • Rs ${String.format("%.2f", grandTotal)}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Tax & Discount Controllers
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            ) {
-                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Tax Rate:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            taxOptions.forEach { (label, rate) ->
-                                FilterChip(
-                                    selected = selectedTaxRate == rate,
-                                    onClick = { selectedTaxRate = rate },
-                                    label = { Text(label, fontSize = 9.sp) },
-                                    modifier = Modifier.height(26.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Discount:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = discountText,
-                            onValueChange = { discountText = it },
-                            modifier = Modifier.weight(1f).height(40.dp),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                        FilterChip(
-                            selected = discountIsPercent,
-                            onClick = { discountIsPercent = !discountIsPercent },
-                            label = { Text(if (discountIsPercent) "%" else "Rs", fontSize = 10.sp) },
-                            modifier = Modifier.height(30.dp)
-                        )
-                    }
-
-                    Divider(modifier = Modifier.padding(vertical = 2.dp))
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Subtotal:", fontSize = 10.sp)
-                        Text("Rs ${String.format("%.2f", subtotal)}", fontSize = 10.sp)
-                    }
-                    if (discountAmount > 0) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Discount:", fontSize = 10.sp, color = Color(0xFF2E7D32))
-                            Text("- Rs ${String.format("%.2f", discountAmount)}", fontSize = 10.sp, color = Color(0xFF2E7D32))
-                        }
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Tax (${selectedTaxRate.toInt()}%):", fontSize = 10.sp)
-                        Text("Rs ${String.format("%.2f", taxAmount)}", fontSize = 10.sp)
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Grand Total:", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Text("Rs ${String.format("%.2f", grandTotal)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Checkout Button
-            Button(
-                onClick = { showPaymentDialog = true },
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-                enabled = cartItems.isNotEmpty(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Process Payment & Receipt", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
     }
@@ -9122,7 +11950,7 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
             confirmButton = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Direct WhatsApp Share Button
@@ -9133,16 +11961,51 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("WhatsApp", fontSize = 11.sp)
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text("WhatsApp", fontSize = 10.sp)
+                    }
+
+                    // A4 Bluetooth & System Print Button
+                    Button(
+                        onClick = {
+                            val clientName = selectedClient?.name ?: "Cash Customer"
+                            val a4Text = BluetoothThermalPrinterHelper.buildA4InvoiceText(
+                                businessName = profile.businessName,
+                                tagline = profile.tagline,
+                                address = profile.address,
+                                phone = profile.phone,
+                                orderId = order.id,
+                                dateStr = order.date,
+                                clientName = clientName,
+                                items = items,
+                                subtotal = order.subtotal,
+                                discount = order.discount,
+                                tax = order.tax,
+                                total = order.total,
+                                paymentMethod = order.documentType,
+                                footerNote = profile.invoiceFooterNote
+                            )
+                            BluetoothThermalPrinterHelper.printA4ViaSystem(
+                                context = context,
+                                jobName = "A4_Invoice_${order.id}",
+                                documentTitle = "Invoice_${order.id}",
+                                contentText = a4Text
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                        modifier = Modifier.weight(1.2f)
+                    ) {
+                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text("A4 Print", fontSize = 10.sp)
                     }
 
                     // Bluetooth ESC/POS Thermal Print Button
                     Button(
                         onClick = {
                             val printers = BluetoothThermalPrinterHelper.getAvailablePrinters(context)
-                            val targetAddr = printers.firstOrNull()?.address ?: "00:11:22:33:44:55"
+                            val targetAddr = printers.firstOrNull()?.address ?: BluetoothThermalPrinterHelper.getSavedPrinterAddress(context)
                             val payload = BluetoothThermalPrinterHelper.buildPosReceiptPayload(
                                 businessName = profile.businessName,
                                 tagline = profile.tagline,
@@ -9161,25 +12024,12 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
                             val (success, msg) = BluetoothThermalPrinterHelper.printPayload(context, targetAddr, payload)
                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
-                        modifier = Modifier.weight(1.3f)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.weight(1.2f)
                     ) {
-                        Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Thermal Print", fontSize = 11.sp)
-                    }
-
-                    // Print / PDF Button
-                    Button(
-                        onClick = {
-                            Toast.makeText(context, "Sending to Printer ($previewFormat)...", Toast.LENGTH_SHORT).show()
-                            showReceiptModal = false
-                        },
-                        modifier = Modifier.weight(1.1f)
-                    ) {
-                        Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Print / PDF", fontSize = 11.sp)
+                        Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text("Thermal Print", fontSize = 10.sp)
                     }
                 }
             }
@@ -9967,15 +12817,37 @@ fun OmniPosProcurementTab(viewModel: StudentKitViewModel) {
                 Text(poSummaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
             },
             confirmButton = {
-                Button(onClick = {
-                    val sendIntent = Intent().apply {
-                        action = Intent.ACTION_SEND
-                        putExtra(Intent.EXTRA_TEXT, poSummaryText)
-                        type = "text/plain"
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = {
+                            BluetoothThermalPrinterHelper.printA4ViaSystem(
+                                context = context,
+                                jobName = "Purchase_Order_A4_Job",
+                                documentTitle = "PO_$poNumber",
+                                contentText = poSummaryText
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Icon(Icons.Default.Description, null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Print A4 PO", fontSize = 11.sp)
                     }
-                    context.startActivity(Intent.createChooser(sendIntent, "Share Purchase Order"))
-                    showPoReceiptDialog = false
-                }) { Text("Share PO") }
+
+                    Button(onClick = {
+                        val sendIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, poSummaryText)
+                            type = "text/plain"
+                        }
+                        context.startActivity(Intent.createChooser(sendIntent, "Share Purchase Order"))
+                        showPoReceiptDialog = false
+                    }) {
+                        Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Share PO", fontSize = 11.sp)
+                    }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showPoReceiptDialog = false }) { Text("Close") }
@@ -10252,40 +13124,79 @@ fun OmniPosShiftTab(viewModel: StudentKitViewModel) {
                 Text(zReportText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
             },
             confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = {
-                        val printers = BluetoothThermalPrinterHelper.getAvailablePrinters(context)
-                        val targetAddr = printers.firstOrNull()?.address ?: "00:11:22:33:44:55"
-                        val payload = BluetoothThermalPrinterHelper.buildZReportPayload(
-                            cashier = cashierName,
-                            dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()),
-                            openingFloat = openingFloat,
-                            salesRev = totalSalesRevenue,
-                            cashSales = cashSales,
-                            cardSales = cardSales,
-                            walletSales = walletSales,
-                            expectedCash = expectedRegisterCash,
-                            actualCash = physicalCash,
-                            variance = variance
-                        )
-                        val (success, msg) = BluetoothThermalPrinterHelper.printPayload(context, targetAddr, payload)
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)) {
-                        Icon(Icons.Default.Bluetooth, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Thermal Print Z-Report", fontSize = 11.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = {
+                                val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
+                                val a4Text = BluetoothThermalPrinterHelper.buildA4ZReportText(
+                                    cashier = cashierName,
+                                    dateStr = dateStr,
+                                    openingFloat = openingFloat,
+                                    salesRev = totalSalesRevenue,
+                                    cashSales = cashSales,
+                                    cardSales = cardSales,
+                                    walletSales = walletSales,
+                                    expectedCash = expectedRegisterCash,
+                                    actualCash = physicalCash,
+                                    variance = variance
+                                )
+                                BluetoothThermalPrinterHelper.printA4ViaSystem(
+                                    context = context,
+                                    jobName = "Shift_Z_Report_A4",
+                                    documentTitle = "Z_Report_$dateStr",
+                                    contentText = a4Text
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Description, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(2.dp))
+                            Text("A4 Print Z-Report", fontSize = 10.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                val printers = BluetoothThermalPrinterHelper.getAvailablePrinters(context)
+                                val targetAddr = printers.firstOrNull()?.address ?: BluetoothThermalPrinterHelper.getSavedPrinterAddress(context)
+                                val payload = BluetoothThermalPrinterHelper.buildZReportPayload(
+                                    cashier = cashierName,
+                                    dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()),
+                                    openingFloat = openingFloat,
+                                    salesRev = totalSalesRevenue,
+                                    cashSales = cashSales,
+                                    cardSales = cardSales,
+                                    walletSales = walletSales,
+                                    expectedCash = expectedRegisterCash,
+                                    actualCash = physicalCash,
+                                    variance = variance
+                                )
+                                val (success, msg) = BluetoothThermalPrinterHelper.printPayload(context, targetAddr, payload)
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Bluetooth, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(2.dp))
+                            Text("Thermal Z-Report", fontSize = 10.sp)
+                        }
                     }
 
-                    Button(onClick = {
-                        val sendIntent = Intent().apply {
-                            action = Intent.ACTION_SEND
-                            putExtra(Intent.EXTRA_TEXT, zReportText)
-                            type = "text/plain"
-                        }
-                        context.startActivity(Intent.createChooser(sendIntent, "Share Z-Report"))
-                        showZReportModal = false
-                    }) {
-                        Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                    Button(
+                        onClick = {
+                            val sendIntent = Intent().apply {
+                                action = Intent.ACTION_SEND
+                                putExtra(Intent.EXTRA_TEXT, zReportText)
+                                type = "text/plain"
+                            }
+                            context.startActivity(Intent.createChooser(sendIntent, "Share Z-Report"))
+                            showZReportModal = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Share Z-Report", fontSize = 11.sp)
                     }

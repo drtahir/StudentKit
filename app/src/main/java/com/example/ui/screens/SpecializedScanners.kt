@@ -191,9 +191,6 @@ fun createDummyCardBitmapWithBackground(
 }
 
 fun processAndCropIdCardUri(context: Context, uri: Uri): Uri {
-    if (uri.toString().contains("simulated")) {
-        return uri
-    }
     return try {
         val originalBitmap = context.contentResolver.openInputStream(uri).use { stream ->
             BitmapFactory.decodeStream(stream)
@@ -214,23 +211,8 @@ fun processAndCropIdCardUri(context: Context, uri: Uri): Uri {
 
 fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
     return try {
-        val uriStr = uri.toString()
-        if (uriStr.contains("simulated")) {
-            val name = uri.getQueryParameter("name") ?: "ELIZABETH CHEN"
-            val id = uri.getQueryParameter("id") ?: "ID-887162-UX"
-            val dob = uri.getQueryParameter("dob") ?: "15 OCT 1995"
-            val cardType = uri.getQueryParameter("cardType") ?: "National Identity Card"
-            val fullFrame = createDummyCardBitmapWithBackground(context, uriStr.contains("front"), name, id, dob, cardType)
-            detectEdgesAndCropCard(fullFrame)
-        } else if (uriStr.contains("passport")) {
-            val name = uri.getQueryParameter("name") ?: "ELIZABETH CHEN"
-            val id = uri.getQueryParameter("id") ?: "P2981726"
-            val dob = uri.getQueryParameter("dob") ?: "15 OCT 1995"
-            createDummyPassportBitmap(context, name, id, dob)
-        } else {
-            context.contentResolver.openInputStream(uri).use { stream ->
-                BitmapFactory.decodeStream(stream)
-            }
+        context.contentResolver.openInputStream(uri).use { stream ->
+            BitmapFactory.decodeStream(stream)
         }
     } catch (e: Exception) {
         null
@@ -1172,6 +1154,16 @@ fun IdCardScannerScreen(viewModel: StudentKitViewModel) {
         }
     }
 
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(context, "Camera permission granted. Tap 'Take Photo' again.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Camera permission is required to capture photos.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val backCameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -1259,26 +1251,6 @@ fun IdCardScannerScreen(viewModel: StudentKitViewModel) {
                                         Text("Take or upload both sides to print side-by-side on a single A4 sheet.", fontSize = 11.sp, color = Color.Gray)
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        val nameEncoded = Uri.encode(ocrName)
-                                        val idEncoded = Uri.encode(ocrId)
-                                        val dobEncoded = Uri.encode(ocrDob)
-                                        val cardTypeEncoded = Uri.encode(selectedCardType)
-                                        val query = "?name=$nameEncoded&id=$idEncoded&dob=$dobEncoded&cardType=$cardTypeEncoded"
-                                        frontUri = Uri.parse("android.resource://" + context.packageName + "/front_simulated_" + System.currentTimeMillis() + query)
-                                        backUri = Uri.parse("android.resource://" + context.packageName + "/back_simulated_" + System.currentTimeMillis() + query)
-                                        Toast.makeText(context, "✨ Simulated ID Front & Back loaded with custom data!", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier.fillMaxWidth().height(36.dp),
-                                    shape = RoundedCornerShape(6.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-                                ) {
-                                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Simulate Quick Smart Scans (No Camera Required)", fontSize = 11.sp)
-                                }
                             }
                         }
 
@@ -1348,8 +1320,29 @@ fun IdCardScannerScreen(viewModel: StudentKitViewModel) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = {
-                                            captureChoiceIsFront = true
-                                            showCaptureChoiceDialog = true
+                                            val hasPermission = ContextCompat.checkSelfPermission(
+                                                context,
+                                                android.Manifest.permission.CAMERA
+                                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                            if (hasPermission) {
+                                                try {
+                                                    val uri = createTempImageUri(context)
+                                                    if (uri != null) {
+                                                        tempFrontUri = uri
+                                                        frontCameraLauncher.launch(uri)
+                                                    } else {
+                                                        Toast.makeText(context, "Storage initialization failed", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } catch (e: SecurityException) {
+                                                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                                    Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Unable to launch camera: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                            }
                                         },
                                         modifier = Modifier.weight(1f).height(40.dp),
                                         shape = RoundedCornerShape(8.dp)
@@ -1437,8 +1430,29 @@ fun IdCardScannerScreen(viewModel: StudentKitViewModel) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = {
-                                            captureChoiceIsFront = false
-                                            showCaptureChoiceDialog = true
+                                            val hasPermission = ContextCompat.checkSelfPermission(
+                                                context,
+                                                android.Manifest.permission.CAMERA
+                                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                            if (hasPermission) {
+                                                try {
+                                                    val uri = createTempImageUri(context)
+                                                    if (uri != null) {
+                                                        tempBackUri = uri
+                                                        backCameraLauncher.launch(uri)
+                                                    } else {
+                                                        Toast.makeText(context, "Storage initialization failed", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } catch (e: SecurityException) {
+                                                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                                    Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Unable to launch camera: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                            }
                                         },
                                         modifier = Modifier.weight(1f).height(40.dp),
                                         shape = RoundedCornerShape(8.dp)
@@ -1903,62 +1917,6 @@ fun IdCardScannerScreen(viewModel: StudentKitViewModel) {
             )
         }
     }
-
-    if (showCaptureChoiceDialog) {
-        AlertDialog(
-            onDismissRequest = { showCaptureChoiceDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.PhotoCamera, "Camera", tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Select Capture Source", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Text(
-                    "Choose between using your device's physical camera or our high-fidelity real-time scanning terminal simulator.",
-                    fontSize = 13.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showCaptureChoiceDialog = false
-                        if (captureChoiceIsFront) {
-                            val uri = createTempImageUri(context)
-                            if (uri != null) {
-                                tempFrontUri = uri
-                                frontCameraLauncher.launch(uri)
-                            } else {
-                                Toast.makeText(context, "Storage initialization failed", Toast.LENGTH_SHORT).show()
-                            }
-                        } else {
-                            val uri = createTempImageUri(context)
-                            if (uri != null) {
-                                tempBackUri = uri
-                                backCameraLauncher.launch(uri)
-                            } else {
-                                Toast.makeText(context, "Storage initialization failed", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                ) {
-                    Text("📸 Real Camera")
-                }
-            },
-            dismissButton = {
-                FilledTonalButton(
-                    onClick = {
-                        showCaptureChoiceDialog = false
-                        cameraTargetIsFront = captureChoiceIsFront
-                        showCameraOverlay = true
-                    }
-                ) {
-                    Text("⚡ Scanner Overlay")
-                }
-            }
-        )
-    }
 }
 
 // =============================================================
@@ -1992,6 +1950,15 @@ fun PassportScannerScreen(viewModel: StudentKitViewModel) {
         if (success && tempPassportUri != null) {
             passportUri = tempPassportUri
             Toast.makeText(context, "📸 Passport Data Page Captured!", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val passportPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(context, "Camera permission granted. Tap 'Take Photo' again.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Camera permission is required to capture photos.", Toast.LENGTH_SHORT).show()
         }
     }
     var showPassportChoiceDialog by remember { mutableStateOf(false) }
@@ -2081,7 +2048,29 @@ fun PassportScannerScreen(viewModel: StudentKitViewModel) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = {
-                                            showPassportChoiceDialog = true
+                                            val hasPermission = ContextCompat.checkSelfPermission(
+                                                context,
+                                                android.Manifest.permission.CAMERA
+                                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                            if (hasPermission) {
+                                                try {
+                                                    val uri = createTempImageUri(context)
+                                                    if (uri != null) {
+                                                        tempPassportUri = uri
+                                                        passportCameraLauncher.launch(uri)
+                                                    } else {
+                                                        Toast.makeText(context, "Storage initialization failed", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } catch (e: SecurityException) {
+                                                    passportPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                                    Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Unable to launch camera: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                passportPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                            }
                                         },
                                         modifier = Modifier.weight(1f).height(44.dp),
                                         shape = RoundedCornerShape(8.dp)
@@ -2333,52 +2322,6 @@ fun PassportScannerScreen(viewModel: StudentKitViewModel) {
             }
         }
     }
-
-    if (showPassportChoiceDialog) {
-        AlertDialog(
-            onDismissRequest = { showPassportChoiceDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.PhotoCamera, "Camera", tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Select Capture Source", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Text(
-                    "Choose between using your device's physical camera or our high-fidelity real-time scanning terminal simulator.",
-                    fontSize = 13.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showPassportChoiceDialog = false
-                        val uri = createTempImageUri(context)
-                        if (uri != null) {
-                            tempPassportUri = uri
-                            passportCameraLauncher.launch(uri)
-                        } else {
-                            Toast.makeText(context, "Storage initialization failed", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                ) {
-                    Text("📸 Real Camera")
-                }
-            },
-            dismissButton = {
-                FilledTonalButton(
-                    onClick = {
-                        showPassportChoiceDialog = false
-                        passportUri = Uri.parse("android.resource://" + context.packageName + "/passport_simulated_" + System.currentTimeMillis() + "?name=" + Uri.encode(ocrName) + "&id=" + Uri.encode(ocrNo) + "&dob=" + Uri.encode(ocrDob))
-                        Toast.makeText(context, "📸 Passport Data Page Snapped (Simulated)!", Toast.LENGTH_SHORT).show()
-                    }
-                ) {
-                    Text("⚡ Scanner Overlay")
-                }
-            }
-        )
-    }
 }
 
 // =============================================================
@@ -2525,32 +2468,14 @@ fun SimulatedCameraOverlay(
                             onDismiss()
                         }
                         override fun onError(exception: androidx.camera.core.ImageCaptureException) {
-                            // On failure (e.g. emulator, file lock), fallback to simulated high-res document
-                            val nameEncoded = Uri.encode(ocrName)
-                            val idEncoded = Uri.encode(ocrId)
-                            val dobEncoded = Uri.encode(ocrDob)
-                            val cardTypeEncoded = Uri.encode(cardType)
-                            val side = if (isFront) "front" else "back"
-                            val query = "?name=$nameEncoded&id=$idEncoded&dob=$dobEncoded&cardType=$cardTypeEncoded"
-                            val simulatedUri = Uri.parse("android.resource://${context.packageName}/${side}_simulated_${System.currentTimeMillis()}$query")
-                            onCaptured(simulatedUri)
+                            Toast.makeText(context, "Camera capture error: ${exception.localizedMessage}", Toast.LENGTH_SHORT).show()
                             isCapturing = false
-                            onDismiss()
                         }
                     }
                 )
             } else {
-                // Generate high fidelity simulated document
-                val nameEncoded = Uri.encode(ocrName)
-                val idEncoded = Uri.encode(ocrId)
-                val dobEncoded = Uri.encode(ocrDob)
-                val cardTypeEncoded = Uri.encode(cardType)
-                val side = if (isFront) "front" else "back"
-                val query = "?name=$nameEncoded&id=$idEncoded&dob=$dobEncoded&cardType=$cardTypeEncoded"
-                val simulatedUri = Uri.parse("android.resource://${context.packageName}/${side}_simulated_${System.currentTimeMillis()}$query")
-                onCaptured(simulatedUri)
+                cameraPermissionState.launchPermissionRequest()
                 isCapturing = false
-                onDismiss()
             }
         }
     }

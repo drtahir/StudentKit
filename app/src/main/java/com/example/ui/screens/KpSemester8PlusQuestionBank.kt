@@ -192,7 +192,7 @@ object KpSemester8PlusQuestionBank {
         val list = mutableListOf<KpSemesterQuestion>()
 
         val topics = listOf(
-            Triple("Disaster Management Cycle: 4 Key Phases", "Mitigation (reducing risk), Preparedness (drills/planning), Response (triaging/saving lives during disaster), Recovery (rebuilding community)", "Response phase occurs 10 years after disaster during economic reconstruction"),
+            Triple("Nursing Ethics: Regulatory Duty to Report & Impaired Practice", "Nurses have an ethical and legal obligation to report colleagues suspected of practicing under the influence of substances to safeguard patient safety", "Nurses should ignore impaired colleagues to protect personal friendship"),
             Triple("START Disaster Triage System Categories & Tag Colors", "RED (Immediate: life-threatening, e.g., airway compromise, tension pneumothorax); YELLOW (Delayed: serious non-life-threatening); GREEN (Minor/walking wounded); BLACK (Deceased)", "Assign RED tag to deceased patients without pulse or respiration"),
             Triple("Incident Command System (ICS) Structure", "Standardized management system (Incident Commander, Operations, Planning, Logistics, Finance/Admin) enabling coordinated emergency response", "ICS assigns decision-making to random unorganized crowds"),
             Triple("CBRN Decontamination Protocol Priorities", "Decontamination MUST occur BEFORE patient enters emergency facility to prevent secondary contamination of staff and facility; remove clothing (removes 80-90% toxin)", "Bring contaminated chemical victims directly into crowded ICU without decontamination"),

@@ -63,6 +63,7 @@ sealed class Screen {
     object Steganography : Screen()
     object Steganalysis : Screen()
     object ImageEnhancer : Screen()
+    object Teleprompter : Screen()
     
     // --- SECURITY SUITE ---
     object SecurityHub : Screen()
@@ -86,6 +87,16 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
 
     private val repository: StudentKitRepository
     private val prefs = application.getSharedPreferences("student_kit_prefs", Context.MODE_PRIVATE)
+
+    // --- HIJRI CALENDAR OFFSET ADJUSTMENT ---
+    // Default offset +1 day (e.g. 28 Safar 1448 AH for Aug 12, 2026)
+    private val _hijriOffset = MutableStateFlow(prefs.getInt("hijri_offset", 1))
+    val hijriOffset: StateFlow<Int> = _hijriOffset.asStateFlow()
+
+    fun setHijriOffset(offset: Int) {
+        _hijriOffset.value = offset
+        prefs.edit().putInt("hijri_offset", offset).apply()
+    }
 
     private val _isDarkTheme = MutableStateFlow<Boolean?>(
         if (prefs.contains("dark_theme")) prefs.getBoolean("dark_theme", false) else null
@@ -750,6 +761,63 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     fun clearCachedQuran() {
         viewModelScope.launch {
             repository.clearCachedQuran()
+        }
+    }
+
+    // --- OFFLINE EXAM QUESTION CACHE METHODS ---
+    fun getCachedQuestions(categoryType: String): Flow<List<com.example.data.CachedOfflineQuestion>> = repository.getCachedQuestions(categoryType)
+
+    suspend fun getCachedQuestionsCount(categoryType: String): Int = repository.getCachedQuestionsCount(categoryType)
+
+    fun cacheHajjQuestions(questions: List<com.example.ui.screens.HajjQuestion>) {
+        viewModelScope.launch {
+            repository.clearCachedQuestions("HAJJ")
+            val entities = questions.map { q ->
+                com.example.data.CachedOfflineQuestion(
+                    id = "HAJJ_${q.id}",
+                    categoryType = "HAJJ",
+                    questionId = q.id,
+                    categoryName = q.category,
+                    questionText = q.question,
+                    optionsJoined = q.options.joinToString("|||"),
+                    correctIndex = q.correctIndex,
+                    explanation = q.explanation,
+                    reference = q.reference
+                )
+            }
+            repository.insertCachedQuestions(entities)
+        }
+    }
+
+    fun cachePharmacyQuestions(questions: List<com.example.ui.screens.ExamQuestion>) {
+        viewModelScope.launch {
+            repository.clearCachedQuestions("PHARMACY")
+            val entities = questions.map { q ->
+                com.example.data.CachedOfflineQuestion(
+                    id = "PHARMACY_${q.id}",
+                    categoryType = "PHARMACY",
+                    questionId = q.id,
+                    categoryName = q.subject,
+                    questionText = q.question,
+                    optionsJoined = q.options.joinToString("|||"),
+                    correctIndex = q.correctIndex,
+                    explanation = q.explanation,
+                    reference = q.reference
+                )
+            }
+            repository.insertCachedQuestions(entities)
+        }
+    }
+
+    fun updateQuestionSavedAnswer(id: String, answer: Int) {
+        viewModelScope.launch {
+            repository.updateQuestionSavedAnswer(id, answer)
+        }
+    }
+
+    fun updateQuestionBookmark(id: String, isBookmarked: Boolean) {
+        viewModelScope.launch {
+            repository.updateQuestionBookmark(id, isBookmarked)
         }
     }
 

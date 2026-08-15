@@ -105,6 +105,7 @@ object FaceRestorer {
         originalBitmap: Bitmap, // Original low-res
         enhancedBackground: Bitmap, // Upscaled general image (4x)
         faces: List<Face>,
+        faceBlendAlpha: Float = 0.85f,
         progressCallback: (Float) -> Unit
     ): Bitmap {
         initInterpreter(context)
@@ -229,8 +230,11 @@ object FaceRestorer {
             blendCanvas.drawBitmap(scaledRestoredFace, 0f, 0f, null)
             blendCanvas.drawBitmap(mask, 0f, 0f, featherPaint)
 
-            // Draw onto upscaled background
-            canvas.drawBitmap(blendedFace, destLeft.toFloat(), destTop.toFloat(), Paint(Paint.FILTER_BITMAP_FLAG))
+            // Draw onto upscaled background with user-controlled alpha blend
+            val drawPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+                alpha = (faceBlendAlpha * 255).toInt().coerceIn(0, 255)
+            }
+            canvas.drawBitmap(blendedFace, destLeft.toFloat(), destTop.toFloat(), drawPaint)
 
             // Recycle temp bitmaps
             origFaceCrop.recycle()

@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.content.Context
 import android.media.MediaPlayer
 import android.widget.Toast
 import androidx.compose.animation.*
@@ -15,6 +16,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,9 +46,16 @@ import androidx.compose.ui.unit.sp
 import com.example.data.CachedQuranVerse
 import com.example.viewmodel.StudentKitViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import java.io.File
+import java.io.FileOutputStream
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -56,6 +72,24 @@ data class QuranThemeColors(
     val txtUrduColor: Color,
     val borderColor: Color,
     val decorationColor: Color
+)
+
+// --- MULTI-QARI VOICE RECITER ENGINE ---
+data class Qari(
+    val id: String,
+    val name: String,
+    val arabicName: String,
+    val folder: String,
+    val style: String
+)
+
+val QARI_LIST = listOf(
+    Qari("alafasy", "Mishary Rashid Alafasy", "مشاري راشد العفاسي", "Alafasy_128kbps", "Murattal"),
+    Qari("abdulbasit", "Abdul Basit Abdul Samad", "عبد الباسط عبد الصمد", "Abdul_Basit_Murattal_192kbps", "Murattal"),
+    Qari("maher", "Maher Al-Muaiqly", "ماهر المعيقلي", "Maher_AlMuaiqly_64kbps", "Murattal"),
+    Qari("shatri", "Abu Bakr Al-Shatri", "أبو بكر الشاطري", "Abu_Bakr_Ash-Shaatree_128kbps", "Murattal"),
+    Qari("shuraim", "Saud Al-Shuraim", "سعود الشريم", "Saood_ash-Shuraym_128kbps", "Murattal"),
+    Qari("ghamdi", "Saad Al-Ghamdi", "سعد الغامدي", "Ghamadi_40kbps", "Murattal")
 )
 
 val QuranBeigeBackground = Color(0xFFF9F6F0) // Premium cream paper color
@@ -87,8 +121,8 @@ fun getQuranThemeColors(themeName: String): QuranThemeColors {
             cardColor = Color(0xFFF8F9FA),
             txtArabicColor = Color.Black,
             txtUrduColor = Color(0xFF212529),
-            borderColor = Color(0xFFE9ECEF),
-            decorationColor = Color(0xFFCED4DA)
+            borderColor = Color(0xFFCED4DA),
+            decorationColor = Color(0xFF0F5132)
         )
         else -> QuranThemeColors(
             bgColor = QuranBeigeBackground,
@@ -101,6 +135,34 @@ fun getQuranThemeColors(themeName: String): QuranThemeColors {
     }
 }
 
+class QuranSettingsManager(context: Context) {
+    private val prefs = context.getSharedPreferences("quran_display_settings_v3", Context.MODE_PRIVATE)
+
+    var arabicFontSize: Float
+        get() = prefs.getFloat("arabic_font_size", 28f)
+        set(value) = prefs.edit().putFloat("arabic_font_size", value).apply()
+
+    var urduFontSize: Float
+        get() = prefs.getFloat("urdu_font_size", 16f)
+        set(value) = prefs.edit().putFloat("urdu_font_size", value).apply()
+
+    var isUrduEnabled: Boolean
+        get() = prefs.getBoolean("is_urdu_enabled", true)
+        set(value) = prefs.edit().putBoolean("is_urdu_enabled", value).apply()
+
+    var isEnglishEnabled: Boolean
+        get() = prefs.getBoolean("is_english_enabled", false)
+        set(value) = prefs.edit().putBoolean("is_english_enabled", value).apply()
+
+    var readerTheme: String
+        get() = prefs.getString("reader_theme", "Beige") ?: "Beige"
+        set(value) = prefs.edit().putString("reader_theme", value).apply()
+
+    var quranFontFamily: String
+        get() = prefs.getString("quran_font_family", "Serif") ?: "Serif"
+        set(value) = prefs.edit().putString("quran_font_family", value).apply()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuranMajeedScreen(
@@ -109,6 +171,7 @@ fun QuranMajeedScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val settingsManager = remember { QuranSettingsManager(context) }
     
     // UI State
     var activeTab by remember { mutableStateOf(0) } // 0 = Surahs, 1 = Juz, 2 = Bookmarks, 3 = Settings
@@ -119,14 +182,41 @@ fun QuranMajeedScreen(
     var selectedJuz by remember { mutableStateOf<JuzMetadata?>(null) }
     var readerModePage by remember { mutableStateOf<Int?>(null) } // if not null, reading page-by-page
     
-    // Settings state
-    var arabicFontSize by remember { mutableStateOf(26f) }
-    var urduFontSize by remember { mutableStateOf(16f) }
-    var isUrduTranslationEnabled by remember { mutableStateOf(true) }
-    var isEnglishTranslationEnabled by remember { mutableStateOf(false) }
-    var readerTheme by remember { mutableStateOf("Beige") } // Beige, Green, White, Dark
+    // Settings state persisted in SharedPreferences
+    var arabicFontSize by remember { mutableStateOf(settingsManager.arabicFontSize) }
+    var urduFontSize by remember { mutableStateOf(settingsManager.urduFontSize) }
+    var isUrduTranslationEnabled by remember { mutableStateOf(settingsManager.isUrduEnabled) }
+    var isEnglishTranslationEnabled by remember { mutableStateOf(settingsManager.isEnglishEnabled) }
+    var readerTheme by remember { mutableStateOf(settingsManager.readerTheme) }
     var isImmersiveMode by remember { mutableStateOf(false) }
-    var quranFontFamily by remember { mutableStateOf("Serif") }
+    var quranFontFamily by remember { mutableStateOf(settingsManager.quranFontFamily) }
+    var selectedQari by remember { mutableStateOf(QARI_LIST[0]) }
+    var showQariSelectorDialog by remember { mutableStateOf(false) }
+
+    val updateArabicFontSize = { newSize: Float ->
+        arabicFontSize = newSize
+        settingsManager.arabicFontSize = newSize
+    }
+    val updateUrduFontSize = { newSize: Float ->
+        urduFontSize = newSize
+        settingsManager.urduFontSize = newSize
+    }
+    val updateUrduToggle = { enabled: Boolean ->
+        isUrduTranslationEnabled = enabled
+        settingsManager.isUrduEnabled = enabled
+    }
+    val updateEnglishToggle = { enabled: Boolean ->
+        isEnglishTranslationEnabled = enabled
+        settingsManager.isEnglishEnabled = enabled
+    }
+    val updateTheme = { newTheme: String ->
+        readerTheme = newTheme
+        settingsManager.readerTheme = newTheme
+    }
+    val updateFontFamily = { newFont: String ->
+        quranFontFamily = newFont
+        settingsManager.quranFontFamily = newFont
+    }
     
     // Predefined Surah list & Juz list
     val surahs = remember { getSurahList() }
@@ -184,7 +274,7 @@ fun QuranMajeedScreen(
                                 color = indexThemeColors.decorationColor
                             )
                             Text(
-                                text = "HD Vector Pages with Urdu & English Translations",
+                                text = "114 Surahs • 6,236 Verses • Multi-Qari Voice Recitations",
                                 fontSize = 11.sp,
                                 color = indexThemeColors.txtUrduColor.copy(alpha = 0.8f)
                             )
@@ -286,13 +376,21 @@ fun QuranMajeedScreen(
                     surah = selectedSurah!!,
                     onBack = { selectedSurah = null },
                     arabicFontSize = arabicFontSize,
+                    onArabicFontSizeChange = updateArabicFontSize,
                     urduFontSize = urduFontSize,
+                    onUrduFontSizeChange = updateUrduFontSize,
                     isUrduEnabled = isUrduTranslationEnabled,
+                    onUrduToggle = updateUrduToggle,
                     isEnglishEnabled = isEnglishTranslationEnabled,
+                    onEnglishToggle = updateEnglishToggle,
                     themeName = readerTheme,
+                    onThemeChange = updateTheme,
                     immersiveMode = isImmersiveMode,
                     onToggleImmersive = { isImmersiveMode = !isImmersiveMode },
-                    quranFontFamily = quranFontFamily
+                    quranFontFamily = quranFontFamily,
+                    onFontFamilyChange = updateFontFamily,
+                    selectedQari = selectedQari,
+                    onSelectQari = { selectedQari = it }
                 )
             } else if (readerModePage != null) {
                 // Open page reader screen
@@ -306,13 +404,21 @@ fun QuranMajeedScreen(
                     initialPageNum = readerModePage!!,
                     onBack = { readerModePage = null },
                     arabicFontSize = arabicFontSize,
+                    onArabicFontSizeChange = updateArabicFontSize,
                     urduFontSize = urduFontSize,
+                    onUrduFontSizeChange = updateUrduFontSize,
                     isUrduEnabled = isUrduTranslationEnabled,
+                    onUrduToggle = updateUrduToggle,
                     isEnglishEnabled = isEnglishTranslationEnabled,
+                    onEnglishToggle = updateEnglishToggle,
                     themeName = readerTheme,
+                    onThemeChange = updateTheme,
                     immersiveMode = isImmersiveMode,
                     onToggleImmersive = { isImmersiveMode = !isImmersiveMode },
-                    quranFontFamily = quranFontFamily
+                    quranFontFamily = quranFontFamily,
+                    onFontFamilyChange = updateFontFamily,
+                    selectedQari = selectedQari,
+                    onSelectQari = { selectedQari = it }
                 )
             } else {
                 // Show standard index list
@@ -447,17 +553,17 @@ fun QuranMajeedScreen(
                             // Settings View
                             QuranSettingsView(
                                 arabicFontSize = arabicFontSize,
-                                onArabicFontSizeChange = { arabicFontSize = it },
+                                onArabicFontSizeChange = updateArabicFontSize,
                                 urduFontSize = urduFontSize,
-                                onUrduFontSizeChange = { urduFontSize = it },
+                                onUrduFontSizeChange = updateUrduFontSize,
                                 isUrduEnabled = isUrduTranslationEnabled,
-                                onUrduToggle = { isUrduTranslationEnabled = it },
+                                onUrduToggle = updateUrduToggle,
                                 isEnglishEnabled = isEnglishTranslationEnabled,
-                                onEnglishToggle = { isEnglishTranslationEnabled = it },
+                                onEnglishToggle = updateEnglishToggle,
                                 readerTheme = readerTheme,
-                                onThemeChange = { readerTheme = it },
+                                onThemeChange = updateTheme,
                                 quranFontFamily = quranFontFamily,
-                                onFontFamilyChange = { quranFontFamily = it },
+                                onFontFamilyChange = updateFontFamily,
                                 cachedCount = cachedCount,
                                 viewModel = viewModel,
                                 themeColors = indexThemeColors,
@@ -533,16 +639,33 @@ fun SurahRowItem(
                 Spacer(modifier = Modifier.width(14.dp))
                 
                 Column {
-                    Text(
-                        text = surah.englishName,
-                        fontSize = (urduFontSize * 0.95f).sp,
-                        fontWeight = FontWeight.Bold,
-                        color = themeColors.decorationColor,
-                        fontFamily = getFontFamily(quranFontFamily)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = surah.englishName,
+                            fontSize = (urduFontSize * 0.95f).sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColors.decorationColor,
+                            fontFamily = getFontFamily(quranFontFamily)
+                        )
+                        Surface(
+                            color = themeColors.decorationColor.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "${surah.numberOfAyahs} Ayahs",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = themeColors.decorationColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${surah.revelationType.capitalize()} • ${surah.numberOfAyahs} Verses",
+                        text = "${surah.revelationType.capitalize()} • Total ${surah.numberOfAyahs} Verses",
                         fontSize = (urduFontSize * 0.7f).sp,
                         color = themeColors.txtUrduColor.copy(alpha = 0.7f),
                         fontFamily = getFontFamily(quranFontFamily)
@@ -643,7 +766,400 @@ fun JuzRowItem(
     }
 }
 
-// --- BEAUTIFUL FULL SCREEN PAGE READER COMPOSABLE (OPTION 1) ---
+// --- BEAUTIFUL FULL SCREEN PAGE & SURAH READER COMPOSABLE ---
+
+@Composable
+fun QuranDisplaySettingsDialog(
+    arabicFontSize: Float,
+    onArabicFontSizeChange: (Float) -> Unit,
+    urduFontSize: Float,
+    onUrduFontSizeChange: (Float) -> Unit,
+    isUrduEnabled: Boolean,
+    onUrduToggle: (Boolean) -> Unit,
+    isEnglishEnabled: Boolean,
+    onEnglishToggle: (Boolean) -> Unit,
+    readerTheme: String,
+    onThemeChange: (String) -> Unit,
+    quranFontFamily: String,
+    onFontFamilyChange: (String) -> Unit,
+    selectedQari: Qari = QARI_LIST[0],
+    onOpenQariSelector: () -> Unit = {},
+    themeColors: QuranThemeColors,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done", fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+            }
+        },
+        title = {
+            Text(
+                "Quran Display Settings",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = themeColors.decorationColor
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Arabic Font Size
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Arabic Font Size", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = themeColors.txtUrduColor)
+                        Text("${arabicFontSize.toInt()} sp", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+                    }
+                    Slider(
+                        value = arabicFontSize,
+                        onValueChange = onArabicFontSizeChange,
+                        valueRange = 20f..44f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = themeColors.decorationColor,
+                            activeTrackColor = themeColors.decorationColor,
+                            inactiveTrackColor = themeColors.borderColor.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+
+                // Translation Font Size
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Translation Font Size", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = themeColors.txtUrduColor)
+                        Text("${urduFontSize.toInt()} sp", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+                    }
+                    Slider(
+                        value = urduFontSize,
+                        onValueChange = onUrduFontSizeChange,
+                        valueRange = 12f..26f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = themeColors.decorationColor,
+                            activeTrackColor = themeColors.decorationColor,
+                            inactiveTrackColor = themeColors.borderColor.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+
+                // Urdu & English Toggles
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Urdu Translation", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = themeColors.txtUrduColor)
+                    Switch(
+                        checked = isUrduEnabled,
+                        onCheckedChange = onUrduToggle,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = themeColors.decorationColor,
+                            checkedTrackColor = themeColors.decorationColor.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("English Translation", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = themeColors.txtUrduColor)
+                        Text("(Coming Soon)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+                    }
+                    Switch(
+                        checked = isEnglishEnabled,
+                        onCheckedChange = onEnglishToggle,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = themeColors.decorationColor,
+                            checkedTrackColor = themeColors.decorationColor.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+
+                // Reader Theme Selector
+                Column {
+                    Text("Reader Theme Palette", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Beige", "Green", "White", "Dark").forEach { th ->
+                            val isSelected = readerTheme == th
+                            val boxColors = getQuranThemeColors(th)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(boxColors.bgColor)
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) themeColors.decorationColor else themeColors.borderColor.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { onThemeChange(th) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = th,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = boxColors.txtArabicColor
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Font Style Selector
+                Column {
+                    Text("Font Style", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Serif", "Sans-Serif", "Monospace", "Default").forEach { fn ->
+                            val isSelected = quranFontFamily == fn
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) themeColors.decorationColor else themeColors.cardColor)
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) themeColors.decorationColor else themeColors.borderColor.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { onFontFamilyChange(fn) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = fn,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) themeColors.cardColor else themeColors.txtUrduColor,
+                                    fontFamily = getFontFamily(fn)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Reciter Voice Qari
+                Column {
+                    Text("Quran Voice Reciter (Qari)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenQariSelector()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, themeColors.decorationColor)
+                    ) {
+                        Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = themeColors.decorationColor, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "${selectedQari.name} (${selectedQari.style})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColors.decorationColor
+                        )
+                    }
+                }
+            }
+        },
+        containerColor = themeColors.cardColor,
+        shape = RoundedCornerShape(16.dp)
+    )
+}
+
+@Composable
+fun QariSelectionDialog(
+    selectedQari: Qari,
+    onSelectQari: (Qari) -> Unit,
+    themeColors: QuranThemeColors,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done", fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+            }
+        },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = themeColors.decorationColor)
+                Text(
+                    "Select Qari (Reciter)",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = themeColors.decorationColor
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Select your preferred world-famous Qari for streaming and offline audio downloads:",
+                    fontSize = 11.sp,
+                    color = themeColors.txtUrduColor.copy(alpha = 0.8f)
+                )
+
+                QARI_LIST.forEach { qari ->
+                    val isSelected = selectedQari.id == qari.id
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelectQari(qari)
+                                onDismiss()
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) themeColors.decorationColor.copy(alpha = 0.15f) else themeColors.cardColor
+                        ),
+                        border = BorderStroke(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) themeColors.decorationColor else themeColors.borderColor.copy(alpha = 0.4f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = qari.name,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = themeColors.decorationColor
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "${qari.arabicName} • ${qari.style}",
+                                    fontSize = 11.sp,
+                                    color = themeColors.txtUrduColor.copy(alpha = 0.8f)
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Selected",
+                                    tint = Color(0xFF059669),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        containerColor = themeColors.cardColor,
+        shape = RoundedCornerShape(16.dp)
+    )
+}
+
+suspend fun downloadQuranSurah(surahNum: Int): List<CachedQuranVerse> {
+    val versesList = mutableListOf<CachedQuranVerse>()
+    try {
+        val urlStr = "https://api.alquran.cloud/v1/surah/$surahNum/editions/quran-uthmani,ur.jalandhry,en.transliteration"
+        val url = URL(urlStr)
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        
+        if (conn.responseCode == 200) {
+            val reader = BufferedReader(InputStreamReader(conn.inputStream))
+            val sb = StringBuilder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                sb.append(line)
+            }
+            reader.close()
+            
+            val jsonRoot = JSONObject(sb.toString())
+            val dataArray = jsonRoot.optJSONArray("data")
+            
+            if (dataArray != null && dataArray.length() >= 2) {
+                val arObj = dataArray.getJSONObject(0)
+                val urObj = dataArray.getJSONObject(1)
+                
+                val ayahsAr = arObj.getJSONArray("ayahs")
+                val ayahsUr = urObj.getJSONArray("ayahs")
+                val ayahsEn = if (dataArray.length() >= 3) dataArray.getJSONObject(2).optJSONArray("ayahs") else null
+                
+                for (i in 0 until ayahsAr.length()) {
+                    val aAr = ayahsAr.getJSONObject(i)
+                    val aUr = if (i < ayahsUr.length()) ayahsUr.getJSONObject(i) else null
+                    val aEn = if (ayahsEn != null && i < ayahsEn.length()) ayahsEn.getJSONObject(i) else null
+                    
+                    val verseNum = aAr.getInt("numberInSurah")
+                    val key = "${surahNum}_${verseNum}"
+                    val textArabic = aAr.getString("text")
+                    val textUrdu = aUr?.optString("text") ?: "اردو ترجمہ دستیاب نہیں ہے۔"
+                    val textEnglish = aEn?.optString("text") ?: "English translation."
+                    val juz = aAr.optInt("juz", 1)
+                    val page = aAr.optInt("page", 1)
+                    
+                    versesList.add(
+                        CachedQuranVerse(
+                            id = key,
+                            surahNumber = surahNum,
+                            verseNumber = verseNum,
+                            juz = juz,
+                            page = page,
+                            textArabic = textArabic,
+                            textUrdu = textUrdu,
+                            textEnglish = textEnglish
+                        )
+                    )
+                }
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    
+    // Fallback to page downloading if needed
+    if (versesList.isEmpty()) {
+        try {
+            val startPage = getPageForSurah(surahNum)
+            val endPage = if (surahNum < 114) getPageForSurah(surahNum + 1) else 604
+            for (p in startPage..endPage) {
+                val pageVerses = downloadQuranPage(p)
+                val surahOnly = pageVerses.filter { it.surahNumber == surahNum }
+                versesList.addAll(surahOnly)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    return versesList
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -653,22 +1169,32 @@ fun QuranPageReader(
     initialPageNum: Int = 0,
     onBack: () -> Unit,
     arabicFontSize: Float,
+    onArabicFontSizeChange: (Float) -> Unit,
     urduFontSize: Float,
+    onUrduFontSizeChange: (Float) -> Unit,
     isUrduEnabled: Boolean,
+    onUrduToggle: (Boolean) -> Unit,
     isEnglishEnabled: Boolean,
+    onEnglishToggle: (Boolean) -> Unit,
     themeName: String,
+    onThemeChange: (String) -> Unit,
     immersiveMode: Boolean,
     onToggleImmersive: () -> Unit,
-    quranFontFamily: String
+    quranFontFamily: String,
+    onFontFamilyChange: (String) -> Unit,
+    selectedQari: Qari = QARI_LIST[0],
+    onSelectQari: (Qari) -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
+    var showDisplaySettings by remember { mutableStateOf(false) }
+    var showQariSelectorDialog by remember { mutableStateOf(false) }
+    
     // Page state
     var currentPage by remember { mutableStateOf(if (initialPageNum > 0) initialPageNum else getPageForSurah(surah.number)) }
-    var hasAutoScrolled by remember(surah.number) { mutableStateOf(false) }
     
-    // Loaded verses for the current page
+    // Loaded verses
     var versesForPage by remember { mutableStateOf<List<CachedQuranVerse>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var networkError by remember { mutableStateOf<String?>(null) }
@@ -678,7 +1204,11 @@ fun QuranPageReader(
     var autoPlayNextPage by remember { mutableStateOf(false) }
     val lazyListState = rememberLazyListState()
 
-    // Determine the current visible surah based on scroll position
+    // Audio Playback State
+    var activeRecitationUrl by remember { mutableStateOf<String?>(null) }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var isPlayingAudio by remember { mutableStateOf(false) }
+
     val currentVisibleSurahNum = remember {
         derivedStateOf {
             val visibleIndex = lazyListState.firstVisibleItemIndex
@@ -694,22 +1224,6 @@ fun QuranPageReader(
         getSurahList().firstOrNull { it.number == currentVisibleSurahNum.value } ?: surah
     }
 
-    LaunchedEffect(versesForPage) {
-        if (versesForPage.isNotEmpty() && !hasAutoScrolled) {
-            val targetSurahNum = surah.number
-            val firstVerseIndex = versesForPage.indexOfFirst { it.surahNumber == targetSurahNum }
-            if (firstVerseIndex >= 0) {
-                lazyListState.scrollToItem(firstVerseIndex)
-                hasAutoScrolled = true
-            }
-        }
-    }
-
-    // Audio Playback State
-    var activeRecitationUrl by remember { mutableStateOf<String?>(null) }
-    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
-    var isPlayingAudio by remember { mutableStateOf(false) }
-    
     val stopAudio = {
         try {
             mediaPlayer?.let {
@@ -727,7 +1241,6 @@ fun QuranPageReader(
     }
 
     fun playVerse(verse: CachedQuranVerse) {
-        // Stop current audio if any
         try {
             mediaPlayer?.let {
                 if (it.isPlaying) {
@@ -743,7 +1256,6 @@ fun QuranPageReader(
         activeVerseId = verse.id
         isPlayingAudio = true
         
-        // Find index of the verse on the current page to animate scroll
         val index = versesForPage.indexOfFirst { it.id == verse.id }
         if (index >= 0) {
             coroutineScope.launch {
@@ -753,33 +1265,40 @@ fun QuranPageReader(
         
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                // Format: https://everyayah.com/data/Alafasy_128kbps/{surah_3_digits}{verse_3_digits}.mp3
                 val surahFormatted = String.format("%03d", verse.surahNumber)
                 val verseFormatted = String.format("%03d", verse.verseNumber)
-                val urlStr = "https://everyayah.com/data/Alafasy_128kbps/$surahFormatted$verseFormatted.mp3"
-                activeRecitationUrl = urlStr
+                val qariFolder = selectedQari.folder
+                val urlStr = "https://everyayah.com/data/$qariFolder/$surahFormatted$verseFormatted.mp3"
+                val localQariFile = File(context.filesDir, "quran_audio/$qariFolder/$surahFormatted$verseFormatted.mp3")
+                val legacyFile = File(context.filesDir, "quran_audio/$surahFormatted$verseFormatted.mp3")
+                val dataSource = if (localQariFile.exists() && localQariFile.length() > 500) {
+                    localQariFile.absolutePath
+                } else if (legacyFile.exists() && legacyFile.length() > 500) {
+                    legacyFile.absolutePath
+                } else {
+                    urlStr
+                }
+                activeRecitationUrl = dataSource
                 
                 val mp = MediaPlayer().apply {
-                    setDataSource(urlStr)
+                    setDataSource(dataSource)
                     prepare()
                     start()
                 }
                 withContext(Dispatchers.Main) {
                     mediaPlayer = mp
                     mp.setOnCompletionListener {
-                        // When this verse completes, auto-advance to the next verse!
                         val nextIndex = index + 1
                         if (nextIndex >= 0 && nextIndex < versesForPage.size) {
                             playVerse(versesForPage[nextIndex])
                         } else {
-                            // End of page! Auto-flip page!
                             if (currentPage < 604) {
                                 autoPlayNextPage = true
                                 currentPage++
                             } else {
-                                // End of Quran
                                 activeVerseId = null
                                 isPlayingAudio = false
+                                Toast.makeText(context, "Completed Quran Recitation", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -794,27 +1313,21 @@ fun QuranPageReader(
         }
     }
     
-    // Fetch Quran verses from Cache, or download on-demand
+    // Fetch Quran verses - Page Mode across whole Quran (pages 1 to 604)
     LaunchedEffect(currentPage) {
         isLoading = true
         networkError = null
         
-        // Let's observe database
         viewModel.getCachedVersesForPage(currentPage).first().let { cached ->
             val hasArabicPlaceholder = cached.isNotEmpty() && cached.any { it.textUrdu.isNotEmpty() && it.textUrdu.trim() == it.textArabic.trim() }
             if (cached.isNotEmpty() && !hasArabicPlaceholder) {
                 versesForPage = cached
                 isLoading = false
-                
-                // If autoPlayNextPage is active, start playing the first verse of the new page!
                 if (autoPlayNextPage) {
                     autoPlayNextPage = false
-                    if (versesForPage.isNotEmpty()) {
-                        playVerse(versesForPage.first())
-                    }
+                    if (versesForPage.isNotEmpty()) playVerse(versesForPage.first())
                 }
             } else {
-                // Let's try downloading the page or the surah containing the page
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
                         val downloaded = downloadQuranPage(currentPage)
@@ -823,25 +1336,21 @@ fun QuranPageReader(
                             withContext(Dispatchers.Main) {
                                 versesForPage = downloaded
                                 isLoading = false
-                                
-                                // If autoPlayNextPage is active, start playing the first verse of the new page!
                                 if (autoPlayNextPage) {
                                     autoPlayNextPage = false
-                                    if (versesForPage.isNotEmpty()) {
-                                        playVerse(versesForPage.first())
-                                    }
+                                    if (versesForPage.isNotEmpty()) playVerse(versesForPage.first())
                                 }
                             }
                         } else {
                             withContext(Dispatchers.Main) {
-                                networkError = "Connection timed out. Check internet connection to cache this page."
+                                networkError = "Connection timed out. Check internet connection."
                                 isLoading = false
                                 autoPlayNextPage = false
                             }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            networkError = "Error downloading page: ${e.localizedMessage}. Please try again."
+                            networkError = "Error downloading page: ${e.localizedMessage}"
                             isLoading = false
                             autoPlayNextPage = false
                         }
@@ -851,33 +1360,68 @@ fun QuranPageReader(
         }
     }
 
-    DisposableEffect(currentPage) {
+    DisposableEffect(currentPage, surah.number) {
         onDispose {
             stopAudio()
         }
     }
 
-    // Choose Theme Colors
+    // Theme Colors
     val themeColors = remember(themeName) { getQuranThemeColors(themeName) }
-    
     val bgColor = themeColors.bgColor
-    val cardColor = themeColors.cardColor
     val txtArabicColor = themeColors.txtArabicColor
     val txtUrduColor = themeColors.txtUrduColor
     val borderColor = themeColors.borderColor
     val decorationColor = themeColors.decorationColor
+
+    if (showDisplaySettings) {
+        QuranDisplaySettingsDialog(
+            arabicFontSize = arabicFontSize,
+            onArabicFontSizeChange = onArabicFontSizeChange,
+            urduFontSize = urduFontSize,
+            onUrduFontSizeChange = onUrduFontSizeChange,
+            isUrduEnabled = isUrduEnabled,
+            onUrduToggle = onUrduToggle,
+            isEnglishEnabled = isEnglishEnabled,
+            onEnglishToggle = onEnglishToggle,
+            readerTheme = themeName,
+            onThemeChange = onThemeChange,
+            quranFontFamily = quranFontFamily,
+            onFontFamilyChange = onFontFamilyChange,
+            selectedQari = selectedQari,
+            onOpenQariSelector = { showQariSelectorDialog = true },
+            themeColors = themeColors,
+            onDismiss = { showDisplaySettings = false }
+        )
+    }
+
+    if (showQariSelectorDialog) {
+        QariSelectionDialog(
+            selectedQari = selectedQari,
+            onSelectQari = onSelectQari,
+            themeColors = themeColors,
+            onDismiss = { showQariSelectorDialog = false }
+        )
+    }
 
     Scaffold(
         topBar = {
             if (!immersiveMode) {
                 TopAppBar(
                     title = {
-                        Text(
-                            text = "Surah ${currentSurahMetadata.englishName} (${currentSurahMetadata.arabicName})",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = decorationColor
-                        )
+                        Column {
+                            Text(
+                                text = "Surah ${currentSurahMetadata.englishName} (${currentSurahMetadata.arabicName})",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = decorationColor
+                            )
+                            Text(
+                                text = if (initialPageNum == 0) "Full Recitation • ${versesForPage.size} Ayahs" else "Page $currentPage of 604",
+                                fontSize = 10.sp,
+                                color = txtUrduColor.copy(alpha = 0.7f)
+                            )
+                        }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -885,6 +1429,12 @@ fun QuranPageReader(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showQariSelectorDialog = true }) {
+                            Icon(Icons.Default.RecordVoiceOver, contentDescription = "Select Reciter", tint = decorationColor)
+                        }
+                        IconButton(onClick = { showDisplaySettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Display Settings", tint = decorationColor)
+                        }
                         IconButton(onClick = onToggleImmersive) {
                             Icon(Icons.Default.Fullscreen, contentDescription = "Full Screen", tint = decorationColor)
                         }
@@ -892,12 +1442,9 @@ fun QuranPageReader(
                             if (isPlayingAudio) {
                                 stopAudio()
                             } else {
-                                val firstVerseOfSurah = versesForPage.firstOrNull { it.surahNumber == currentSurahMetadata.number } ?: versesForPage.firstOrNull()
-                                if (firstVerseOfSurah != null) {
-                                    playVerse(firstVerseOfSurah)
-                                } else {
-                                    Toast.makeText(context, "No verses loaded to play", Toast.LENGTH_SHORT).show()
-                                }
+                                val firstVerse = versesForPage.firstOrNull()
+                                if (firstVerse != null) playVerse(firstVerse)
+                                else Toast.makeText(context, "No verses loaded to play", Toast.LENGTH_SHORT).show()
                             }
                         }) {
                             Icon(
@@ -912,73 +1459,143 @@ fun QuranPageReader(
             }
         }
     ) { paddingValues ->
+        var scale by remember { mutableFloatStateOf(1f) }
+        var offsetX by remember { mutableFloatStateOf(0f) }
+        var offsetY by remember { mutableFloatStateOf(0f) }
+
+        // Reset zoom when page changes
+        LaunchedEffect(currentPage) {
+            scale = 1f
+            offsetX = 0f
+            offsetY = 0f
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(bgColor)
                 .padding(paddingValues)
-                .clickable {
-                    onToggleImmersive() // tap anywhere outside of specific controls to toggle full screen
+                .pointerInput(currentPage, scale) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            if (scale > 1.1f) {
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                            } else {
+                                scale = 1.8f
+                                offsetX = 0f
+                                offsetY = 0f
+                            }
+                        }
+                    )
+                }
+                .pointerInput(currentPage) {
+                    awaitEachGesture {
+                        var accumulatedPanX = 0f
+                        var isZoomGesture = false
+                        
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        do {
+                            val event = awaitPointerEvent()
+                            val pointerCount = event.changes.size
+                            if (pointerCount >= 2) {
+                                isZoomGesture = true
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+                                
+                                val newScale = (scale * zoomChange).coerceIn(1f, 3.5f)
+                                scale = newScale
+                                
+                                if (scale > 1.01f) {
+                                    val maxX = 600f * (scale - 1f)
+                                    val maxY = 1000f * (scale - 1f)
+                                    offsetX = (offsetX + panChange.x).coerceIn(-maxX, maxX)
+                                    offsetY = (offsetY + panChange.y).coerceIn(-maxY, maxY)
+                                } else {
+                                    scale = 1f
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+                                event.changes.forEach { it.consume() }
+                            } else if (pointerCount == 1) {
+                                val change = event.changes.first()
+                                val dragAmount = change.position - change.previousPosition
+                                if (scale > 1.05f) {
+                                    val maxX = 600f * (scale - 1f)
+                                    val maxY = 1000f * (scale - 1f)
+                                    offsetX = (offsetX + dragAmount.x).coerceIn(-maxX, maxX)
+                                    offsetY = (offsetY + dragAmount.y).coerceIn(-maxY, maxY)
+                                    change.consume()
+                                } else if (!isZoomGesture) {
+                                    accumulatedPanX += dragAmount.x
+                                    change.consume()
+                                }
+                            }
+                        } while (event.changes.any { it.pressed })
+                        
+                        // Finger released
+                        if (!isZoomGesture && scale <= 1.05f) {
+                            if (accumulatedPanX < -80f) {
+                                if (currentPage < 604) {
+                                    stopAudio()
+                                    currentPage++
+                                } else {
+                                    Toast.makeText(context, "Last page of Quran (604)", Toast.LENGTH_SHORT).show()
+                                }
+                            } else if (accumulatedPanX > 80f) {
+                                if (currentPage > 1) {
+                                    stopAudio()
+                                    currentPage--
+                                } else {
+                                    Toast.makeText(context, "First page of Quran (1)", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
                 }
         ) {
-            // --- VECTOR-BASED QURAN PAGE FRAMING COMPOSABLE ---
+            // Maximized full-length viewport with high-resolution vector scaling & elegant framing
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(8.dp)
+                    .padding(2.dp)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offsetX
+                        translationY = offsetY
+                    }
             ) {
-                // Traditional Border & Page dividers
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
-                    
-                    // Draw outer double borders (like South Asian Quran layout)
                     drawRoundRect(
-                        color = borderColor,
-                        topLeft = Offset(4.dp.toPx(), 4.dp.toPx()),
-                        size = Size(w - 8.dp.toPx(), h - 8.dp.toPx()),
-                        cornerRadius = CornerRadius(12.dp.toPx()),
-                        style = Stroke(width = 1.5.dp.toPx())
+                        color = borderColor.copy(alpha = 0.8f),
+                        topLeft = Offset(2.dp.toPx(), 2.dp.toPx()),
+                        size = Size(w - 4.dp.toPx(), h - 4.dp.toPx()),
+                        cornerRadius = CornerRadius(8.dp.toPx()),
+                        style = Stroke(width = 1.2.dp.toPx())
                     )
-                    
-                    drawRoundRect(
-                        color = borderColor.copy(alpha = 0.6f),
-                        topLeft = Offset(8.dp.toPx(), 8.dp.toPx()),
-                        size = Size(w - 16.dp.toPx(), h - 16.dp.toPx()),
-                        cornerRadius = CornerRadius(10.dp.toPx()),
-                        style = Stroke(width = 0.8.dp.toPx())
-                    )
-                    
-                    // Small beautiful corner accent circles
-                    val corners = listOf(
-                        Offset(8.dp.toPx(), 8.dp.toPx()),
-                        Offset(w - 8.dp.toPx(), 8.dp.toPx()),
-                        Offset(8.dp.toPx(), h - 8.dp.toPx()),
-                        Offset(w - 8.dp.toPx(), h - 8.dp.toPx())
-                    )
-                    corners.forEach { pt ->
-                        drawCircle(color = borderColor, radius = 4.dp.toPx(), center = pt)
-                    }
                 }
                 
-                // Content inside the page
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Page Header (Surah title, Page, Juz)
+                    // Page / Surah Header Banner
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 8.dp),
+                            .padding(bottom = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = currentSurahMetadata.arabicName,
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = decorationColor
                         )
@@ -1002,34 +1619,32 @@ fun QuranPageReader(
                         )
                     }
                     
-                    // Simple thin line below header
                     Spacer(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
-                            .background(borderColor.copy(alpha = 0.5f))
+                            .background(borderColor.copy(alpha = 0.4f))
                     )
                     
-                    // Display loading or verses
                     if (isLoading) {
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
+                                .fillMaxSize()
+                                .weight(1f),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 CircularProgressIndicator(color = decorationColor)
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Reading from authentic Quran Cache...",
+                                    text = "Loading Quran Recitation...",
                                     fontSize = 12.sp,
                                     color = decorationColor
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
-                                    fontSize = 16.sp,
+                                    fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = decorationColor
                                 )
@@ -1038,8 +1653,8 @@ fun QuranPageReader(
                     } else if (networkError != null) {
                         Box(
                             modifier = Modifier
+                                .fillMaxSize()
                                 .weight(1f)
-                                .fillMaxWidth()
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1054,52 +1669,90 @@ fun QuranPageReader(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Button(
-                                    onClick = { currentPage = currentPage }, // trigger reload
+                                    onClick = { currentPage = currentPage },
                                     colors = ButtonDefaults.buttonColors(containerColor = decorationColor)
                                 ) {
-                                    Text("Retry Connection")
+                                    Text("Retry Loading")
                                 }
                             }
                         }
                     } else {
-                        // Display actual vector verses mimicking 15 lines layout
+                        // FULL SCREEN LENGTH LAZY COLUMN FOR CONTINUOUS RECITATION
                         LazyColumn(
                             state = lazyListState,
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                .fillMaxSize()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             items(versesForPage) { verse ->
                                 val isActive = activeVerseId == verse.id
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 4.dp, horizontal = 2.dp)
-                                        .clickable {
-                                            playVerse(verse)
-                                        },
-                                    shape = RoundedCornerShape(12.dp),
+                                        .padding(vertical = 3.dp, horizontal = 2.dp)
+                                        .clickable { playVerse(verse) },
+                                    shape = RoundedCornerShape(10.dp),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = if (isActive) decorationColor.copy(alpha = 0.08f) else Color.Transparent
+                                        containerColor = if (isActive) decorationColor.copy(alpha = 0.12f) else themeColors.cardColor
                                     ),
-                                    border = if (isActive) BorderStroke(1.5.dp, decorationColor) else null,
-                                    elevation = CardDefaults.cardElevation(defaultElevation = if (isActive) 1.dp else 0.dp)
+                                    border = BorderStroke(
+                                        width = if (isActive) 1.8.dp else 1.dp,
+                                        color = if (isActive) decorationColor else borderColor.copy(alpha = 0.3f)
+                                    ),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = if (isActive) 2.dp else 0.5.dp)
                                 ) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(12.dp),
+                                            .padding(10.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        // Arabic Calligraphy Row with TextDirection.ContentOrRtl
+                                        // Verse Metadata Header Row
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(decorationColor.copy(alpha = 0.1f), CircleShape)
+                                                    .border(1.dp, decorationColor, CircleShape)
+                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${verse.surahNumber}:${verse.verseNumber}",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = decorationColor
+                                                )
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = { playVerse(verse) },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isActive && isPlayingAudio) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                                        contentDescription = "Play Verse",
+                                                        tint = decorationColor,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        // Arabic Calligraphy Text
                                         Text(
                                             text = verse.textArabic,
                                             fontSize = arabicFontSize.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = txtArabicColor,
                                             textAlign = TextAlign.Center,
-                                            lineHeight = (arabicFontSize + 12).sp,
+                                            lineHeight = (arabicFontSize + 14).sp,
                                             fontFamily = getFontFamily(quranFontFamily),
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1109,36 +1762,40 @@ fun QuranPageReader(
                                             )
                                         )
                                         
-                                        // Urdu Translation (optional)
+                                        // Urdu Translation
                                         if (isUrduEnabled) {
                                             Text(
                                                 text = verse.textUrdu,
                                                 fontSize = urduFontSize.sp,
                                                 color = txtUrduColor,
                                                 textAlign = TextAlign.Center,
-                                                lineHeight = (urduFontSize + 6).sp,
+                                                lineHeight = (urduFontSize + 7).sp,
                                                 fontFamily = getFontFamily(quranFontFamily),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(bottom = 6.dp),
+                                                    .padding(vertical = 4.dp),
                                                 style = LocalTextStyle.current.copy(
                                                     textDirection = TextDirection.ContentOrRtl
                                                 )
                                             )
                                         }
                                         
-                                        // English Translation (optional)
+                                        // English Translation
                                         if (isEnglishEnabled) {
+                                            val englishText = if (verse.textEnglish.isNotBlank() &&
+                                                                  !verse.textEnglish.equals("English translation.", ignoreCase = true) &&
+                                                                  !verse.textEnglish.contains("cached offline", ignoreCase = true)
+                                                              ) verse.textEnglish else "English translation (Coming Soon)"
                                             Text(
-                                                text = verse.textEnglish,
+                                                text = englishText,
                                                 fontSize = (urduFontSize - 2).sp,
-                                                color = txtUrduColor.copy(alpha = 0.8f),
+                                                color = txtUrduColor.copy(alpha = 0.85f),
                                                 textAlign = TextAlign.Center,
-                                                lineHeight = (urduFontSize + 4).sp,
+                                                lineHeight = (urduFontSize + 5).sp,
                                                 fontFamily = getFontFamily(quranFontFamily),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(bottom = 6.dp)
+                                                    .padding(top = 2.dp, bottom = 4.dp)
                                             )
                                         }
                                     }
@@ -1147,39 +1804,103 @@ fun QuranPageReader(
                         }
                     }
                     
-                    // Page Footer & Pagination Controls
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Footer pagination controls & swipe hint
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Button(
-                            onClick = { if (currentPage > 1) currentPage-- },
+                            onClick = {
+                                if (currentPage > 1) {
+                                    stopAudio()
+                                    currentPage--
+                                }
+                            },
                             enabled = currentPage > 1,
-                            colors = ButtonDefaults.buttonColors(containerColor = decorationColor)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = decorationColor,
+                                contentColor = Color.White,
+                                disabledContainerColor = decorationColor.copy(alpha = 0.35f),
+                                disabledContentColor = Color.White.copy(alpha = 0.6f)
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
-                            Icon(Icons.Default.ArrowBackIos, contentDescription = "Prev", modifier = Modifier.size(12.dp))
+                            Icon(Icons.Default.ArrowBackIos, contentDescription = "Prev", tint = Color.White, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Prev", fontSize = 11.sp)
+                            Text("Prev", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                         
-                        Text(
-                            text = "صفحة ${currentPage} من ٦٠٤",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = decorationColor
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "صفحة ${formatArabicNumber(currentPage)} من ٦٠٤",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = decorationColor
+                            )
+                            Text(
+                                text = "Swipe ← / → • Pinch to zoom",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = txtUrduColor.copy(alpha = 0.7f)
+                            )
+                        }
                         
                         Button(
-                            onClick = { if (currentPage < 604) currentPage++ },
+                            onClick = {
+                                if (currentPage < 604) {
+                                    stopAudio()
+                                    currentPage++
+                                }
+                            },
                             enabled = currentPage < 604,
-                            colors = ButtonDefaults.buttonColors(containerColor = decorationColor)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = decorationColor,
+                                contentColor = Color.White,
+                                disabledContainerColor = decorationColor.copy(alpha = 0.35f),
+                                disabledContentColor = Color.White.copy(alpha = 0.6f)
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
-                            Text("Next", fontSize = 11.sp)
+                            Text("Next", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowForwardIos, contentDescription = "Next", modifier = Modifier.size(12.dp))
+                            Icon(Icons.Default.ArrowForwardIos, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(14.dp))
                         }
+                    }
+                }
+            }
+
+            if (scale > 1.05f) {
+                Card(
+                    onClick = {
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = decorationColor, contentColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.ZoomIn, contentDescription = "Zoom", modifier = Modifier.size(16.dp), tint = Color.White)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "${(scale * 100).toInt()}% • Reset Zoom",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     }
                 }
             }
@@ -1208,19 +1929,22 @@ fun QuranSettingsView(
     themeColors: QuranThemeColors,
     onUpdateCache: () -> Unit
 ) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    var isDownloadingAll by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableStateOf(0f) }
-    var isDownloadingPara12 by remember { mutableStateOf(false) }
-    var para12Progress by remember { mutableStateOf(0f) }
-    
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+        // Animated Offline Download Card
+        item {
+            AnimatedQuranDownloadCard(
+                cachedCount = cachedCount,
+                viewModel = viewModel,
+                themeColors = themeColors,
+                onUpdateCache = onUpdateCache
+            )
+        }
+
         item {
             Text("Quran Display Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
         }
@@ -1233,12 +1957,12 @@ fun QuranSettingsView(
                 border = BorderStroke(1.dp, themeColors.borderColor.copy(alpha = 0.5f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Arabic Headings Font Size", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = themeColors.txtUrduColor)
+                    Text("Arabic Text Font Size", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = themeColors.txtUrduColor)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Slider(
                             value = arabicFontSize,
                             onValueChange = onArabicFontSizeChange,
-                            valueRange = 20f..40f,
+                            valueRange = 20f..44f,
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(
                                 thumbColor = themeColors.decorationColor,
@@ -1257,7 +1981,7 @@ fun QuranSettingsView(
                         Slider(
                             value = urduFontSize,
                             onValueChange = onUrduFontSizeChange,
-                            valueRange = 12f..24f,
+                            valueRange = 12f..26f,
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(
                                 thumbColor = themeColors.decorationColor,
@@ -1305,7 +2029,10 @@ fun QuranSettingsView(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("English Translation", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = themeColors.txtUrduColor)
+                        Column {
+                            Text("English Translation", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = themeColors.txtUrduColor)
+                            Text("(Coming Soon)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
+                        }
                         Switch(
                             checked = isEnglishEnabled, 
                             onCheckedChange = onEnglishToggle,
@@ -1392,157 +2119,648 @@ fun QuranSettingsView(
                 }
             }
         }
-        
-        // Caching View
-        item {
-            Card(
+    }
+}
+
+// --- OFFLINE AUDIO STORAGE & DOWNLOAD HELPERS ---
+
+fun getDownloadedAudioCount(context: Context): Int {
+    return try {
+        val dir = File(context.filesDir, "quran_audio")
+        if (dir.exists()) {
+            var count = 0
+            dir.walkTopDown().forEach { file ->
+                if (file.isFile && file.extension == "mp3" && file.length() > 500) {
+                    count++
+                }
+            }
+            count
+        } else 0
+    } catch (e: Exception) {
+        0
+    }
+}
+
+fun clearDownloadedAudioFiles(context: Context) {
+    try {
+        val dir = File(context.filesDir, "quran_audio")
+        if (dir.exists()) {
+            dir.deleteRecursively()
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun downloadVerseAudio(context: Context, surahNum: Int, verseNum: Int, qariFolder: String = "Alafasy_128kbps"): Boolean {
+    val surahFormatted = String.format("%03d", surahNum)
+    val verseFormatted = String.format("%03d", verseNum)
+    val dir = File(context.filesDir, "quran_audio/$qariFolder")
+    if (!dir.exists()) {
+        dir.mkdirs()
+    }
+    val file = File(dir, "$surahFormatted$verseFormatted.mp3")
+    if (file.exists() && file.length() > 500) {
+        return true
+    }
+
+    val urlStr = "https://everyayah.com/data/$qariFolder/$surahFormatted$verseFormatted.mp3"
+    try {
+        val url = URL(urlStr)
+        val conn = url.openConnection() as HttpURLConnection
+        conn.connectTimeout = 3000
+        conn.readTimeout = 3000
+        if (conn.responseCode == 200) {
+            val inputStream = conn.inputStream
+            val outputStream = FileOutputStream(file)
+            val buffer = ByteArray(4096)
+            var bytesRead: Int
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
+            }
+            outputStream.flush()
+            outputStream.close()
+            inputStream.close()
+            return true
+        }
+    } catch (e: Exception) {
+        // Individual audio download failure handled gracefully
+    }
+    return false
+}
+
+@Composable
+fun AnimatedQuranDownloadCard(
+    cachedCount: Int,
+    viewModel: StudentKitViewModel,
+    themeColors: QuranThemeColors,
+    onUpdateCache: () -> Unit
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var activeQari by remember { mutableStateOf(QARI_LIST[0]) }
+    var showQariPicker by remember { mutableStateOf(false) }
+    var isDownloading by remember { mutableStateOf(false) }
+    var downloadProgressSurah by remember { mutableIntStateOf(0) }
+    val totalSurahs = 114
+    val totalVersesTarget = 6236
+    var audioFilesCount by remember { mutableIntStateOf(getDownloadedAudioCount(context)) }
+    var currentVerseCount by remember { mutableIntStateOf(cachedCount) }
+    var showAlreadyDownloadedDialog by remember { mutableStateOf(false) }
+    var statusMessage by remember { 
+        mutableStateOf(
+            if (cachedCount >= 6236) 
+                "✅ Full Quran (6,236 Verses) & Voice Package Active in Phone Memory!" 
+            else if (cachedCount > 0) 
+                "Partial Offline Data: $cachedCount / 6,236 verses, $audioFilesCount audio files saved."
+            else 
+                "Ready to download complete 114 Surahs (6,236 Verses) & voice (${activeQari.name}) into phone memory."
+        ) 
+    }
+    var downloadJob by remember { mutableStateOf<Job?>(null) }
+
+    val startDownloadProcess: () -> Unit = {
+        isDownloading = true
+        statusMessage = "Starting download of all 114 Surahs (6,236 Verses) & ${activeQari.name} Voice..."
+        downloadJob = coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val surahList = getSurahList()
+                
+                for (s in 1..totalSurahs) {
+                    if (!isActive) break
+                    val meta = surahList.find { it.number == s }
+                    val surahName = meta?.englishName ?: "Surah $s"
+                    
+                    withContext(Dispatchers.Main) {
+                        downloadProgressSurah = s
+                        statusMessage = "Downloading Surah $s/114 ($surahName) & Voice (${activeQari.name})..."
+                    }
+
+                    // Download Surah verses with up to 3 retries
+                    var surahVerses = downloadQuranSurah(s)
+                    var retries = 0
+                    while (surahVerses.isEmpty() && retries < 3 && isActive) {
+                        retries++
+                        delay(500)
+                        surahVerses = downloadQuranSurah(s)
+                    }
+
+                    if (surahVerses.isNotEmpty()) {
+                        viewModel.insertQuranVerses(surahVerses)
+                        
+                        // Download voice audio files for every verse
+                        for (verse in surahVerses) {
+                            if (!isActive) break
+                            downloadVerseAudio(context, verse.surahNumber, verse.verseNumber, activeQari.folder)
+                        }
+                    }
+
+                    val curCount = viewModel.getCachedQuranVersesCount()
+                    val curAud = getDownloadedAudioCount(context)
+                    withContext(Dispatchers.Main) {
+                        currentVerseCount = curCount
+                        audioFilesCount = curAud
+                        statusMessage = "Surah $s/114 ($surahName) | Verses: $curCount / 6,236 | Voice Audio: $curAud files"
+                        onUpdateCache()
+                    }
+                }
+
+                // Final verification sweep to ensure ALL 6,236 verses are saved
+                var finalVerses = viewModel.getCachedQuranVersesCount()
+                if (finalVerses < totalVersesTarget && isActive) {
+                    withContext(Dispatchers.Main) {
+                        statusMessage = "Verifying all Surahs ($finalVerses / 6,236 saved)..."
+                    }
+                    for (s in 1..totalSurahs) {
+                        if (!isActive) break
+                        val meta = surahList.find { it.number == s }
+                        val existingSurah = downloadQuranSurah(s)
+                        if (existingSurah.isNotEmpty()) {
+                            viewModel.insertQuranVerses(existingSurah)
+                            for (v in existingSurah) {
+                                downloadVerseAudio(context, v.surahNumber, v.verseNumber, activeQari.folder)
+                            }
+                        }
+                    }
+                    finalVerses = viewModel.getCachedQuranVersesCount()
+                }
+
+                val finalAudio = getDownloadedAudioCount(context)
+                withContext(Dispatchers.Main) {
+                    isDownloading = false
+                    downloadProgressSurah = totalSurahs
+                    currentVerseCount = finalVerses
+                    audioFilesCount = finalAudio
+                    statusMessage = "✅ Completed! All $finalVerses Verses & $finalAudio Voice Audio Files stored in Phone Memory for offline use."
+                    Toast.makeText(context, "Full Quran ($finalVerses Verses) & Voice Saved in Phone Storage!", Toast.LENGTH_LONG).show()
+                    onUpdateCache()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    isDownloading = false
+                    statusMessage = "Download paused: ${e.localizedMessage}"
+                }
+            }
+        }
+    }
+
+    // Pulse animation for border and glowing effects
+    val infiniteTransition = rememberInfiniteTransition(label = "quran_download_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.03f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+    val glowingAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowing_alpha"
+    )
+    val rotateAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotate_angle"
+    )
+
+    val progressAnim by animateFloatAsState(
+        targetValue = if (totalVersesTarget > 0) (currentVerseCount.toFloat() / totalVersesTarget.toFloat()).coerceIn(0f, 1f) else 0f,
+        label = "progress_anim"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(if (isDownloading) pulseScale else 1f),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
+        border = BorderStroke(
+            width = if (isDownloading) 2.5.dp else 1.5.dp,
+            color = if (isDownloading) Color(0xFF10B981).copy(alpha = glowingAlpha) else themeColors.decorationColor.copy(alpha = 0.7f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isDownloading) 8.dp else 3.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header Row with Glowing Icon
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
-                border = BorderStroke(1.5.dp, themeColors.decorationColor)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF059669), Color(0xFF10B981), Color(0xFF34D399))
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isDownloading) Icons.Default.Refresh else Icons.Default.CloudDownload,
+                            contentDescription = "Offline Storage Icon",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(26.dp)
+                                .then(if (isDownloading) Modifier.rotate(rotateAngle) else Modifier)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Full Offline Quran & Voice Pack",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColors.decorationColor
+                        )
+                        Text(
+                            text = "Store all 114 Surahs (6,236 Verses) & Audio in Phone Memory",
+                            fontSize = 11.sp,
+                            color = themeColors.txtUrduColor.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+
+                // Storage Tag Badge
+                Surface(
+                    color = if (currentVerseCount >= 6236) Color(0xFF10B981).copy(alpha = 0.15f) else themeColors.borderColor.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, if (currentVerseCount >= 6236) Color(0xFF10B981) else themeColors.borderColor)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (currentVerseCount >= 6236) Color(0xFF10B981) else Color(0xFFF59E0B))
+                        )
+                        Text(
+                            text = if (currentVerseCount >= 6236) "Offline Ready" else "Download Needed",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentVerseCount >= 6236) Color(0xFF047857) else themeColors.txtUrduColor
+                        )
+                    }
+                }
+            }
+
+            // Memory Status Counter Box
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(themeColors.bgColor)
+                    .border(1.dp, themeColors.borderColor.copy(alpha = 0.4f))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Verses Saved", fontSize = 10.sp, color = themeColors.txtUrduColor.copy(alpha = 0.7f))
                     Text(
-                        text = "📶 Offline Storage & Parity Boost",
+                        text = "$currentVerseCount / 6,236",
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
                         color = themeColors.decorationColor
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                Divider(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .width(1.dp),
+                    color = themeColors.borderColor.copy(alpha = 0.5f)
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Voice Recitations", fontSize = 10.sp, color = themeColors.txtUrduColor.copy(alpha = 0.7f))
                     Text(
-                        text = "Current Cached Verses: $cachedCount / 6,236",
+                        text = "$audioFilesCount Files",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF059669)
+                    )
+                }
+                Divider(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .width(1.dp),
+                    color = themeColors.borderColor.copy(alpha = 0.5f)
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Phone Storage", fontSize = 10.sp, color = themeColors.txtUrduColor.copy(alpha = 0.7f))
+                    Text(
+                        text = "Device Memory",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = themeColors.txtUrduColor
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Download the complete Quran with authentic translations to enjoy 100% offline, zero-network reading.",
-                        fontSize = 11.sp,
-                        color = themeColors.txtUrduColor.copy(alpha = 0.8f)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    if (isDownloadingPara12) {
-                        Column {
-                            LinearProgressIndicator(
-                                progress = para12Progress,
-                                color = themeColors.decorationColor,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Caching Para 1 & 2 (Urdu Translation): ${(para12Progress * 100).toInt()}% Done...",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = themeColors.decorationColor
-                            )
-                        }
-                    } else if (isDownloadingAll) {
-                        Column {
-                            LinearProgressIndicator(
-                                progress = downloadProgress,
-                                color = themeColors.decorationColor,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Caching Holy Quran: ${(downloadProgress * 100).toInt()}% Done...",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = themeColors.decorationColor
-                            )
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                isDownloadingPara12 = true
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    try {
-                                        val totalPages = 41
-                                        for (page in 1..totalPages) {
-                                            val verses = downloadQuranPage(page)
-                                            if (verses.isNotEmpty()) {
-                                                viewModel.insertQuranVerses(verses)
-                                            }
-                                            withContext(Dispatchers.Main) {
-                                                para12Progress = page / totalPages.toFloat()
-                                            }
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            isDownloadingPara12 = false
-                                            Toast.makeText(context, "Para 1 & 2 Urdu Translation cached successfully!", Toast.LENGTH_LONG).show()
-                                            onUpdateCache()
-                                        }
-                                    } catch (e: Exception) {
-                                        withContext(Dispatchers.Main) {
-                                            isDownloadingPara12 = false
-                                            Toast.makeText(context, "Download interrupted", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = themeColors.decorationColor),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Download Para 1 & 2 Urdu Translation (100% Offline)", color = themeColors.cardColor)
-                        }
-                        
-                        Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
 
-                        Button(
-                            onClick = {
-                                isDownloadingAll = true
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    try {
-                                        // Fetch and cache all pages in order
-                                        for (p in 1..604) {
-                                            val verses = downloadQuranPage(p)
-                                            if (verses.isNotEmpty()) {
-                                                viewModel.insertQuranVerses(verses)
-                                            }
-                                            withContext(Dispatchers.Main) {
-                                                downloadProgress = p / 604f
-                                            }
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            isDownloadingAll = false
-                                            Toast.makeText(context, "Quran cached successfully for offline use!", Toast.LENGTH_LONG).show()
-                                            onUpdateCache()
-                                        }
-                                    } catch (e: Exception) {
-                                        withContext(Dispatchers.Main) {
-                                            isDownloadingAll = false
-                                            Toast.makeText(context, "Download interrupted", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = themeColors.decorationColor.copy(alpha = 0.85f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Pre-Download Complete Quran Offline", color = themeColors.cardColor)
-                        }
-                        
-                        Spacer(modifier = Modifier.height(10.dp))
-                        
-                        Button(
-                            onClick = {
-                                coroutineScope.launch {
-                                    viewModel.clearCachedQuran()
-                                    kotlinx.coroutines.delay(400)
-                                    onUpdateCache()
-                                    Toast.makeText(context, "Offline Cache cleared.", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.82f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Clear Offline Cache", color = Color.White)
+            // Animated Progress Bar if downloading or progress > 0
+            if (isDownloading || downloadProgressSurah > 0) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Download Progress (Surah $downloadProgressSurah / $totalSurahs | $currentVerseCount / 6,236 Verses)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = themeColors.txtUrduColor
+                        )
+                        Text(
+                            text = "${(progressAnim * 100).toInt()}%",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF10B981)
+                        )
+                    }
+
+                    LinearProgressIndicator(
+                        progress = progressAnim,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = Color(0xFF10B981),
+                        trackColor = themeColors.borderColor.copy(alpha = 0.3f)
+                    )
+                }
+            }
+
+            // Live Log / Status Message Box
+            Text(
+                text = statusMessage,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = if (isDownloading) Color(0xFF047857) else themeColors.txtUrduColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isDownloading) Color(0xFFD1FAE5) else themeColors.bgColor.copy(alpha = 0.6f))
+                    .padding(8.dp)
+            )
+
+            // Select Qari Voice Reciter Button
+            OutlinedButton(
+                onClick = { showQariPicker = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, themeColors.decorationColor)
+            ) {
+                Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = themeColors.decorationColor, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Selected Qari: ${activeQari.name} (${activeQari.style})",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = themeColors.decorationColor
+                )
+            }
+
+            if (showQariPicker) {
+                QariSelectionDialog(
+                    selectedQari = activeQari,
+                    onSelectQari = { activeQari = it },
+                    themeColors = themeColors,
+                    onDismiss = { showQariPicker = false }
+                )
+            }
+
+            // Primary Animated Download Button
+            Button(
+                onClick = {
+                    if (isDownloading) {
+                        downloadJob?.cancel()
+                        downloadJob = null
+                        isDownloading = false
+                        statusMessage = "⏸️ Download paused by user."
+                    } else {
+                        val isComplete = currentVerseCount >= 6236
+                        if (isComplete) {
+                            statusMessage = "✅ Quran with voice is already downloaded in phone memory!"
+                            Toast.makeText(
+                                context,
+                                "The Holy Quran with voice is already downloaded!",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            showAlreadyDownloadedDialog = true
+                        } else {
+                            startDownloadProcess()
                         }
                     }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isDownloading) Color(0xFFEF4444) else Color(0xFF059669)
+                )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = if (isDownloading) Icons.Default.Pause else Icons.Default.DownloadForOffline,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .then(if (!isDownloading) Modifier.scale(pulseScale) else Modifier)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (isDownloading) "Pause Download" else "Download Full Quran & Voice (Phone Memory)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color.White
+                    )
+                }
+            }
+
+            // Secondary Action Buttons (Verify & Clear)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val count = viewModel.getCachedQuranVersesCount()
+                            val aud = getDownloadedAudioCount(context)
+                            withContext(Dispatchers.Main) {
+                                currentVerseCount = count
+                                audioFilesCount = aud
+                                statusMessage = "Verified Phone Storage: $count / 6,236 Verses & $aud Audio Files present."
+                                Toast.makeText(context, "Phone Memory Verified: $count / 6,236 Verses, $aud Audio Files", Toast.LENGTH_SHORT).show()
+                                onUpdateCache()
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, themeColors.decorationColor)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp), tint = themeColors.decorationColor)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Verify Storage", fontSize = 11.sp, color = themeColors.decorationColor)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            viewModel.clearCachedQuran()
+                            clearDownloadedAudioFiles(context)
+                            savePreloadedSurahs(viewModel)
+                            val count = viewModel.getCachedQuranVersesCount()
+                            val aud = getDownloadedAudioCount(context)
+                            withContext(Dispatchers.Main) {
+                                currentVerseCount = count
+                                audioFilesCount = aud
+                                downloadProgressSurah = 0
+                                statusMessage = "Phone memory reset. Core Surahs remain available offline."
+                                Toast.makeText(context, "Cleared Offline Phone Storage", Toast.LENGTH_SHORT).show()
+                                onUpdateCache()
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444))
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Clear Storage", fontSize = 11.sp)
                 }
             }
         }
+    }
+
+    // Professional Dialog when Quran & Voice is already downloaded
+    if (showAlreadyDownloadedDialog) {
+        AlertDialog(
+            onDismissRequest = { showAlreadyDownloadedDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Already Downloaded",
+                    tint = Color(0xFF10B981),
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Quran & Voice Already Downloaded",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    textAlign = TextAlign.Center,
+                    color = themeColors.decorationColor
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "The complete Holy Quran with full Arabic text, translations, and high-quality voice recitations is already safely stored in your phone memory.",
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        color = themeColors.txtUrduColor
+                    )
+
+                    Surface(
+                        color = Color(0xFF10B981).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.TaskAlt, contentDescription = null, tint = Color(0xFF047857), modifier = Modifier.size(16.dp))
+                                Text("6,236 Verses Saved in Phone Memory", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF047857))
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color(0xFF047857), modifier = Modifier.size(16.dp))
+                                Text("Mishary Rashid Alafasy Audio Active", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF047857))
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.WifiOff, contentDescription = null, tint = Color(0xFF047857), modifier = Modifier.size(16.dp))
+                                Text("100% Offline Access (No Internet Needed)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF047857))
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "You can immediately read and listen to all Surahs offline. Re-downloading is not necessary.",
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        color = themeColors.txtUrduColor.copy(alpha = 0.7f)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showAlreadyDownloadedDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("OK, Got It!", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showAlreadyDownloadedDialog = false
+                        startDownloadProcess()
+                    }
+                ) {
+                    Text("Re-Download", color = themeColors.txtUrduColor.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+            },
+            containerColor = themeColors.cardColor
+        )
     }
 }
 

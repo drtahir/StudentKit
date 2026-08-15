@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.viewmodel.Screen
 import com.example.viewmodel.StudentKitViewModel
+import java.util.Calendar
 import kotlinx.coroutines.launch
 
 // Beautiful Islamic theme colors
@@ -287,6 +288,74 @@ fun IslamicHubScreen(
                 }
             }
 
+            // Dynamic Hijri Date & Moon Calibration Banner
+            item {
+                val hijriOffset by viewModel.hijriOffset.collectAsState()
+                var showIslamicCalendarDialog by remember { mutableStateOf(false) }
+                val todayHijri = remember(hijriOffset) { IslamicCalendarUtils.getHijriDate(Calendar.getInstance(), hijriOffset) }
+
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F5132)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showIslamicCalendarDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFFFFD54F))
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = todayHijri.formattedAr,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = todayHijri.formattedEn,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFFFD54F)
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { showIslamicCalendarDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF198754)),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Calendar / Calibrate", fontSize = 11.sp, color = Color.White)
+                        }
+                    }
+                }
+
+                if (showIslamicCalendarDialog) {
+                    IslamicCalendarDialog(viewModel = viewModel, onDismiss = { showIslamicCalendarDialog = false })
+                }
+            }
+
             // Quick Supplication Stats / Tasbih Tracker Snippet
             item {
                 Card(
@@ -331,11 +400,6 @@ fun IslamicHubScreen(
                         }
                     }
                 }
-            }
-
-            // Live Qibla Finder Section
-            item {
-                QiblaCompassWidget()
             }
 
             // Book Selection Section

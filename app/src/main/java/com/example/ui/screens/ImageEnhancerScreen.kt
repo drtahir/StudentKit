@@ -57,7 +57,13 @@ fun ImageEnhancerScreen(
     val enhancedImage by viewModel.enhancedImage.collectAsState()
     val isModelLoaded by viewModel.modelLoaded.collectAsState()
 
-    var showDownloadGuide by remember { mutableStateOf(false) }
+    val passProfile by viewModel.passProfile.collectAsState()
+    val sharpeningStrength by viewModel.sharpeningStrength.collectAsState()
+    val skinSmoothStrength by viewModel.skinSmoothStrength.collectAsState()
+    val enablePreDenoise by viewModel.enablePreDenoise.collectAsState()
+    val enableColorBoost by viewModel.enableColorBoost.collectAsState()
+
+    var showAdvancedTuning by remember { mutableStateOf(false) }
 
     // Permission states
     val cameraPermissionState = rememberPermissionState(permission = Manifest.permission.CAMERA)
@@ -105,50 +111,34 @@ fun ImageEnhancerScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // AI Model Engine Status Badge
+        // Header Banner
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = if (isModelLoaded) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
+            color = Color(0xFFE0F7FA),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isModelLoaded) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = if (isModelLoaded) Color(0xFF2E7D32) else Color(0xFFE65100),
-                        modifier = Modifier.size(20.dp)
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color(0xFF00ACC1),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = "Powerful Offline AI Image Enhancer",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = Color(0xFF006064)
                     )
-                    Column {
-                        Text(
-                            text = if (isModelLoaded) "On-Device Neural Engine Active" else "Enhancement Running in Fallback",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = if (isModelLoaded) Color(0xFF1B5E20) else Color(0xFF5D4037)
-                        )
-                        Text(
-                            text = if (isModelLoaded) "Hardware Accelerated TFLite (Real-ESRGAN + GFPGAN)" else "Local pixel-sharpening refinement fallback active",
-                            fontSize = 10.sp,
-                            color = Color.Gray
-                        )
-                    }
-                }
-                
-                IconButton(
-                    onClick = { showDownloadGuide = true },
-                    modifier = Modifier.testTag("download_guide_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.HelpOutline,
-                        contentDescription = "Show TFLite download guide",
-                        tint = Color.Gray
+                    Text(
+                        text = "100% On-Device • Multi-Pass Neural Super-Resolution",
+                        fontSize = 11.sp,
+                        color = Color(0xFF00838F)
                     )
                 }
             }
@@ -206,7 +196,14 @@ fun ImageEnhancerScreen(
                         Button(
                             onClick = {
                                 if (cameraPermissionState.status.isGranted) {
-                                    cameraLauncher.launch()
+                                    try {
+                                        cameraLauncher.launch(null)
+                                    } catch (e: SecurityException) {
+                                        cameraPermissionState.launchPermissionRequest()
+                                        Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Unable to launch camera: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    }
                                 } else {
                                     cameraPermissionState.launchPermissionRequest()
                                 }
@@ -284,34 +281,54 @@ fun ImageEnhancerScreen(
         when (val state = uiState) {
             is EnhanceUiState.Idle -> {
                 if (originalImage != null) {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.setOriginalImage(originalImage!!) // reset
-                                galleryLauncher.launch("image/*")
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Change Photo")
-                        }
+                        MultiPassQualityControlPanel(
+                            selectedProfile = passProfile,
+                            sharpeningStrength = sharpeningStrength,
+                            skinSmoothStrength = skinSmoothStrength,
+                            enablePreDenoise = enablePreDenoise,
+                            enableColorBoost = enableColorBoost,
+                            showAdvancedTuning = showAdvancedTuning,
+                            onProfileSelected = { viewModel.setPassProfile(it) },
+                            onSharpeningChanged = { viewModel.setSharpeningStrength(it) },
+                            onSkinSmoothChanged = { viewModel.setSkinSmoothStrength(it) },
+                            onPreDenoiseToggled = { viewModel.setEnablePreDenoise(it) },
+                            onColorBoostToggled = { viewModel.setEnableColorBoost(it) },
+                            onToggleAdvanced = { showAdvancedTuning = !showAdvancedTuning }
+                        )
 
-                        Button(
-                            onClick = { viewModel.startEnhancement() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00ACC1)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(1.5f)
-                                .testTag("enhance_start_button")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Enhance HD (4x)")
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.setOriginalImage(originalImage!!) // reset
+                                    galleryLauncher.launch("image/*")
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Change Photo")
+                            }
+
+                            Button(
+                                onClick = { viewModel.startEnhancement() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00ACC1)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1.5f)
+                                    .testTag("enhance_start_button")
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Start Multi-Pass")
+                            }
                         }
                     }
                 }
@@ -327,7 +344,7 @@ fun ImageEnhancerScreen(
                     Column(
                         modifier = Modifier.padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -341,15 +358,33 @@ fun ImageEnhancerScreen(
                                 modifier = Modifier.size(48.dp)
                             )
                             Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF00ACC1).copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = "PASS ${state.currentPass}/${state.totalPasses}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF00ACC1),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "${(state.progress * 100).toInt()}% completed",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = state.message,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.sp
-                                )
-                                Text(
-                                    text = "${(state.progress * 100).toInt()}% completed on-device",
-                                    fontSize = 11.sp,
-                                    color = Color.Gray
                                 )
                             }
                         }
@@ -359,7 +394,7 @@ fun ImageEnhancerScreen(
                             trackColor = Color.LightGray.copy(alpha = 0.3f),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(4.dp)
+                                .height(6.dp)
                                 .clip(CircleShape)
                         )
                     }
@@ -383,17 +418,22 @@ fun ImageEnhancerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Upscale Scale", fontSize = 10.sp, color = Color.Gray)
-                                Text("4x Ultra HD", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
+                                Text("Quality Profile", fontSize = 10.sp, color = Color.Gray)
+                                Text(state.profileName.split(" ")[0], fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
                             }
                             Box(modifier = Modifier.height(24.dp).width(1.dp).background(Color.LightGray))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Portrait Faces", fontSize = 10.sp, color = Color.Gray)
+                                Text("Passes Run", fontSize = 10.sp, color = Color.Gray)
+                                Text("${state.passesApplied} Passes", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Box(modifier = Modifier.height(24.dp).width(1.dp).background(Color.LightGray))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Faces Restored", fontSize = 10.sp, color = Color.Gray)
                                 Text("${state.facesCount} Detected", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                             Box(modifier = Modifier.height(24.dp).width(1.dp).background(Color.LightGray))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Restore Mode", fontSize = 10.sp, color = Color.Gray)
+                                Text("Engine", fontSize = 10.sp, color = Color.Gray)
                                 Text(if (state.isModelMode) "TFLite" else "Pixel Refine", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -467,83 +507,6 @@ fun ImageEnhancerScreen(
             }
         }
 
-        // TFLite Download Guide Card (Always available)
-        ElevatedCard(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.clickable { showDownloadGuide = !showDownloadGuide }
-                ) {
-                    Icon(Icons.Default.Info, null, tint = Color(0xFF00ACC1), modifier = Modifier.size(20.dp))
-                    Text(
-                        text = "How to load offline AI .tflite models?",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(
-                        imageVector = if (showDownloadGuide) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = Color.Gray
-                    )
-                }
-
-                AnimatedVisibility(visible = showDownloadGuide) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
-                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.LightGray.copy(alpha = 0.5f)))
-                        Text(
-                            text = "To unlock native hardware neural networks directly in the app, follow these steps:",
-                            fontSize = 12.sp,
-                            color = Color.DarkGray
-                        )
-                        
-                        StepRow("1", "Download Real-ESRGAN x4 .tflite (Super-Resolution background model).")
-                        StepRow("2", "Download GFPGAN-lite .tflite (Facial portrait restoration model).")
-                        StepRow("3", "Rename the files exactly to:\n- real_esrgan_x4.tflite\n- gfpgan_lite.tflite")
-                        StepRow("4", "Place them inside the project's assets folder:\napp/src/main/assets/\n(Create the assets directory if it doesn't exist).")
-                        StepRow("5", "Rebuild the application. The engine status badge will automatically turn Green and use full GPU acceleration!")
-
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Note: If no models are found, the app uses its custom high-performance digital pixel upscaling fallback so it is fully functional out-of-the-box!",
-                            fontSize = 11.sp,
-                            color = Color(0xFF00ACC1),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun StepRow(num: String, text: String) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Box(
-            modifier = Modifier
-                .size(20.dp)
-                .background(Color(0xFF00ACC1), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(num, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
-        Text(text, fontSize = 11.sp, color = Color.DarkGray)
     }
 }
 
@@ -649,6 +612,193 @@ fun BeforeAfterSlider(
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
             Text("After HD", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun MultiPassQualityControlPanel(
+    selectedProfile: com.example.viewmodel.EnhancePassProfile,
+    sharpeningStrength: Float,
+    skinSmoothStrength: Float,
+    enablePreDenoise: Boolean,
+    enableColorBoost: Boolean,
+    showAdvancedTuning: Boolean,
+    onProfileSelected: (com.example.viewmodel.EnhancePassProfile) -> Unit,
+    onSharpeningChanged: (Float) -> Unit,
+    onSkinSmoothChanged: (Float) -> Unit,
+    onPreDenoiseToggled: (Boolean) -> Unit,
+    onColorBoostToggled: (Boolean) -> Unit,
+    onToggleAdvanced: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF00ACC1), modifier = Modifier.size(20.dp))
+                    Text(
+                        text = "Multi-Pass Quality Pipeline",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+                TextButton(
+                    onClick = onToggleAdvanced,
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = if (showAdvancedTuning) "Hide Fine-Tuning" else "Fine-Tune",
+                        fontSize = 12.sp,
+                        color = Color(0xFF00ACC1),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Icon(
+                        imageVector = if (showAdvancedTuning) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = Color(0xFF00ACC1),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Preset Profile Chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                com.example.viewmodel.EnhancePassProfile.values().forEach { profile ->
+                    val isSelected = profile == selectedProfile
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) Color(0xFF00ACC1) else Color(0xFFF0F4F8),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onProfileSelected(profile) }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = profile.displayName.split(" ")[0], // "Fast", "Balanced", "Ultra"
+                                color = if (isSelected) Color.White else Color.Black,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Passes: ${profile.totalPasses}",
+                                color = if (isSelected) Color.White.copy(alpha = 0.85f) else Color.Gray,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = showAdvancedTuning) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
+
+                    // 1. Edge Sharpening Slider
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Micro-Detail Edge Sharpening", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text("${(sharpeningStrength * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
+                        }
+                        Slider(
+                            value = sharpeningStrength,
+                            onValueChange = onSharpeningChanged,
+                            valueRange = 0f..1f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF00ACC1),
+                                activeTrackColor = Color(0xFF00ACC1)
+                            )
+                        )
+                    }
+
+                    // 2. Skin Smooth & Face Restoration Blend Slider
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Portrait Skin Restore & Feather Blend", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text("${(skinSmoothStrength * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
+                        }
+                        Slider(
+                            value = skinSmoothStrength,
+                            onValueChange = onSkinSmoothChanged,
+                            valueRange = 0f..1f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF00ACC1),
+                                activeTrackColor = Color(0xFF00ACC1)
+                            )
+                        )
+                    }
+
+                    // 3. Pre-Denoise Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Pre-Processing Denoise Filter", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text("Suppresses compression noise before upscaling", fontSize = 10.sp, color = Color.Gray)
+                        }
+                        Switch(
+                            checked = enablePreDenoise,
+                            onCheckedChange = onPreDenoiseToggled,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF00ACC1)
+                            )
+                        )
+                    }
+
+                    // 4. Color & Vibrance Boost Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Studio Dynamic Contrast & Vibrance", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text("Enhances dynamic range and vivid colors", fontSize = 10.sp, color = Color.Gray)
+                        }
+                        Switch(
+                            checked = enableColorBoost,
+                            onCheckedChange = onColorBoostToggled,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF00ACC1)
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
 }

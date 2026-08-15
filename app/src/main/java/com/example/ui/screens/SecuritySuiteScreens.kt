@@ -2394,6 +2394,16 @@ fun CalculatorVaultScreen(viewModel: StudentKitViewModel) {
                 }
             }
 
+            val vaultCameraPermissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { isGranted ->
+                if (isGranted) {
+                    Toast.makeText(context, "Camera permission granted. Tap Camera again.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
+                }
+            }
+
             Scaffold(
                 containerColor = Color(0xFF0A0F1E),
                 topBar = {
@@ -2441,7 +2451,25 @@ fun CalculatorVaultScreen(viewModel: StudentKitViewModel) {
                             }
                         } else if (selectedTab == 1) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                IconButton(onClick = { cameraLauncher.launch(null) }) {
+                                IconButton(onClick = {
+                                    val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                                        context,
+                                        android.Manifest.permission.CAMERA
+                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                    if (hasPermission) {
+                                        try {
+                                            cameraLauncher.launch(null)
+                                        } catch (e: SecurityException) {
+                                            vaultCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                            Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Unable to launch camera: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        vaultCameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                    }
+                                }) {
                                     Icon(Icons.Default.PhotoCamera, contentDescription = "Camera Capture", tint = Color(0xFF00897B))
                                 }
                                 Button(
@@ -2905,8 +2933,39 @@ fun FullScreenPhotoViewer(encryptedPath: String, title: String, onDismiss: () ->
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                Row {
+                    if (bitmap != null) {
+                        val context = LocalContext.current
+                        val coroutineScope = rememberCoroutineScope()
+                        IconButton(onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    val tempFile = File(context.cacheDir, "Export_${System.currentTimeMillis()}.jpg")
+                                    java.io.FileOutputStream(tempFile).use { out ->
+                                        bitmap!!.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                                    }
+                                    com.example.data.PhoneStorageSaver.saveImageToPhoneMemory(
+                                        context = context,
+                                        imageFile = tempFile,
+                                        desiredFileName = "Vault_Export_${System.currentTimeMillis()}.jpg",
+                                        mimeType = "image/jpeg"
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Photo saved to phone memory / Gallery!", Toast.LENGTH_LONG).show()
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }) {
+                            Icon(Icons.Default.Download, contentDescription = "Export", tint = Color(0xFF00897B))
+                        }
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                    }
                 }
             }
         },
@@ -3168,6 +3227,16 @@ fun PhotoVaultScreen(viewModel: StudentKitViewModel) {
             } catch (e: Exception) {
                 Toast.makeText(context, "Failed to capture snapshot", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    val vaultCameraPermissionLauncher2 = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(context, "Camera permission granted. Tap Secure Camera again.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -3462,7 +3531,25 @@ fun PhotoVaultScreen(viewModel: StudentKitViewModel) {
                         }
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            IconButton(onClick = { cameraLauncher.launch(null) }) {
+                            IconButton(onClick = {
+                                val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context,
+                                    android.Manifest.permission.CAMERA
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                if (hasPermission) {
+                                    try {
+                                        cameraLauncher.launch(null)
+                                    } catch (e: SecurityException) {
+                                        vaultCameraPermissionLauncher2.launch(android.Manifest.permission.CAMERA)
+                                        Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Unable to launch camera: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    vaultCameraPermissionLauncher2.launch(android.Manifest.permission.CAMERA)
+                                }
+                            }) {
                                 Icon(Icons.Default.PhotoCamera, contentDescription = "Secure Camera", tint = Color(0xFF00897B))
                             }
                             Button(

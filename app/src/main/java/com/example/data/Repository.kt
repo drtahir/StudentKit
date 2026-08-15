@@ -124,6 +124,14 @@ class StudentKitRepository(private val dao: StudentKitDao) {
     suspend fun insertQuranVerses(verses: List<CachedQuranVerse>) = dao.insertQuranVerses(verses)
     suspend fun getCachedQuranVersesCount(): Int = dao.getCachedQuranVersesCount()
     suspend fun clearCachedQuran() = dao.clearCachedQuran()
+
+    // --- CACHED OFFLINE EXAM QUESTIONS ---
+    fun getCachedQuestions(categoryType: String): Flow<List<CachedOfflineQuestion>> = dao.getCachedQuestions(categoryType)
+    suspend fun insertCachedQuestions(questions: List<CachedOfflineQuestion>) = dao.insertCachedQuestions(questions)
+    suspend fun getCachedQuestionsCount(categoryType: String): Int = dao.getCachedQuestionsCount(categoryType)
+    suspend fun clearCachedQuestions(categoryType: String) = dao.clearCachedQuestions(categoryType)
+    suspend fun updateQuestionSavedAnswer(id: String, answer: Int) = dao.updateQuestionSavedAnswer(id, answer)
+    suspend fun updateQuestionBookmark(id: String, isBookmarked: Boolean) = dao.updateQuestionBookmark(id, isBookmarked)
     // --- POS SYSTEM ---
     val allPosProducts = dao.getAllPosProducts()
     suspend fun insertPosProduct(product: PosProduct) = dao.insertPosProduct(product)

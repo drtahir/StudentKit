@@ -5,15 +5,40 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.content.Context
-import android.content.pm.PackageManager
+import android.content.SharedPreferences
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
 import android.os.Build
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.ParcelFileDescriptor
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.print.PrintManager
+import android.widget.Toast
 import androidx.core.content.ContextCompat
+import java.io.FileOutputStream
 import java.io.OutputStream
 import java.util.UUID
 
 object BluetoothThermalPrinterHelper {
 
     val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+    // Paper Size Constants
+    const val PAPER_58MM = "58mm Thermal Receipt (32 Cols)"
+    const val PAPER_80MM = "80mm Thermal Receipt (48 Cols)"
+    const val PAPER_A4 = "A4 Standard Document (80 Cols)"
+
+    private const val PREFS_NAME = "BluetoothPrinterPrefs"
+    private const val KEY_PRINTER_ADDRESS = "printer_address"
+    private const val KEY_PRINTER_NAME = "printer_name"
+    private const val KEY_PAPER_SIZE = "paper_size"
 
     // ESC/POS Command Definitions
     val ESC_INIT = byteArrayOf(0x1B.toByte(), 0x40.toByte())
@@ -33,18 +58,39 @@ object BluetoothThermalPrinterHelper {
         val isPaired: Boolean = true
     )
 
+    private fun getPrefs(context: Context): SharedPreferences {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    fun getSavedPrinterAddress(context: Context): String {
+        return getPrefs(context).getString(KEY_PRINTER_ADDRESS, "") ?: ""
+    }
+
+    fun getSavedPrinterName(context: Context): String {
+        return getPrefs(context).getString(KEY_PRINTER_NAME, "No Printer Selected") ?: "No Printer Selected"
+    }
+
+    fun savePrinterAddress(context: Context, address: String, name: String) {
+        getPrefs(context).edit()
+            .putString(KEY_PRINTER_ADDRESS, address)
+            .putString(KEY_PRINTER_NAME, name)
+            .apply()
+    }
+
+    fun getSavedPaperSize(context: Context): String {
+        return getPrefs(context).getString(KEY_PAPER_SIZE, PAPER_A4) ?: PAPER_A4
+    }
+
+    fun savePaperSize(context: Context, paperSize: String) {
+        getPrefs(context).edit().putString(KEY_PAPER_SIZE, paperSize).apply()
+    }
+
     @SuppressLint("MissingPermission")
     fun getAvailablePrinters(context: Context): List<PrinterDevice> {
-        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return listOf(
-            PrinterDevice("Demo Thermal Printer 58mm (Virtual)", "00:11:22:33:44:55", true),
-            PrinterDevice("POS-80 Bluetooth Printer", "AA:BB:CC:DD:EE:FF", true)
-        )
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return emptyList()
 
         if (!adapter.isEnabled) {
-            return listOf(
-                PrinterDevice("Demo Thermal Printer 58mm (Virtual)", "00:11:22:33:44:55", true),
-                PrinterDevice("POS-80 Bluetooth Printer", "AA:BB:CC:DD:EE:FF", true)
-            )
+            return emptyList()
         }
 
         val list = mutableListOf<PrinterDevice>()
@@ -57,28 +103,28 @@ object BluetoothThermalPrinterHelper {
             e.printStackTrace()
         }
 
-        if (list.isEmpty()) {
-            list.add(PrinterDevice("POS-58 Thermal Printer (Default)", "00:11:22:33:44:55", true))
-            list.add(PrinterDevice("MPT-II Portable Printer", "00:1B:35:88:99:AA", true))
-        }
-
         return list
     }
 
     /**
-     * Sends ESC/POS byte payload over Bluetooth socket.
+     * Sends ESC/POS or A4 raw text byte payload over Bluetooth socket.
      */
     @SuppressLint("MissingPermission")
     fun printPayload(context: Context, deviceAddress: String, payload: ByteArray): Pair<Boolean, String> {
         val adapter = BluetoothAdapter.getDefaultAdapter()
 
-        // Check if demo/virtual device
-        if (deviceAddress.contains("00:11:22:33:44:55") || adapter == null || !adapter.isEnabled) {
-            return Pair(true, "✅ [Simulation Mode] Thermal Receipt successfully sent to printer ($deviceAddress). 32 columns formatted.")
+        if (adapter == null || !adapter.isEnabled) {
+            return Pair(false, "Bluetooth is disabled. Please enable Bluetooth in settings and connect your printer device.")
+        }
+
+        val targetAddress = if (deviceAddress.isNotBlank()) deviceAddress else getSavedPrinterAddress(context)
+
+        if (targetAddress.isBlank()) {
+            return Pair(false, "No printer selected. Please connect and select a Bluetooth printer in Settings.")
         }
 
         return try {
-            val device = adapter.getRemoteDevice(deviceAddress)
+            val device = adapter.getRemoteDevice(targetAddress)
             val socket: BluetoothSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
             adapter.cancelDiscovery()
             socket.connect()
@@ -89,10 +135,9 @@ object BluetoothThermalPrinterHelper {
             os.close()
             socket.close()
 
-            Pair(true, "✅ Thermal receipt printed successfully to ${device.name}!")
+            Pair(true, "Document printed successfully over Bluetooth to ${device.name ?: "Printer"}!")
         } catch (e: Exception) {
-            // Fallback gracefully with simulation notification if hardware disconnected
-            Pair(true, "⚠️ Hardware connection note: ${e.message ?: "Printer offline"}. Simulated ESC/POS thermal output verified.")
+            Pair(false, "Bluetooth printer error: ${e.message ?: "Connection failed"}. Check power & pairing.")
         }
     }
 
@@ -117,7 +162,6 @@ object BluetoothThermalPrinterHelper {
         val buffer = java.io.ByteArrayOutputStream()
 
         fun write(bytes: ByteArray) = buffer.write(bytes)
-        fun writeText(text: String) = buffer.write(text.toByteArray(Charsets.ISO_8859_1))
         fun writeLine(text: String = "") = buffer.write("$text\n".toByteArray(Charsets.ISO_8859_1))
 
         // Reset
@@ -182,6 +226,68 @@ object BluetoothThermalPrinterHelper {
     }
 
     /**
+     * Builds full 80-column A4 Invoice Text Document Layout.
+     */
+    fun buildA4InvoiceText(
+        businessName: String,
+        tagline: String,
+        address: String,
+        phone: String,
+        orderId: String,
+        dateStr: String,
+        clientName: String,
+        items: List<PosOrderItem>,
+        subtotal: Double,
+        discount: Double,
+        tax: Double,
+        total: Double,
+        paymentMethod: String,
+        footerNote: String
+    ): String {
+        val sb = StringBuilder()
+        val sep = "================================================================================" // 80 chars
+        val thinSep = "--------------------------------------------------------------------------------"
+
+        sb.appendLine(sep)
+        sb.appendLine(businessName.uppercase().padStart((80 + businessName.length) / 2))
+        if (tagline.isNotBlank()) sb.appendLine(tagline.padStart((80 + tagline.length) / 2))
+        sb.appendLine(address.padStart((80 + address.length) / 2))
+        sb.appendLine("Tel: $phone".padStart((80 + "Tel: $phone".length) / 2))
+        sb.appendLine(sep)
+        sb.appendLine("                      OFFICIAL A4 SALES TAX INVOICE                      ")
+        sb.appendLine(sep)
+        sb.appendLine(String.format("Invoice No : %-25s Date     : %s", orderId, dateStr))
+        sb.appendLine(String.format("Customer   : %-25s Payment  : %s", clientName, paymentMethod))
+        sb.appendLine(thinSep)
+        sb.appendLine(String.format("%-5s %-35s %8s %12s %14s", "S.NO", "ITEM DESCRIPTION", "QTY", "RATE (RS)", "TOTAL (RS)"))
+        sb.appendLine(thinSep)
+
+        items.forEachIndexed { idx, item ->
+            val name = if (item.name.length > 35) item.name.substring(0, 35) else item.name
+            sb.appendLine(String.format("%-5d %-35s %8d %12.2f %14.2f", idx + 1, name, item.quantity, item.price, item.price * item.quantity))
+        }
+
+        sb.appendLine(thinSep)
+        sb.appendLine(String.format("%64s: Rs %12.2f", "Subtotal", subtotal))
+        if (discount > 0) sb.appendLine(String.format("%64s:-Rs %12.2f", "Discount", discount))
+        if (tax > 0) sb.appendLine(String.format("%64s: Rs %12.2f", "Tax / VAT", tax))
+        sb.appendLine(sep)
+        sb.appendLine(String.format("%64s: RS %12.2f", "GRAND TOTAL", total))
+        sb.appendLine(sep)
+        sb.appendLine()
+        if (footerNote.isNotBlank()) sb.appendLine("Terms & Conditions: $footerNote")
+        sb.appendLine("Status: PAYMENT RECEIVED VIA $paymentMethod")
+        sb.appendLine()
+        sb.appendLine("Prepared By: Authorized Signature                    Receiver Stamp / Sign")
+        sb.appendLine("_________________________________                    _____________________")
+        sb.appendLine()
+        sb.appendLine("                  Thank you for your business! - Powered by OmniPOS               ")
+        sb.appendLine(sep)
+
+        return sb.toString()
+    }
+
+    /**
      * Builds ESC/POS 58mm Daily Shift Z-Report payload.
      */
     fun buildZReportPayload(
@@ -232,4 +338,176 @@ object BluetoothThermalPrinterHelper {
 
         return buffer.toByteArray()
     }
+
+    /**
+     * Builds A4 Shift Z-Report text payload.
+     */
+    fun buildA4ZReportText(
+        cashier: String,
+        dateStr: String,
+        openingFloat: Double,
+        salesRev: Double,
+        cashSales: Double,
+        cardSales: Double,
+        walletSales: Double,
+        expectedCash: Double,
+        actualCash: Double,
+        variance: Double
+    ): String {
+        val sep = "================================================================================"
+        val thinSep = "--------------------------------------------------------------------------------"
+        val sb = StringBuilder()
+
+        sb.appendLine(sep)
+        sb.appendLine("                    OFFICIAL SHIFT REGISTER Z-REPORT (A4)                       ")
+        sb.appendLine(sep)
+        sb.appendLine("Cashier Name : $cashier")
+        sb.appendLine("Shift Date   : $dateStr")
+        sb.appendLine("Terminal ID  : TERM-01 (OmniPOS Enterprise)")
+        sb.appendLine(thinSep)
+        sb.appendLine(String.format("Opening Register Float : Rs %12.2f", openingFloat))
+        sb.appendLine(String.format("Total Sales Revenue    : Rs %12.2f", salesRev))
+        sb.appendLine(String.format("  - Cash Tendered      : Rs %12.2f", cashSales))
+        sb.appendLine(String.format("  - Card / Terminal    : Rs %12.2f", cardSales))
+        sb.appendLine(String.format("  - Mobile Wallet QR   : Rs %12.2f", walletSales))
+        sb.appendLine(thinSep)
+        sb.appendLine(String.format("Expected Cash in Drawer: Rs %12.2f", expectedCash))
+        sb.appendLine(String.format("Physical Cash Counted  : Rs %12.2f", actualCash))
+        sb.appendLine(String.format("Drawer Variance        : Rs %12.2f (%s)", variance, if (variance == 0.0) "PERFECT BALANCED" else if (variance > 0) "SURPLUS" else "DEFICIT"))
+        sb.appendLine(sep)
+        sb.appendLine()
+        sb.appendLine("Shift Audit Verification:")
+        sb.appendLine("Cashier Sign: __________________         Manager Approval: __________________")
+        sb.appendLine(sep)
+
+        return sb.toString()
+    }
+
+    /**
+     * Triggers Android System PrintManager spooling for A4 page layout (works with Bluetooth, Wi-Fi, and USB A4 printers).
+     */
+    fun printA4ViaSystem(
+        context: Context,
+        jobName: String,
+        documentTitle: String,
+        contentText: String
+    ) {
+        val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
+        if (printManager == null) {
+            Toast.makeText(context, "System printing service not available.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val printAdapter = object : PrintDocumentAdapter() {
+            private var pdfDocument: PdfDocument? = null
+
+            override fun onLayout(
+                oldAttributes: PrintAttributes?,
+                newAttributes: PrintAttributes?,
+                cancellationSignal: CancellationSignal?,
+                callback: LayoutResultCallback?,
+                extras: Bundle?
+            ) {
+                if (cancellationSignal?.isCanceled == true) {
+                    callback?.onLayoutCancelled()
+                    return
+                }
+
+                val info = PrintDocumentInfo.Builder("$documentTitle.pdf")
+                    .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                    .setPageCount(1)
+                    .build()
+
+                callback?.onLayoutFinished(info, true)
+            }
+
+            override fun onWrite(
+                pages: Array<out PageRange>?,
+                destination: ParcelFileDescriptor?,
+                cancellationSignal: CancellationSignal?,
+                callback: WriteResultCallback?
+            ) {
+                pdfDocument = PdfDocument()
+
+                // Standard A4 Page Dimensions: 595 x 842 points
+                val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+                val page = pdfDocument?.startPage(pageInfo)
+
+                if (page != null) {
+                    val canvas: Canvas = page.canvas
+                    val paint = Paint().apply {
+                        color = Color.BLACK
+                        textSize = 10f
+                        typeface = Typeface.MONOSPACE
+                    }
+
+                    var yPos = 40f
+                    val xPos = 40f
+                    val lines = contentText.split("\n")
+
+                    lines.forEach { line ->
+                        if (yPos < 800f) {
+                            canvas.drawText(line, xPos, yPos, paint)
+                            yPos += 14f
+                        }
+                    }
+
+                    pdfDocument?.finishPage(page)
+                }
+
+                try {
+                    destination?.fileDescriptor?.let { fd ->
+                        FileOutputStream(fd).use { out ->
+                            pdfDocument?.writeTo(out)
+                        }
+                    }
+                    callback?.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    callback?.onWriteFailed(e.message)
+                } finally {
+                    pdfDocument?.close()
+                }
+            }
+        }
+
+        val printAttributes = PrintAttributes.Builder()
+            .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+            .setResolution(PrintAttributes.Resolution("A4_RES", "A4 Printing", 300, 300))
+            .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+            .build()
+
+        printManager.print(jobName, printAdapter, printAttributes)
+    }
+
+    /**
+     * Unified print helper that checks saved paper size preference and dispatches to Bluetooth or System A4 Printer.
+     */
+    fun printDocument(
+        context: Context,
+        jobName: String,
+        documentTitle: String,
+        a4Text: String,
+        thermalBytes: ByteArray
+    ) {
+        val paperSize = getSavedPaperSize(context)
+        val deviceAddr = getSavedPrinterAddress(context)
+
+        if (paperSize == PAPER_A4) {
+            // First attempt direct Bluetooth transmit if printer address exists, and also open System A4 Print Spooler
+            if (deviceAddr.isNotBlank()) {
+                val (success, msg) = printPayload(context, deviceAddr, a4Text.toByteArray(Charsets.ISO_8859_1))
+                if (!success) {
+                    Toast.makeText(context, "Bluetooth A4 Direct: $msg. Opening System A4 Printer...", Toast.LENGTH_SHORT).show()
+                }
+            }
+            printA4ViaSystem(context, jobName, documentTitle, a4Text)
+        } else {
+            // Thermal Receipt 58mm or 80mm
+            val targetAddr = if (deviceAddr.isNotBlank()) deviceAddr else getAvailablePrinters(context).firstOrNull()?.address ?: ""
+            val (success, msg) = printPayload(context, targetAddr, thermalBytes)
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
 }
+

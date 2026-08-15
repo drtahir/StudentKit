@@ -152,7 +152,8 @@ fun AboutScreen(
                     Button(
                         onClick = {
                             try {
-                                val url = "https://wa.me/$devWhatsAppRaw"
+                                val devMsg = Uri.encode("Assalamualaikum Tahir Buneri, I have explored your application and I'm highly interested in purchasing the application license. Please provide details regarding licensing terms, pricing, and onboarding support. Thank you!")
+                                val url = "https://wa.me/$devWhatsAppRaw?text=$devMsg"
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                 context.startActivity(intent)
                             } catch (e: Exception) {
@@ -287,7 +288,6 @@ fun AboutScreen(
                     "Scientific Calculator — Advanced mathematical formula solver.",
                     "Unit Converter — Convert data, length, weight, speeds, and dimensions.",
                     "QR Code Suite — Vector QR generator with custom colors and fast camera QR scanner.",
-                    "Wi-Fi QR Share — Create offline QR codes for instant Wi-Fi network sharing.",
                     "Password Manager — Encrypted credentials vault with strength check.",
                     "AI Image Enhancer — Offline face restorer and image quality enhancer.",
                     "AI Background Eraser — Automatic background remover with manual refine brush.",
@@ -308,7 +308,7 @@ fun AboutScreen(
                     "Lesson Agenda Timetable — Weekly class timetable and schedule organizer.",
                     "BMI & Hydration Tracker — Health wellness calculator and water intake log.",
                     "GPA Calculator — Instant Semester GPA and cumulative CGPA solver.",
-                    "HD Quran Majeed & Qibla Finder — Complete Quran text, audio recitations, Qibla compass, and Manzil."
+                    "HD Quran Majeed & Islamic Hub — Complete Quran text, audio recitations, and Manzil."
                 )
             )
 

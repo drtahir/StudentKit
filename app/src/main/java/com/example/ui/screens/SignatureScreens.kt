@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
@@ -726,17 +727,27 @@ fun burnSignatureToDocument(
     return composite
 }
 
-// Save output file in device external pictures folder
+// Save output file in device external pictures folder and public phone memory
 fun saveBitmapToGallery(context: Context, bitmap: Bitmap): File? {
-    val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-    val file = File(storageDir, "Signed_Doc_${System.currentTimeMillis()}.jpg")
+    val tempFile = File(context.cacheDir, "Signed_Doc_${System.currentTimeMillis()}.jpg")
 
     return try {
-        val out = FileOutputStream(file)
+        val out = FileOutputStream(tempFile)
         bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
         out.flush()
         out.close()
-        file
+
+        // Also persist directly into public phone Pictures and Downloads memory
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            com.example.data.PhoneStorageSaver.saveImageToPhoneMemory(
+                context = context,
+                imageFile = tempFile,
+                desiredFileName = "Signed_Document_${System.currentTimeMillis()}.jpg",
+                mimeType = "image/jpeg"
+            )
+        }
+
+        tempFile
     } catch (e: Exception) {
         e.printStackTrace()
         null

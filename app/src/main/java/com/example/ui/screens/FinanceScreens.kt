@@ -57,6 +57,7 @@ import java.io.FileOutputStream
 @Composable
 fun FinanceHubScreen(
     viewModel: StudentKitViewModel,
+    title: String = "Finance Kit",
     subScreen: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -95,7 +96,7 @@ fun FinanceHubScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Finance Kit")
+                        Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Spacer(modifier = Modifier.width(8.dp))
                         if (isFinanceUnlocked) {
                             Surface(
@@ -108,7 +109,7 @@ fun FinanceHubScreen(
                                 ) {
                                     Icon(Icons.Default.Fingerprint, null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Biometric Secured", color = Color(0xFF10B981), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text("Secured", color = Color(0xFF10B981), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -120,6 +121,9 @@ fun FinanceHubScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { viewModel.navigateTo(Screen.Dashboard) }) {
+                        Icon(Icons.Default.Home, contentDescription = "Home", tint = MaterialTheme.colorScheme.primary)
+                    }
                     if (isFinanceUnlocked) {
                         IconButton(onClick = {
                             isFinanceUnlocked = false
@@ -1199,7 +1203,7 @@ fun BcCommitteeScreen(viewModel: StudentKitViewModel) {
                 .padding(16.dp)
         ) {
             Text(
-                text = "My Committees (BC Apportions)",
+                text = "My Kommittees (BC Apportions)",
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
                 color = MaterialTheme.colorScheme.primary
@@ -1211,7 +1215,7 @@ fun BcCommitteeScreen(viewModel: StudentKitViewModel) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.GroupWork, null, modifier = Modifier.size(64.dp), tint = Color.LightGray)
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("No active committees. Create one to manage peer pots!", color = Color.Gray)
+                        Text("No active Kommittees. Create one to manage peer pots!", color = Color.Gray)
                     }
                 }
             } else {
@@ -1264,13 +1268,13 @@ fun BcCommitteeScreen(viewModel: StudentKitViewModel) {
 
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("Create Committee (BC)") },
+            title = { Text("Create Kommittee (BC)") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Committee Name") },
+                        label = { Text("Kommittee Name") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
@@ -1590,7 +1594,7 @@ fun BcCommitteeDetailsScreen(viewModel: StudentKitViewModel, committeeId: String
 
     if (committee == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Committee details loading or removed.")
+            Text("Kommittee details loading or removed.")
         }
         return
     }
@@ -1854,7 +1858,7 @@ fun BcCommitteeDetailsScreen(viewModel: StudentKitViewModel, committeeId: String
                     } else {
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             item {
-                                Text("📜 COMMITTEE DRAWINGS LOG HISTORY", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                                Text("📜 KOMMITTEE DRAWINGS LOG HISTORY", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             items(drawHistory) { draw ->
                                 Card(
@@ -2801,107 +2805,153 @@ fun FinanceReportAndBackupScreen(viewModel: StudentKitViewModel) {
 
         // Master Actions Row
         item {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // PDF Print
-                Card(
-                    onClick = {
-                        triggerFinanceMasterPrint(
-                            context, expenses, income, bills, committees, loans, savingsGoals,
-                            totalIncomeAmt, totalExpenseAmt, netBalance, totalUnpaidBillsAmt,
-                            loansBorrowed, loansLent, totalSavingsSaved, totalSavingsTarget,
-                            includeExpenses, includeIncome, includeBills, includeCommittees, includeLoans, includeSavings
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    shape = RoundedCornerShape(16.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    // PDF Save to Phone Memory
+                    Card(
+                        onClick = {
+                            exportFinancePdfToDownloads(
+                                context, expenses, income, bills, committees, loans, savingsGoals,
+                                totalIncomeAmt, totalExpenseAmt, netBalance, totalUnpaidBillsAmt,
+                                loansBorrowed, loansLent, totalSavingsSaved, totalSavingsTarget
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5)),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Print,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Save/Print PDF",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = null,
+                                tint = Color(0xFF047857),
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Save PDF to Downloads",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                color = Color(0xFF065F46)
+                            )
+                        }
+                    }
+
+                    // PDF Print / Bluetooth
+                    Card(
+                        onClick = {
+                            triggerFinanceMasterPrint(
+                                context, expenses, income, bills, committees, loans, savingsGoals,
+                                totalIncomeAmt, totalExpenseAmt, netBalance, totalUnpaidBillsAmt,
+                                loansBorrowed, loansLent, totalSavingsSaved, totalSavingsTarget,
+                                includeExpenses, includeIncome, includeBills, includeCommittees, includeLoans, includeSavings
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Print,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Print / Bluetooth",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
                     }
                 }
 
-                // Data Backup
-                Card(
-                    onClick = {
-                        val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                        backupLauncher.launch("StudentKit_Backup_$sdf.db")
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                    shape = RoundedCornerShape(16.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    // Data Backup
+                    Card(
+                        onClick = {
+                            val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                            backupLauncher.launch("StudentKit_Backup_$sdf.db")
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Backup,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Backup Data",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Backup,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Backup Data",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
                     }
-                }
 
-                // Data Restore
-                Card(
-                    onClick = { restoreLauncher.launch("*/*") },
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    // Data Restore
+                    Card(
+                        onClick = { restoreLauncher.launch("*/*") },
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Restore,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Restore Data",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Restore,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Restore Data",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
                     }
                 }
             }
@@ -2985,7 +3035,7 @@ fun FinanceReportAndBackupScreen(viewModel: StudentKitViewModel) {
                                     colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Committees", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text("Kommittees", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("pdf_toggle_loans")) {
                                 Checkbox(
@@ -3224,7 +3274,7 @@ fun FinanceReportAndBackupScreen(viewModel: StudentKitViewModel) {
         // Active Committees list section
         item {
             Text(
-                text = "Committees Ledger Status",
+                text = "Kommittees Ledger Status",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -3239,7 +3289,7 @@ fun FinanceReportAndBackupScreen(viewModel: StudentKitViewModel) {
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "No active rotating committees configured",
+                        text = "No active rotating Kommittees configured",
                         fontSize = 12.sp,
                         color = Color.Gray,
                         modifier = Modifier.padding(16.dp),
@@ -3526,7 +3576,7 @@ fun triggerFinanceMasterPrint(
                     }
 
                     // Section 3: Monthly Obligations
-                    canvas1.drawText("III. Utility Bills & Standing Committees Summary", 30f, 460f, h1Paint)
+                    canvas1.drawText("III. Utility Bills & Standing Kommittees Summary", 30f, 460f, h1Paint)
                     canvas1.drawLine(30f, 467f, pageW - 30f, 467f, borderPaint)
 
                     val finalY = 485f
@@ -3545,13 +3595,13 @@ fun triggerFinanceMasterPrint(
                     
                     if (includeCommittees) {
                         val activeCommitteesCount = committees.size
-                        canvas1.drawText("Active Rotating Committees (BC): $activeCommitteesCount active committees managed", 40f, curOblY, bodyPaint)
+                        canvas1.drawText("Active Rotating Kommittees (BC): $activeCommitteesCount active Kommittees managed", 40f, curOblY, bodyPaint)
                         curOblY += 20f
                         
                         val totalCommitteeVolume = committees.sumOf { it.amountPerHead * it.totalMembers }
-                        canvas1.drawText("Total Committee Investment Pool: Rs. ${String.format("%.2f", totalCommitteeVolume)}", 40f, curOblY, bodyPaint)
+                        canvas1.drawText("Total Kommittee Investment Pool: Rs. ${String.format("%.2f", totalCommitteeVolume)}", 40f, curOblY, bodyPaint)
                     } else {
-                        canvas1.drawText("Active Rotating Committees (BC): [Committees Module Omitted]", 40f, curOblY, omittedTextPaint)
+                        canvas1.drawText("Active Rotating Kommittees (BC): [Kommittees Module Omitted]", 40f, curOblY, omittedTextPaint)
                     }
 
                     // Bottom footers
@@ -3736,13 +3786,13 @@ fun triggerFinanceMasterPrint(
 
                     // Section C: ACTIVE COMMITTEES (BC)
                     sectionY = tableY + 25f
-                    canvas3.drawText("3. ROTATING INVESTMENT COMMITTEES (BC)", 30f, sectionY, h2Paint)
+                    canvas3.drawText("3. ROTATING INVESTMENT KOMMITTEES (BC)", 30f, sectionY, h2Paint)
                     canvas3.drawLine(30f, sectionY + 6f, pageW - 30f, sectionY + 6f, borderPaint)
 
                     tableY = sectionY + 15f
                     if (includeCommittees) {
                         canvas3.drawRect(30f, tableY, pageW - 30f, tableY + 16f, fillBgPaint)
-                        canvas3.drawText("Committee Name", 35f, tableY + 11f, headerPaint)
+                        canvas3.drawText("Kommittee Name", 35f, tableY + 11f, headerPaint)
                         canvas3.drawText("Amount / Head", 180f, tableY + 11f, headerPaint)
                         canvas3.drawText("Total Members", 320f, tableY + 11f, headerPaint)
                         canvas3.drawText("Total Investment Pool", 450f, tableY + 11f, headerPaint)
@@ -3760,11 +3810,11 @@ fun triggerFinanceMasterPrint(
                             tableY += 16f
                         }
                         if (commLimit.isEmpty()) {
-                            canvas3.drawText("No active committees configured", 45f, tableY + 12f, Paint(bodyPaint).apply { color = textMuted })
+                            canvas3.drawText("No active Kommittees configured", 45f, tableY + 12f, Paint(bodyPaint).apply { color = textMuted })
                         }
                     } else {
                         canvas3.drawRoundRect(30f, tableY, pageW - 30f, tableY + 45f, 6f, 6f, fillOmittedPaint)
-                        canvas3.drawText("Rotating Committees Module Excluded from PDF", 45f, tableY + 25f, omittedTextPaint)
+                        canvas3.drawText("Rotating Kommittees Module Excluded from PDF", 45f, tableY + 25f, omittedTextPaint)
                     }
                     
                     canvas3.drawLine(30f, 760f, pageW - 30f, 760f, borderPaint)
@@ -3791,5 +3841,83 @@ fun triggerFinanceMasterPrint(
         printManager.print("Finance_Master_Report", printAdapter, null)
     } catch (e: Exception) {
         Toast.makeText(context, "Failed to print: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun exportFinancePdfToDownloads(
+    context: Context,
+    expenses: List<Expense>,
+    income: List<Income>,
+    bills: List<Bill>,
+    committees: List<BcCommittee>,
+    loans: List<Loan>,
+    savingsGoals: List<SavingsGoal>,
+    totalIncomeAmt: Double,
+    totalExpenseAmt: Double,
+    netBalance: Double,
+    totalUnpaidBillsAmt: Double,
+    loansBorrowed: Double,
+    loansLent: Double,
+    totalSavingsSaved: Double,
+    totalSavingsTarget: Double
+) {
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        try {
+            val pdfDoc = android.graphics.pdf.PdfDocument()
+            val pageW = 595
+            val pageH = 842
+
+            val pageInfo1 = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageW, pageH, 1).create()
+            val page1 = pdfDoc.startPage(pageInfo1)
+            val canvas1 = page1.canvas
+
+            val primaryDark = 0xFF064E3B.toInt()
+            val textDark = 0xFF1F2937.toInt()
+            val titlePaint = android.graphics.Paint().apply {
+                color = primaryDark
+                textSize = 20f
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD)
+                isAntiAlias = true
+            }
+            val bodyPaint = android.graphics.Paint().apply {
+                color = textDark
+                textSize = 12f
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)
+                isAntiAlias = true
+            }
+
+            canvas1.drawText("CONSOLIDATED FINANCIAL STATEMENT", 30f, 50f, titlePaint)
+            canvas1.drawText("Generated on ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())}", 30f, 75f, bodyPaint)
+            canvas1.drawText("Total Income: Rs. ${String.format("%.2f", totalIncomeAmt)}", 30f, 110f, bodyPaint)
+            canvas1.drawText("Total Expenses: Rs. ${String.format("%.2f", totalExpenseAmt)}", 30f, 135f, bodyPaint)
+            canvas1.drawText("Net Balance: Rs. ${String.format("%.2f", netBalance)}", 30f, 160f, bodyPaint)
+            canvas1.drawText("Unpaid Bills: Rs. ${String.format("%.2f", totalUnpaidBillsAmt)}", 30f, 185f, bodyPaint)
+            canvas1.drawText("Loans Lent: Rs. ${String.format("%.2f", loansLent)} | Borrowed: Rs. ${String.format("%.2f", loansBorrowed)}", 30f, 210f, bodyPaint)
+            canvas1.drawText("Savings Progress: Rs. ${String.format("%.2f", totalSavingsSaved)} / Rs. ${String.format("%.2f", totalSavingsTarget)}", 30f, 235f, bodyPaint)
+
+            var yPos = 280f
+            canvas1.drawText("RECENT EXPENSES LOG:", 30f, yPos, titlePaint)
+            yPos += 25f
+            for (e in expenses.take(15)) {
+                canvas1.drawText("• ${e.title} - Rs. ${e.amount} (${e.category}) - ${e.date}", 35f, yPos, bodyPaint)
+                yPos += 20f
+            }
+
+            pdfDoc.finishPage(page1)
+
+            val pdfFile = File(context.cacheDir, "Financial_Statement_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(pdfFile).use { out ->
+                pdfDoc.writeTo(out)
+            }
+            pdfDoc.close()
+
+            com.example.data.PhoneStorageSaver.savePdfToPhoneMemory(
+                context = context,
+                pdfFile = pdfFile,
+                desiredFileName = "Financial_Statement_${SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())}.pdf"
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

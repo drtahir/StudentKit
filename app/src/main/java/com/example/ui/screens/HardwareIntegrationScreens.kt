@@ -35,11 +35,12 @@ import com.example.viewmodel.StudentKitViewModel
 fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
     var printers by remember { mutableStateOf(BluetoothThermalPrinterHelper.getAvailablePrinters(context)) }
-    var selectedPrinterAddress by remember { mutableStateOf(printers.firstOrNull()?.address ?: "00:11:22:33:44:55") }
-    var selectedPrinterName by remember { mutableStateOf(printers.firstOrNull()?.name ?: "Demo Thermal Printer 58mm") }
-    
-    var customReceiptText by remember { mutableStateOf("OmniPOS Thermal Print Test\nDate: 2026-08-01\nStatus: Bluetooth Ready\n------------------------\nThank you for using OmniPOS!") }
-    var printStatusLog by remember { mutableStateOf("Ready to scan and print over Bluetooth.") }
+    var selectedPrinterAddress by remember { mutableStateOf(BluetoothThermalPrinterHelper.getSavedPrinterAddress(context).ifBlank { printers.firstOrNull()?.address ?: "" }) }
+    var selectedPrinterName by remember { mutableStateOf(BluetoothThermalPrinterHelper.getSavedPrinterName(context).ifBlank { printers.firstOrNull()?.name ?: "No Printer Connected" }) }
+    var selectedPaperSize by remember { mutableStateOf(BluetoothThermalPrinterHelper.getSavedPaperSize(context)) }
+
+    var customReceiptText by remember { mutableStateOf("OmniPOS Enterprise Print Test\nDate: 2026-08-01\nStatus: A4 / Thermal Bluetooth Connected\n--------------------------------------\nThank you for using OmniPOS!") }
+    var printStatusLog by remember { mutableStateOf("Ready to print over Bluetooth & A4 System Spooler.") }
 
     Column(
         modifier = Modifier
@@ -57,8 +58,58 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
                 Icon(Icons.Default.Print, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("Bluetooth Thermal Printer Manager", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("ESC/POS 58mm & 80mm wireless thermal printer integration for sales receipts & receipts.", fontSize = 12.sp, color = Color.DarkGray)
+                    Text("Bluetooth & A4 Printer Manager", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Support for A4 Bluetooth Page Printers, 58mm & 80mm Thermal Receipts, and Android System Spooler.", fontSize = 12.sp, color = Color.DarkGray)
+                }
+            }
+        }
+
+        // Section 0: Paper Size & Format Selection
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("1. Default Paper Size & Output Mode", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("Select paper size format for automatic print dispatch in all modules:", fontSize = 11.sp, color = Color.Gray)
+
+                val paperOptions = listOf(
+                    BluetoothThermalPrinterHelper.PAPER_A4,
+                    BluetoothThermalPrinterHelper.PAPER_80MM,
+                    BluetoothThermalPrinterHelper.PAPER_58MM
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    paperOptions.forEach { opt ->
+                        val isSelected = opt == selectedPaperSize
+                        Card(
+                            onClick = {
+                                selectedPaperSize = opt
+                                BluetoothThermalPrinterHelper.savePaperSize(context, opt)
+                                Toast.makeText(context, "Default Paper Size set to: $opt", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = if (opt == BluetoothThermalPrinterHelper.PAPER_A4) Icons.Default.Description else Icons.Default.Receipt,
+                                        contentDescription = null,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.tertiary else Color.Gray
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(opt, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                if (isSelected) {
+                                    Text("DEFAULT", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = MaterialTheme.colorScheme.tertiary)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -67,7 +118,7 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("1. Select Bluetooth Thermal Printer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("2. Select Bluetooth A4 / Thermal Printer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     IconButton(onClick = {
                         printers = BluetoothThermalPrinterHelper.getAvailablePrinters(context)
                         Toast.makeText(context, "Refreshed Bluetooth paired devices", Toast.LENGTH_SHORT).show()
@@ -77,7 +128,7 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
                 }
 
                 if (printers.isEmpty()) {
-                    Text("No Bluetooth devices found. Please pair your Bluetooth Thermal Printer in Android Settings first.", color = Color.Red, fontSize = 11.sp)
+                    Text("No Bluetooth devices found. Please pair your Bluetooth A4 / Thermal Printer in Android Settings first.", color = Color.Red, fontSize = 11.sp)
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         printers.forEach { p ->
@@ -86,6 +137,7 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
                                 onClick = {
                                     selectedPrinterAddress = p.address
                                     selectedPrinterName = p.name
+                                    BluetoothThermalPrinterHelper.savePrinterAddress(context, p.address, p.name)
                                 },
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
@@ -119,15 +171,51 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
         // Section 2: Quick Test Print & Drawer Actions
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("2. ESC/POS Diagnostic & Quick Actions", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("3. Diagnostic & Quick Print Actions", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+
+                val sampleItems = listOf(
+                    PosOrderItem("1", "1", "p1", "Panadol Extra 500mg", 2, 150.0),
+                    PosOrderItem("2", "1", "p2", "Chicken Club Sandwich", 1, 450.0)
+                )
+
+                // A4 Full Page Invoice Print Button
+                Button(
+                    onClick = {
+                        val a4Text = BluetoothThermalPrinterHelper.buildA4InvoiceText(
+                            businessName = "Apex Pharmacy & Mart",
+                            tagline = "Quality & Care Everyday",
+                            address = "Main Commercial Ave, Block 4",
+                            phone = "+92 300 1234567",
+                            orderId = "INV-A4-9942",
+                            dateStr = "2026-08-06 10:30",
+                            clientName = "Muhammad Ali",
+                            items = sampleItems,
+                            subtotal = 750.0,
+                            discount = 50.0,
+                            tax = 35.0,
+                            total = 735.0,
+                            paymentMethod = "CASH / BANK TRANSFER",
+                            footerNote = "Goods once sold can be returned within 7 days with valid invoice."
+                        )
+                        BluetoothThermalPrinterHelper.printA4ViaSystem(
+                            context = context,
+                            jobName = "A4_Sample_Invoice_Job",
+                            documentTitle = "A4_Invoice_INV9942",
+                            contentText = a4Text
+                        )
+                        printStatusLog = "Sent A4 Enterprise Invoice to System Spooler / Bluetooth Printer."
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                ) {
+                    Icon(Icons.Default.Description, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Print Sample A4 Full Invoice (Bluetooth / System)", fontSize = 12.sp)
+                }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
                         onClick = {
-                            val sampleItems = listOf(
-                                PosOrderItem("1", "1", "p1", "Panadol Extra", 2, 150.0),
-                                PosOrderItem("2", "1", "p2", "Chicken Club Sandwich", 1, 450.0)
-                            )
                             val payload = BluetoothThermalPrinterHelper.buildPosReceiptPayload(
                                 businessName = "Apex Pharmacy & Mart",
                                 tagline = "Quality & Care Everyday",
@@ -151,7 +239,7 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
                     ) {
                         Icon(Icons.Default.Receipt, null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Print Sample Receipt", fontSize = 11.sp)
+                        Text("Thermal 58/80mm Print", fontSize = 11.sp)
                     }
 
                     OutlinedButton(
@@ -187,33 +275,54 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
             }
         }
 
-        // Section 3: Custom Text ESC/POS Printing
+        // Section 3: Custom Text ESC/POS & A4 Printing Console
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("3. Custom Text / ESC/POS Direct Console", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("4. Custom Payload / Text Console", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 OutlinedTextField(
                     value = customReceiptText,
                     onValueChange = { customReceiptText = it },
-                    label = { Text("Receipt Payload Text (32 cols max)") },
+                    label = { Text("Receipt / A4 Payload Text") },
                     modifier = Modifier.fillMaxWidth().height(120.dp),
                     textStyle = TextStyle(fontFamily = FontFamily.Monospace)
                 )
-                Button(
-                    onClick = {
-                        val buffer = java.io.ByteArrayOutputStream()
-                        buffer.write(BluetoothThermalPrinterHelper.ESC_INIT)
-                        buffer.write(BluetoothThermalPrinterHelper.ESC_ALIGN_CENTER)
-                        buffer.write("$customReceiptText\n\n".toByteArray(Charsets.ISO_8859_1))
-                        buffer.write(BluetoothThermalPrinterHelper.ESC_FEED_AND_CUT)
-                        val (success, msg) = BluetoothThermalPrinterHelper.printPayload(context, selectedPrinterAddress, buffer.toByteArray())
-                        printStatusLog = msg
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Send, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Print Custom Payload to $selectedPrinterName")
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            BluetoothThermalPrinterHelper.printA4ViaSystem(
+                                context = context,
+                                jobName = "Custom_A4_Print",
+                                documentTitle = "Custom_A4_Document",
+                                contentText = customReceiptText
+                            )
+                            printStatusLog = "Dispatched Custom Text as A4 Document to System Printer."
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Icon(Icons.Default.Description, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Print as A4", fontSize = 11.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            val buffer = java.io.ByteArrayOutputStream()
+                            buffer.write(BluetoothThermalPrinterHelper.ESC_INIT)
+                            buffer.write(BluetoothThermalPrinterHelper.ESC_ALIGN_CENTER)
+                            buffer.write("$customReceiptText\n\n".toByteArray(Charsets.ISO_8859_1))
+                            buffer.write(BluetoothThermalPrinterHelper.ESC_FEED_AND_CUT)
+                            val (success, msg) = BluetoothThermalPrinterHelper.printPayload(context, selectedPrinterAddress, buffer.toByteArray())
+                            printStatusLog = msg
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Send, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Print Thermal", fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -224,7 +333,7 @@ fun ThermalPrinterManagerScreen(viewModel: StudentKitViewModel) {
             colors = CardDefaults.cardColors(containerColor = Color.Black)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text("Bluetooth Terminal Console Log:", color = Color.Green, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                Text("Bluetooth & Printer Terminal Console Log:", color = Color.Green, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 Spacer(Modifier.height(4.dp))
                 Text(printStatusLog, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
             }

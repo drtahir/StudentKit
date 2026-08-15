@@ -100,7 +100,7 @@ object KpSemester5QuestionBank {
         // 2. COMMUNITY HEALTH NURSING II - 50 Qs
         // ==========================================
         val chn2 = listOf(
-            Triple("The Epidemiological Triad model of disease causation consists of:", listOf("Host, Agent, and Environment", "Time, Place, and Person", "Virulence, Pathogenicity, and Infectivity", "Primary, Secondary, and Tertiary prevention"), 0),
+            Triple("In Community Health Nursing, the Herd Immunity threshold required to interrupt transmission of highly contagious airborne diseases like Measles is approximately:", listOf("50% to 60%", "92% to 95%", "30% to 40%", "70% to 75%"), 1),
             Triple("In epidemiology, the proportion of a population that has a specific disease at a given point in time is known as:", listOf("Incidence rate", "Prevalence rate", "Mortality rate", "Attack rate"), 1),
             Triple("Incidence rate measures the number of:", listOf("Existing cases in a population", "NEW cases of a disease arising in a population during a specified time period", "Total deaths", "Cured cases"), 1),
             Triple("In National Immunization Schedule of Pakistan (EPI), BCG vaccine is administered at birth to protect against:", listOf("Poliomyelitis", "Tuberculosis", "Hepatitis B", "Measles"), 1),

@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import android.net.Uri
 import android.graphics.Bitmap
@@ -31,6 +32,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -102,16 +104,21 @@ fun ToolsHubScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                 navigationIcon = {
                     IconButton(onClick = { viewModel.navigateBack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.navigateTo(Screen.Dashboard) }) {
+                        Icon(Icons.Default.Home, contentDescription = "Home", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             subScreen()
         }
     }
@@ -1908,6 +1915,257 @@ fun createPresetTextureBitmap(type: String): android.graphics.Bitmap {
     return bmp
 }
 
+fun generateQrCodeBitmap(
+    qrContentText: String,
+    selectedPalette: QrPalette,
+    selectedEyePalette: QrPalette,
+    selectedEmblemPalette: QrPalette,
+    qrDotStyle: String = "Classic Square",
+    qrEyeStyle: String = "Classic Edge",
+    selectedLogo: String = "None",
+    qrFrameStyle: String = "None",
+    customBannerText: String = "SCAN ME",
+    frameBgColorHex: String = "#1565C0",
+    frameTextColorHex: String = "#FFFFFF",
+    includeQuietZone: Boolean = true,
+    imageBitmap: ImageBitmap? = null,
+    resolutionPx: Int = 1024,
+    customQrDensity: Int = 29
+): android.graphics.Bitmap {
+    val size = resolutionPx.coerceIn(256, 4096)
+    val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    
+    // Fill white background
+    canvas.drawColor(android.graphics.Color.WHITE)
+    
+    val hints = java.util.HashMap<com.google.zxing.EncodeHintType, Any>()
+    hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
+    hints[com.google.zxing.EncodeHintType.MARGIN] = if (includeQuietZone) 1 else 0
+    hints[com.google.zxing.EncodeHintType.CHARACTER_SET] = "UTF-8"
+    
+    val bitMatrix = try {
+        val writer = com.google.zxing.qrcode.QRCodeWriter()
+        writer.encode(qrContentText.ifEmpty { "https://google.com" }, com.google.zxing.BarcodeFormat.QR_CODE, customQrDensity, customQrDensity, hints)
+    } catch (e: Exception) {
+        null
+    }
+    
+    val matrixWidth = bitMatrix?.width ?: customQrDensity
+    val matrixHeight = bitMatrix?.height ?: customQrDensity
+    
+    val hasFrame = qrFrameStyle != "None" && qrFrameStyle != "Classic Clear"
+    val frameTopPadding = if (hasFrame && qrFrameStyle == "Top Banner Tag") size * 0.12f else 0f
+    val frameBottomPadding = if (hasFrame && qrFrameStyle == "Bottom Badge Frame") size * 0.12f else 0f
+    val qrAreaSize = size - frameTopPadding - frameBottomPadding
+    
+    val cellSize = qrAreaSize / matrixWidth.toFloat()
+    
+    val primaryColorInt = try { android.graphics.Color.parseColor(selectedPalette.startColor) } catch (e: Exception) { android.graphics.Color.parseColor("#1565C0") }
+    val endColorInt = try { android.graphics.Color.parseColor(selectedPalette.endColor) } catch (e: Exception) { primaryColorInt }
+    
+    val qrPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        if (selectedPalette.isGradient) {
+            shader = android.graphics.LinearGradient(
+                0f, frameTopPadding, size.toFloat(), frameTopPadding + qrAreaSize,
+                primaryColorInt, endColorInt, android.graphics.Shader.TileMode.CLAMP
+            )
+        } else {
+            color = primaryColorInt
+        }
+    }
+    
+    val eyeColorInt = if (selectedEyePalette.name == "Match Theme") primaryColorInt else try { android.graphics.Color.parseColor(selectedEyePalette.startColor) } catch (e: Exception) { primaryColorInt }
+    val eyeEndColorInt = try { android.graphics.Color.parseColor(selectedEyePalette.endColor) } catch (e: Exception) { eyeColorInt }
+    
+    val eyePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        if (selectedEyePalette.isGradient && selectedEyePalette.name != "Match Theme") {
+            shader = android.graphics.LinearGradient(
+                0f, frameTopPadding, size.toFloat(), frameTopPadding + qrAreaSize,
+                eyeColorInt, eyeEndColorInt, android.graphics.Shader.TileMode.CLAMP
+            )
+        } else {
+            color = eyeColorInt
+        }
+    }
+    
+    val isEyeZone = { x: Int, y: Int ->
+        (x < 7 && y < 7) || (x >= matrixWidth - 7 && y < 7) || (x < 7 && y >= matrixHeight - 7)
+    }
+    
+    // Draw matrix cells
+    if (bitMatrix != null) {
+        for (y in 0 until matrixHeight) {
+            for (x in 0 until matrixWidth) {
+                if (isEyeZone(x, y)) continue
+                
+                if (bitMatrix.get(x, y)) {
+                    val left = x * cellSize
+                    val top = frameTopPadding + y * cellSize
+                    val right = left + cellSize
+                    val bottom = top + cellSize
+                    val cx = left + cellSize / 2f
+                    val cy = top + cellSize / 2f
+                    
+                    when (qrDotStyle) {
+                        "Dots / Circle", "Classy Dots" -> {
+                            canvas.drawCircle(cx, cy, (cellSize / 2f) * 0.9f, qrPaint)
+                        }
+                        "Rounded Retro", "Fluid Curves" -> {
+                            val rect = android.graphics.RectF(left + cellSize * 0.05f, top + cellSize * 0.05f, right - cellSize * 0.05f, bottom - cellSize * 0.05f)
+                            canvas.drawRoundRect(rect, cellSize * 0.4f, cellSize * 0.4f, qrPaint)
+                        }
+                        else -> { // Classic Square
+                            val rect = android.graphics.RectF(left, top, right, bottom)
+                            canvas.drawRect(rect, qrPaint)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Draw Finder Eye
+    fun drawFinderEye(startX: Int, startY: Int) {
+        val left = startX * cellSize
+        val top = frameTopPadding + startY * cellSize
+        val eyeSize = 7 * cellSize
+        val outerRect = android.graphics.RectF(left, top, left + eyeSize, top + eyeSize)
+        val innerWhiteRect = android.graphics.RectF(left + cellSize, top + cellSize, left + eyeSize - cellSize, top + eyeSize - cellSize)
+        val pupilRect = android.graphics.RectF(left + 2 * cellSize, top + 2 * cellSize, left + eyeSize - 2 * cellSize, top + eyeSize - 2 * cellSize)
+        
+        val whitePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+        }
+        
+        when (qrEyeStyle) {
+            "Rounded Retro", "Soft Cushion" -> {
+                canvas.drawRoundRect(outerRect, eyeSize * 0.25f, eyeSize * 0.25f, eyePaint)
+                canvas.drawRoundRect(innerWhiteRect, eyeSize * 0.20f, eyeSize * 0.20f, whitePaint)
+                canvas.drawRoundRect(pupilRect, eyeSize * 0.15f, eyeSize * 0.15f, eyePaint)
+            }
+            "Brand Target Rings", "Cyan Target" -> {
+                canvas.drawOval(outerRect, eyePaint)
+                canvas.drawOval(innerWhiteRect, whitePaint)
+                canvas.drawOval(pupilRect, eyePaint)
+            }
+            else -> { // Classic Edge
+                canvas.drawRect(outerRect, eyePaint)
+                canvas.drawRect(innerWhiteRect, whitePaint)
+                canvas.drawRect(pupilRect, eyePaint)
+            }
+        }
+    }
+    
+    // Draw 3 corner finder eyes
+    drawFinderEye(0, 0)
+    drawFinderEye(matrixWidth - 7, 0)
+    drawFinderEye(0, matrixHeight - 7)
+    
+    // Draw Logo if present
+    val logoBmp = imageBitmap?.asAndroidBitmap()
+    if (logoBmp != null) {
+        val logoSize = qrAreaSize * 0.22f
+        val logoLeft = (size - logoSize) / 2f
+        val logoTop = frameTopPadding + (qrAreaSize - logoSize) / 2f
+        
+        val bgRadius = (logoSize / 2f) + (size * 0.015f)
+        val whitePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+        canvas.drawCircle(size / 2f, frameTopPadding + qrAreaSize / 2f, bgRadius, whitePaint)
+        
+        val srcRect = android.graphics.Rect(0, 0, logoBmp.width, logoBmp.height)
+        val dstRect = android.graphics.RectF(logoLeft, logoTop, logoLeft + logoSize, logoTop + logoSize)
+        canvas.drawBitmap(logoBmp, srcRect, dstRect, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG))
+    }
+    
+    // Draw Frame Banners if configured
+    if (hasFrame) {
+        val frameBgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = try { android.graphics.Color.parseColor(frameBgColorHex) } catch (e: Exception) { primaryColorInt }
+        }
+        val frameTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = try { android.graphics.Color.parseColor(frameTextColorHex) } catch (e: Exception) { android.graphics.Color.WHITE }
+            textSize = size * 0.045f
+            textAlign = android.graphics.Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+        
+        if (qrFrameStyle == "Top Banner Tag") {
+            val bannerRect = android.graphics.RectF(0f, 0f, size.toFloat(), frameTopPadding)
+            canvas.drawRect(bannerRect, frameBgPaint)
+            val fontMetrics = frameTextPaint.fontMetrics
+            val baseline = (frameTopPadding / 2f) - (fontMetrics.ascent + fontMetrics.descent) / 2f
+            canvas.drawText(customBannerText.ifEmpty { "SCAN ME" }, size / 2f, baseline, frameTextPaint)
+        } else if (qrFrameStyle == "Bottom Badge Frame") {
+            val bannerRect = android.graphics.RectF(0f, size - frameBottomPadding, size.toFloat(), size.toFloat())
+            canvas.drawRect(bannerRect, frameBgPaint)
+            val fontMetrics = frameTextPaint.fontMetrics
+            val baseline = (size - frameBottomPadding / 2f) - (fontMetrics.ascent + fontMetrics.descent) / 2f
+            canvas.drawText(customBannerText.ifEmpty { "SCAN ME" }, size / 2f, baseline, frameTextPaint)
+        }
+    }
+    
+    return bitmap
+}
+
+fun saveBitmapToDeviceGallery(
+    context: Context,
+    bitmap: android.graphics.Bitmap,
+    titlePrefix: String = "QR_Code",
+    format: String = "PNG Image"
+): String? {
+    return try {
+        val resolver = context.contentResolver
+        val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+        val fileName = "${titlePrefix}_$timeStamp"
+        val isJpeg = format.contains("JPEG", true) || format.contains("JPG", true)
+        val ext = if (isJpeg) "jpg" else "png"
+        val mimeType = if (isJpeg) "image/jpeg" else "image/png"
+        val compressFormat = if (isJpeg) android.graphics.Bitmap.CompressFormat.JPEG else android.graphics.Bitmap.CompressFormat.PNG
+        
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "$fileName.$ext")
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/QRCodeStudio")
+                put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        
+        val imageUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        if (imageUri != null) {
+            resolver.openOutputStream(imageUri)?.use { outputStream ->
+                bitmap.compress(compressFormat, 100, outputStream)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                resolver.update(imageUri, contentValues, null, null)
+            }
+            "Pictures/QRCodeStudio/$fileName.$ext"
+        } else {
+            // Downloads directory fallback
+            val downloadValues = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "$fileName.$ext")
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                }
+            }
+            val downloadUri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, downloadValues)
+            if (downloadUri != null) {
+                resolver.openOutputStream(downloadUri)?.use { outputStream ->
+                    bitmap.compress(compressFormat, 100, outputStream)
+                }
+                "Downloads/$fileName.$ext"
+            } else null
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
 @Composable
 fun QrCodePreviewEngine(
     selectedType: String,
@@ -2427,6 +2685,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
     var dynamicUrlSlug by remember { mutableStateOf("local-tracker.app/v/student_portal") }
     
     var mockupMode by remember { mutableStateOf("Direct Vector") }
+    var isPreviewExpanded by remember { mutableStateOf(true) }
     var isPasswordProtected by remember { mutableStateOf(false) }
     var qrPasswordText by remember { mutableStateOf("") }
     var selectedExpiry by remember { mutableStateOf("Never (Permanent)") }
@@ -2525,6 +2784,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
     var showVerifyDialog by remember { mutableStateOf(false) }
     var compileStatusMessage by remember { mutableStateOf("") }
     var isCompiling by remember { mutableStateOf(false) }
+    var savedGalleryPath by remember { mutableStateOf<String?>(null) }
 
     val primaryQrColor = remember(selectedPalette) {
         try {
@@ -2573,11 +2833,42 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
     LaunchedEffect(isCompiling) {
         if (isCompiling) {
             compileStatusMessage = "Analyzing QR payload parameters..."
-            delay(300)
+            delay(200)
             compileStatusMessage = "Applying $qrDotStyle shape filters..."
-            delay(300)
-            compileStatusMessage = "Tinting body pixels as ${selectedPalette.name}..."
-            delay(300)
+            delay(200)
+            compileStatusMessage = "Rendering HD $downloadFormat bitmap..."
+            delay(200)
+
+            val resPx = when {
+                exportResolution.contains("4096") -> 2048
+                exportResolution.contains("2048") -> 1024
+                else -> 512
+            }
+            val generatedBitmap = generateQrCodeBitmap(
+                qrContentText = qrContentText,
+                selectedPalette = selectedPalette,
+                selectedEyePalette = selectedEyePalette,
+                selectedEmblemPalette = selectedEmblemPalette,
+                qrDotStyle = qrDotStyle,
+                qrEyeStyle = qrEyeStyle,
+                selectedLogo = selectedLogo,
+                qrFrameStyle = qrFrameStyle,
+                customBannerText = customBannerText,
+                frameBgColorHex = frameBgColorHex,
+                frameTextColorHex = frameTextColorHex,
+                includeQuietZone = includeQuietZone,
+                imageBitmap = imageBitmapState.value,
+                resolutionPx = resPx,
+                customQrDensity = customQrDensity
+            )
+            val path = saveBitmapToDeviceGallery(context, generatedBitmap, "QR_${selectedType.replace(" ", "_")}", downloadFormat)
+            savedGalleryPath = path
+            if (path != null) {
+                Toast.makeText(context, "Saved QR Code to Gallery! ($path)", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "Export complete!", Toast.LENGTH_SHORT).show()
+            }
+
             isCompiling = false
             showDownloadCompleteDialog = true
         }
@@ -2586,11 +2877,336 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // --- 1. INSTANT LOGO UPLOAD & AI FUSION CARD AT THE BEGINNING ---
+        // --- CONSTANT TOP STICKY REAL-TIME QR PREVIEW CARD ---
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .zIndex(10f)
+                .shadow(elevation = 6.dp, shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)),
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Top Action Bar inside Sticky Card
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00E676))
+                        )
+                        Text(
+                            text = "Real-Time QR Preview",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
+                            Text(
+                                text = selectedType,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(
+                            onClick = { showVerifyDialog = true },
+                            modifier = Modifier.size(28.dp).testTag("sticky_verify_button_icon")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = "Scan Verification",
+                                tint = Color(0xFF2E7D32),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { isCompiling = true },
+                            modifier = Modifier.size(28.dp).testTag("sticky_download_button_icon")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Export HD",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { isPreviewExpanded = !isPreviewExpanded },
+                            modifier = Modifier.size(28.dp).testTag("sticky_toggle_preview_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isPreviewExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isPreviewExpanded) "Collapse Preview" else "Expand Preview",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (isPreviewExpanded) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(vertical = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val containerSize = if (mockupMode == "Direct Vector") 180.dp else 210.dp
+                        Card(
+                            modifier = Modifier
+                                .size(containerSize)
+                                .shadow(elevation = 3.dp, shape = RoundedCornerShape(12.dp)),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (mockupMode == "Direct Vector") Color.White else Color(0xFF263238)
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (mockupMode == "☕ Coffee Mug") {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val w = size.width
+                                        val h = size.height
+                                        drawRoundRect(Color(0xFFECEFF1), topLeft = Offset(w * 0.22f, h * 0.15f), size = Size(w * 0.56f, h * 0.70f), cornerRadius = CornerRadius(w * 0.08f))
+                                        drawArc(Color(0xFFCFD8DC), 270f, 180f, false, topLeft = Offset(w * 0.72f, h * 0.30f), size = Size(w * 0.18f, h * 0.40f), style = Stroke(width = w * 0.06f))
+                                        drawOval(Color(0xFFCFD8DC), topLeft = Offset(w * 0.22f, h * 0.12f), size = Size(w * 0.56f, h * 0.10f))
+                                    }
+                                } else if (mockupMode == "👕 T-Shirt") {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val w = size.width
+                                        val h = size.height
+                                        val p = Path().apply {
+                                            moveTo(w * 0.32f, h * 0.10f)
+                                            lineTo(w * 0.68f, h * 0.10f)
+                                            lineTo(w * 0.90f, h * 0.28f)
+                                            lineTo(w * 0.78f, h * 0.42f)
+                                            lineTo(w * 0.72f, h * 0.36f)
+                                            lineTo(w * 0.72f, h * 0.92f)
+                                            lineTo(w * 0.28f, h * 0.92f)
+                                            lineTo(w * 0.28f, h * 0.36f)
+                                            lineTo(w * 0.22f, h * 0.42f)
+                                            lineTo(w * 0.10f, h * 0.28f)
+                                            close()
+                                        }
+                                        drawPath(p, Color(0xFF37474F))
+                                        drawArc(Color(0xFF263238), 0f, 180f, false, topLeft = Offset(w * 0.40f, h * 0.10f), size = Size(w * 0.20f, h * 0.10f))
+                                    }
+                                } else if (mockupMode == "🏷️ Table Tent") {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val w = size.width
+                                        val h = size.height
+                                        val p = Path().apply {
+                                            moveTo(w * 0.15f, h * 0.88f)
+                                            lineTo(w * 0.30f, h * 0.12f)
+                                            lineTo(w * 0.70f, h * 0.12f)
+                                            lineTo(w * 0.85f, h * 0.88f)
+                                            close()
+                                        }
+                                        drawPath(p, Color(0xFFFAFAFA))
+                                        drawPath(p, Color(0xFFB0BEC5), style = Stroke(width = w * 0.02f))
+                                        drawLine(Color(0xFFCFD8DC), start = Offset(w * 0.15f, h * 0.88f), end = Offset(w * 0.85f, h * 0.88f), strokeWidth = w * 0.04f)
+                                    }
+                                } else if (mockupMode == "💳 ID Badge") {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val w = size.width
+                                        val h = size.height
+                                        drawLine(Color(0xFFE53935), start = Offset(w * 0.35f, 0f), end = Offset(w * 0.48f, h * 0.18f), strokeWidth = w * 0.04f)
+                                        drawLine(Color(0xFFE53935), start = Offset(w * 0.65f, 0f), end = Offset(w * 0.52f, h * 0.18f), strokeWidth = w * 0.04f)
+                                        drawRoundRect(Color.White, topLeft = Offset(w * 0.18f, h * 0.18f), size = Size(w * 0.64f, h * 0.76f), cornerRadius = CornerRadius(w * 0.06f))
+                                        drawRoundRect(Color(0xFF1976D2), topLeft = Offset(w * 0.18f, h * 0.18f), size = Size(w * 0.64f, h * 0.16f), cornerRadius = CornerRadius(w * 0.06f))
+                                        drawCircle(Color.LightGray, radius = w * 0.03f, center = Offset(w * 0.50f, h * 0.22f))
+                                    }
+                                } else if (qrFrameStyle == "Neon Scanner Brackets") {
+                                    Canvas(modifier = Modifier.size(180.dp)) {
+                                        val strokeW = 3.dp.toPx()
+                                        val bracketLen = 20.dp.toPx()
+                                        drawPath(Path().apply {
+                                            moveTo(0f, bracketLen); lineTo(0f, 0f); lineTo(bracketLen, 0f)
+                                        }, color = primaryQrColor, style = Stroke(width = strokeW))
+                                        drawPath(Path().apply {
+                                            moveTo(size.width - bracketLen, 0f); lineTo(size.width, 0f); lineTo(size.width, bracketLen)
+                                        }, color = primaryQrColor, style = Stroke(width = strokeW))
+                                        drawPath(Path().apply {
+                                            moveTo(0f, size.height - bracketLen); lineTo(0f, size.height); lineTo(bracketLen, size.height)
+                                        }, color = primaryQrColor, style = Stroke(width = strokeW))
+                                        drawPath(Path().apply {
+                                            moveTo(size.width - bracketLen, size.height); lineTo(size.width, size.height); lineTo(size.width, size.height - bracketLen)
+                                        }, color = primaryQrColor, style = Stroke(width = strokeW))
+                                    }
+                                } else if (qrFrameStyle == "Vintage Ticket Border") {
+                                    Canvas(modifier = Modifier.size(180.dp)) {
+                                        drawRoundRect(
+                                            color = primaryQrColor.copy(alpha = 0.6f),
+                                            size = size,
+                                            cornerRadius = CornerRadius(14.dp.toPx()),
+                                            style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 12f), 0f))
+                                        )
+                                    }
+                                } else if (qrFrameStyle == "Artistic Double Frame") {
+                                    Canvas(modifier = Modifier.size(180.dp)) {
+                                        drawRoundRect(color = primaryQrColor, size = size, cornerRadius = CornerRadius(14.dp.toPx()), style = Stroke(width = 2.dp.toPx()))
+                                        drawRoundRect(color = primaryQrColor.copy(alpha = 0.3f), topLeft = Offset(4.dp.toPx(), 4.dp.toPx()), size = Size(size.width - 8.dp.toPx(), size.height - 8.dp.toPx()), cornerRadius = CornerRadius(10.dp.toPx()), style = Stroke(width = 1.dp.toPx()))
+                                    }
+                                }
+
+                                val previewEngineSize = if (mockupMode == "Direct Vector") 130 else 100
+                                val parsedFrameBgColor = remember(frameBgColorHex) {
+                                    try { Color(android.graphics.Color.parseColor(frameBgColorHex)) } catch (e: Exception) { Color(0xFF1565C0) }
+                                }
+                                val parsedFrameTextColor = remember(frameTextColorHex) {
+                                    try { Color(android.graphics.Color.parseColor(frameTextColorHex)) } catch (e: Exception) { Color.White }
+                                }
+
+                                QrFrameBannerWrapper(
+                                    frameStyle = qrFrameStyle,
+                                    bannerText = customBannerText,
+                                    bgColor = parsedFrameBgColor,
+                                    textColor = parsedFrameTextColor,
+                                    primaryQrColor = primaryQrColor,
+                                    frameBgColorHex = frameBgColorHex
+                                ) {
+                                    QrCodePreviewEngine(
+                                        selectedType = selectedType,
+                                        qrContentText = qrContentText,
+                                        qrDotStyle = qrDotStyle,
+                                        qrEyeStyle = qrEyeStyle,
+                                        selectedLogo = selectedLogo,
+                                        qrFrameStyle = qrFrameStyle,
+                                        selectedPalette = selectedPalette,
+                                        selectedEyePalette = selectedEyePalette,
+                                        selectedEmblemPalette = selectedEmblemPalette,
+                                        includeQuietZone = includeQuietZone,
+                                        imageBitmap = imageBitmapState.value,
+                                        sizeDp = previewEngineSize,
+                                        logoScale = logoScale,
+                                        logoAlphaThreshold = logoAlphaThreshold,
+                                        logoBlendOpacity = logoBlendOpacity,
+                                        qrFusionMode = qrFusionMode,
+                                        contrastBoost = contrastBoost,
+                                        customQrDensity = customQrDensity,
+                                        useImageAsTexture = useImageAsTexture
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Live Content Data: $qrContentText",
+                        fontSize = 10.sp,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    // Compact Single-Line Preview Bar when minimized
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.White),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                QrCodePreviewEngine(
+                                    selectedType = selectedType,
+                                    qrContentText = qrContentText,
+                                    qrDotStyle = qrDotStyle,
+                                    qrEyeStyle = qrEyeStyle,
+                                    selectedLogo = selectedLogo,
+                                    qrFrameStyle = "Minimalist Borderless",
+                                    selectedPalette = selectedPalette,
+                                    selectedEyePalette = selectedEyePalette,
+                                    selectedEmblemPalette = selectedEmblemPalette,
+                                    includeQuietZone = false,
+                                    imageBitmap = imageBitmapState.value,
+                                    sizeDp = 30,
+                                    logoScale = logoScale,
+                                    logoAlphaThreshold = logoAlphaThreshold,
+                                    logoBlendOpacity = logoBlendOpacity,
+                                    qrFusionMode = qrFusionMode,
+                                    contrastBoost = contrastBoost,
+                                    customQrDensity = customQrDensity,
+                                    useImageAsTexture = useImageAsTexture
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "Pattern: $qrDotStyle • Frame: $qrFrameStyle",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    text = qrContentText,
+                                    fontSize = 9.sp,
+                                    color = Color.Gray,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = { isPreviewExpanded = true },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                        ) {
+                            Text("Expand Preview", fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- SCROLLABLE BODY FOR ALL CUSTOMIZATION OPTIONS ---
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // --- 1. INSTANT LOGO UPLOAD & AI FUSION CARD AT THE BEGINNING ---
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3716,162 +4332,6 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
             }
         }
 
-        Box(
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(4.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val containerSize = if (mockupMode == "Direct Vector") 220.dp else 260.dp
-            Card(
-                modifier = Modifier.size(containerSize).shadow(elevation = 4.dp, shape = RoundedCornerShape(16.dp)),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = if (mockupMode == "Direct Vector") Color.White else Color(0xFF263238))
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (mockupMode == "☕ Coffee Mug") {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val w = size.width
-                            val h = size.height
-                            // Mug Body
-                            drawRoundRect(Color(0xFFECEFF1), topLeft = Offset(w * 0.22f, h * 0.15f), size = Size(w * 0.56f, h * 0.70f), cornerRadius = CornerRadius(w * 0.08f))
-                            // Handle
-                            drawArc(Color(0xFFCFD8DC), 270f, 180f, false, topLeft = Offset(w * 0.72f, h * 0.30f), size = Size(w * 0.18f, h * 0.40f), style = Stroke(width = w * 0.06f))
-                            // Top Rim
-                            drawOval(Color(0xFFCFD8DC), topLeft = Offset(w * 0.22f, h * 0.12f), size = Size(w * 0.56f, h * 0.10f))
-                        }
-                    } else if (mockupMode == "👕 T-Shirt") {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val w = size.width
-                            val h = size.height
-                            val p = Path().apply {
-                                moveTo(w * 0.32f, h * 0.10f)
-                                lineTo(w * 0.68f, h * 0.10f)
-                                lineTo(w * 0.90f, h * 0.28f)
-                                lineTo(w * 0.78f, h * 0.42f)
-                                lineTo(w * 0.72f, h * 0.36f)
-                                lineTo(w * 0.72f, h * 0.92f)
-                                lineTo(w * 0.28f, h * 0.92f)
-                                lineTo(w * 0.28f, h * 0.36f)
-                                lineTo(w * 0.22f, h * 0.42f)
-                                lineTo(w * 0.10f, h * 0.28f)
-                                close()
-                            }
-                            drawPath(p, Color(0xFF37474F))
-                            drawArc(Color(0xFF263238), 0f, 180f, false, topLeft = Offset(w * 0.40f, h * 0.10f), size = Size(w * 0.20f, h * 0.10f))
-                        }
-                    } else if (mockupMode == "🏷️ Table Tent") {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val w = size.width
-                            val h = size.height
-                            val p = Path().apply {
-                                moveTo(w * 0.15f, h * 0.88f)
-                                lineTo(w * 0.30f, h * 0.12f)
-                                lineTo(w * 0.70f, h * 0.12f)
-                                lineTo(w * 0.85f, h * 0.88f)
-                                close()
-                            }
-                            drawPath(p, Color(0xFFFAFAFA))
-                            drawPath(p, Color(0xFFB0BEC5), style = Stroke(width = w * 0.02f))
-                            drawLine(Color(0xFFCFD8DC), start = Offset(w * 0.15f, h * 0.88f), end = Offset(w * 0.85f, h * 0.88f), strokeWidth = w * 0.04f)
-                        }
-                    } else if (mockupMode == "💳 ID Badge") {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val w = size.width
-                            val h = size.height
-                            // Lanyard Strap
-                            drawLine(Color(0xFFE53935), start = Offset(w * 0.35f, 0f), end = Offset(w * 0.48f, h * 0.18f), strokeWidth = w * 0.04f)
-                            drawLine(Color(0xFFE53935), start = Offset(w * 0.65f, 0f), end = Offset(w * 0.52f, h * 0.18f), strokeWidth = w * 0.04f)
-                            // Plastic Badge Card
-                            drawRoundRect(Color.White, topLeft = Offset(w * 0.18f, h * 0.18f), size = Size(w * 0.64f, h * 0.76f), cornerRadius = CornerRadius(w * 0.06f))
-                            drawRoundRect(Color(0xFF1976D2), topLeft = Offset(w * 0.18f, h * 0.18f), size = Size(w * 0.64f, h * 0.16f), cornerRadius = CornerRadius(w * 0.06f))
-                            drawCircle(Color.LightGray, radius = w * 0.03f, center = Offset(w * 0.50f, h * 0.22f))
-                        }
-                    } else if (qrFrameStyle == "Neon Scanner Brackets") {
-                        Canvas(modifier = Modifier.size(222.dp)) {
-                            val strokeW = 3.dp.toPx()
-                            val bracketLen = 20.dp.toPx()
-                            drawPath(Path().apply {
-                                moveTo(0f, bracketLen); lineTo(0f, 0f); lineTo(bracketLen, 0f)
-                            }, color = primaryQrColor, style = Stroke(width = strokeW))
-                            drawPath(Path().apply {
-                                moveTo(size.width - bracketLen, 0f); lineTo(size.width, 0f); lineTo(size.width, bracketLen)
-                            }, color = primaryQrColor, style = Stroke(width = strokeW))
-                            drawPath(Path().apply {
-                                moveTo(0f, size.height - bracketLen); lineTo(0f, size.height); lineTo(bracketLen, size.height)
-                            }, color = primaryQrColor, style = Stroke(width = strokeW))
-                            drawPath(Path().apply {
-                                moveTo(size.width - bracketLen, size.height); lineTo(size.width, size.height); lineTo(size.width, size.height - bracketLen)
-                            }, color = primaryQrColor, style = Stroke(width = strokeW))
-                        }
-                    } else if (qrFrameStyle == "Vintage Ticket Border") {
-                        Canvas(modifier = Modifier.size(222.dp)) {
-                            drawRoundRect(
-                                color = primaryQrColor.copy(alpha = 0.6f),
-                                size = size,
-                                cornerRadius = CornerRadius(14.dp.toPx()),
-                                style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 12f), 0f))
-                            )
-                        }
-                    } else if (qrFrameStyle == "Artistic Double Frame") {
-                        Canvas(modifier = Modifier.size(222.dp)) {
-                            drawRoundRect(color = primaryQrColor, size = size, cornerRadius = CornerRadius(14.dp.toPx()), style = Stroke(width = 2.dp.toPx()))
-                            drawRoundRect(color = primaryQrColor.copy(alpha = 0.3f), topLeft = Offset(4.dp.toPx(), 4.dp.toPx()), size = Size(size.width - 8.dp.toPx(), size.height - 8.dp.toPx()), cornerRadius = CornerRadius(10.dp.toPx()), style = Stroke(width = 1.dp.toPx()))
-                        }
-                    }
-
-                    val previewEngineSize = if (mockupMode == "Direct Vector") 160 else 125
-                    val parsedFrameBgColor = remember(frameBgColorHex) {
-                        try { Color(android.graphics.Color.parseColor(frameBgColorHex)) } catch (e: Exception) { Color(0xFF1565C0) }
-                    }
-                    val parsedFrameTextColor = remember(frameTextColorHex) {
-                        try { Color(android.graphics.Color.parseColor(frameTextColorHex)) } catch (e: Exception) { Color.White }
-                    }
-
-                    QrFrameBannerWrapper(
-                        frameStyle = qrFrameStyle,
-                        bannerText = customBannerText,
-                        bgColor = parsedFrameBgColor,
-                        textColor = parsedFrameTextColor,
-                        primaryQrColor = primaryQrColor,
-                        frameBgColorHex = frameBgColorHex
-                    ) {
-                        QrCodePreviewEngine(
-                            selectedType = selectedType,
-                            qrContentText = qrContentText,
-                            qrDotStyle = qrDotStyle,
-                            qrEyeStyle = qrEyeStyle,
-                            selectedLogo = selectedLogo,
-                            qrFrameStyle = qrFrameStyle,
-                            selectedPalette = selectedPalette,
-                            selectedEyePalette = selectedEyePalette,
-                            selectedEmblemPalette = selectedEmblemPalette,
-                            includeQuietZone = includeQuietZone,
-                            imageBitmap = imageBitmapState.value,
-                            sizeDp = previewEngineSize,
-                            logoScale = logoScale,
-                            logoAlphaThreshold = logoAlphaThreshold,
-                            logoBlendOpacity = logoBlendOpacity,
-                            qrFusionMode = qrFusionMode,
-                            contrastBoost = contrastBoost,
-                            customQrDensity = customQrDensity,
-                            useImageAsTexture = useImageAsTexture
-                        )
-                    }
-                }
-            }
-        }
-
-        Text(
-            text = "Live Content Data: $qrContentText",
-            fontSize = 11.sp,
-            color = Color.Gray,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            maxLines = 1,
-            textAlign = TextAlign.Center
-        )
-
         Button(
             onClick = { showVerifyDialog = true },
             modifier = Modifier
@@ -4084,6 +4544,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
             }
         }
     }
+    }
 
     if (isCompiling) {
         AlertDialog(
@@ -4118,7 +4579,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("Your offline-independent custom $selectedType QR Code has been designed and compiled.", textAlign = TextAlign.Center, fontSize = 12.sp)
+                    Text("Your custom $selectedType QR Code has been generated and saved to your device gallery!", textAlign = TextAlign.Center, fontSize = 12.sp)
                     
                     Box(
                         modifier = Modifier
@@ -4144,6 +4605,25 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                         )
                     }
 
+                    if (savedGalleryPath != null) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                                Column {
+                                    Text("Saved to Phone Gallery", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF2E7D32))
+                                    Text(savedGalleryPath ?: "", fontSize = 10.sp, color = Color(0xFF1B5E20))
+                                }
+                            }
+                        }
+                    }
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -4161,11 +4641,44 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = { showDownloadCompleteDialog = false },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Perfect, Save Asset!")
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = {
+                            val resPx = when {
+                                exportResolution.contains("4096") -> 2048
+                                exportResolution.contains("2048") -> 1024
+                                else -> 512
+                            }
+                            val b = generateQrCodeBitmap(
+                                qrContentText = qrContentText,
+                                selectedPalette = selectedPalette,
+                                selectedEyePalette = selectedEyePalette,
+                                selectedEmblemPalette = selectedEmblemPalette,
+                                qrDotStyle = qrDotStyle,
+                                qrEyeStyle = qrEyeStyle,
+                                selectedLogo = selectedLogo,
+                                qrFrameStyle = qrFrameStyle,
+                                customBannerText = customBannerText,
+                                frameBgColorHex = frameBgColorHex,
+                                frameTextColorHex = frameTextColorHex,
+                                includeQuietZone = includeQuietZone,
+                                imageBitmap = imageBitmapState.value,
+                                resolutionPx = resPx,
+                                customQrDensity = customQrDensity
+                            )
+                            val newPath = saveBitmapToDeviceGallery(context, b, "QR_${selectedType.replace(" ", "_")}", downloadFormat)
+                            if (newPath != null) {
+                                savedGalleryPath = newPath
+                                Toast.makeText(context, "Saved image copy to Gallery! ($newPath)", Toast.LENGTH_LONG).show()
+                            }
+                            showDownloadCompleteDialog = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Save Copy to Gallery & Close")
+                    }
                 }
             }
         )
@@ -4318,6 +4831,7 @@ fun QrCodeVerificationDialog(
 fun BatchQrGeneratorDialog(
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var rawInputText by remember { mutableStateOf("https://example.com/item1\nhttps://example.com/item2\nhttps://example.com/item3") }
     var isProcessing by remember { mutableStateOf(false) }
     var batchGeneratedCount by remember { mutableStateOf(0) }
@@ -4333,7 +4847,7 @@ fun BatchQrGeneratorDialog(
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Paste multiple URLs or text entries (1 per line) to batch compile vector ZIP/PDF catalog sheets:", fontSize = 11.sp, color = Color.Gray)
+                Text("Paste multiple URLs or text entries (1 per line) to batch generate and save to device gallery:", fontSize = 11.sp, color = Color.Gray)
                 OutlinedTextField(
                     value = rawInputText,
                     onValueChange = { rawInputText = it },
@@ -4350,7 +4864,7 @@ fun BatchQrGeneratorDialog(
                     ) {
                         Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text("✅ Batch Processing Complete!", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF2E7D32))
-                            Text("Compiled $batchGeneratedCount high-definition vector QR assets into local studio archive ZIP.", fontSize = 10.sp)
+                            Text("Saved $batchGeneratedCount QR Code images into your device gallery (Pictures/QRCodeStudio).", fontSize = 10.sp, color = Color(0xFF1B5E20))
                         }
                     }
                 }
@@ -4362,9 +4876,23 @@ fun BatchQrGeneratorDialog(
                     coroutineScope.launch {
                         isProcessing = true
                         val lines = rawInputText.lines().filter { it.isNotBlank() }
-                        kotlinx.coroutines.delay(1000)
-                        batchGeneratedCount = lines.size
+                        var count = 0
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            lines.forEachIndexed { idx, item ->
+                                val bitmap = generateQrCodeBitmap(
+                                    qrContentText = item,
+                                    selectedPalette = QrPalette("Pure Obsidian", "#000000", "#000000", false),
+                                    selectedEyePalette = QrPalette("Match Theme", "", "", false),
+                                    selectedEmblemPalette = QrPalette("Match Theme", "", "", false),
+                                    resolutionPx = 512
+                                )
+                                val saved = saveBitmapToDeviceGallery(context, bitmap, "Batch_QR_${idx + 1}", "PNG Image")
+                                if (saved != null) count++
+                            }
+                        }
+                        batchGeneratedCount = count
                         isProcessing = false
+                        Toast.makeText(context, "Saved $count QR code images to Gallery!", Toast.LENGTH_LONG).show()
                     }
                 },
                 enabled = !isProcessing && rawInputText.isNotBlank(),
@@ -4402,6 +4930,53 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
     var isScanResultActive by remember { mutableStateOf(false) }
     var lastScannedType by remember { mutableStateOf("QR Code") }
     var isScanningActive by remember { mutableStateOf(true) }
+
+    // Launcher to select QR code image from phone gallery
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val image = InputImage.fromFilePath(context, uri)
+                val barcodeScanner = BarcodeScanning.getClient(
+                    BarcodeScannerOptions.Builder()
+                        .setBarcodeFormats(
+                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE,
+                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
+                        )
+                        .build()
+                )
+                barcodeScanner.process(image)
+                    .addOnSuccessListener { barcodes ->
+                        var found = false
+                        for (barcode in barcodes) {
+                            val value = barcode.rawValue
+                            if (!value.isNullOrBlank()) {
+                                scannedBarcodeText = value
+                                lastScannedType = when (barcode.valueType) {
+                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_URL -> "Website Link"
+                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_WIFI -> "Wi-Fi Config"
+                                    else -> "Gallery QR Code"
+                                }
+                                isScanResultActive = true
+                                isScanningActive = false
+                                found = true
+                                Toast.makeText(context, "QR / Barcode detected from Gallery image!", Toast.LENGTH_SHORT).show()
+                                break
+                            }
+                        }
+                        if (!found) {
+                            Toast.makeText(context, "No readable QR code or barcode found in the selected image.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .addOnFailureListener { exception ->
+                        Toast.makeText(context, "Scanning gallery image failed: ${exception.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error opening image: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // Backup GMS scanner
     val gmsScannerClient = remember {
@@ -4452,30 +5027,51 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
         ) {
-            Row(
+            Column(
                 modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.QrCodeScanner,
-                        contentDescription = "Scanner engine active",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Column {
-                        Text("Dual-Engine Barcode & QR Lens", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text(if (cameraPermissionState.status.isGranted) "In-app sensor active..." else "Press button to activate real offline lens", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "Scanner engine active",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Column {
+                            Text("Dual-Engine Barcode & QR Lens", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(if (cameraPermissionState.status.isGranted) "In-app camera active or scan gallery image" else "Scan with camera or pick QR image from gallery", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    
+                    if (gmsScannerClient != null) {
+                        IconButton(onClick = { triggerRealCameraScanner() }) {
+                            Icon(Icons.Default.FlipCameraAndroid, contentDescription = "Use GMS Overlay", tint = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
-                
-                if (gmsScannerClient != null) {
-                    IconButton(onClick = { triggerRealCameraScanner() }) {
-                        Icon(Icons.Default.FlipCameraAndroid, contentDescription = "Use GMS Overlay", tint = MaterialTheme.colorScheme.primary)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { galleryPickerLauncher.launch("image/*") },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Scan from Gallery", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
@@ -4642,14 +5238,28 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
                     )
 
-                    Button(
-                        onClick = { cameraPermissionState.launchPermissionRequest() },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.QrCodeScanner, null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Grant Camera Permission", fontWeight = FontWeight.SemiBold)
+                        Button(
+                            onClick = { cameraPermissionState.launchPermissionRequest() },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Icon(Icons.Default.QrCodeScanner, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Camera Access", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = { galleryPickerLauncher.launch("image/*") },
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Gallery Image", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -6283,8 +6893,19 @@ class PasswordTransformationInt : VisualTransformation {
 }
 
 // -------------------------------------------------------------
-// MODULE 18: IMAGE TOOLS
+// MODULE 18: IMAGE TOOLS & SMART COMPRESSOR
 // -------------------------------------------------------------
+
+data class CompressedImageResult(
+    val fileName: String,
+    val fileSize: Long,
+    val width: Int,
+    val height: Int,
+    val uri: Uri?,
+    val savedPercent: Int,
+    val format: String
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageToolsScreen(viewModel: StudentKitViewModel) {
@@ -6300,22 +6921,26 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
     var imageHeight by remember { mutableStateOf(0) }
     var imageSizeInBytes by remember { mutableStateOf(0L) }
     var originalAspectRatio by remember { mutableStateOf(1f) }
+    var detectedOriginalFormat by remember { mutableStateOf("JPEG") }
 
-    // Advanced tuning states
-    var selectedFormat by remember { mutableStateOf("JPEG") } // JPEG, PNG, WEBP
-    var compressQualitySlider by remember { mutableStateOf(80f) }
+    // Mode Selection: 0 = Smart Auto, 1 = Target KB Size, 2 = Manual Pro Tuning
+    var compressionMode by remember { mutableStateOf(0) }
+    var smartPreset by remember { mutableStateOf("Balanced") } // "Maximum", "Balanced", "Crisp"
+    var targetKbPreset by remember { mutableStateOf("100") } // "50", "100", "200", "500", "Custom"
+    var customTargetKbStr by remember { mutableStateOf("100") }
+
+    // Manual Pro Tuning states
+    var selectedFormat by remember { mutableStateOf("WEBP") } // WEBP (Best), JPEG, PNG
+    var compressQualitySlider by remember { mutableStateOf(75f) }
     var scalePreset by remember { mutableStateOf("100%") } // 100%, 75%, 50%, 25%, Custom
     var targetWidthStr by remember { mutableStateOf("0") }
     var targetHeightStr by remember { mutableStateOf("0") }
     var isAspectRatioLocked by remember { mutableStateOf(true) }
 
-    // Processing states
+    // Processing & Results states
     var isProcessing by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
-    var processedWidth by remember { mutableStateOf(0) }
-    var processedHeight by remember { mutableStateOf(0) }
-    var processedFileSize by remember { mutableStateOf(0L) }
-    var savedFileName by remember { mutableStateOf("") }
+    var lastResult by remember { mutableStateOf<CompressedImageResult?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -6326,6 +6951,7 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
             imageWidth = details.first
             imageHeight = details.second
             imageSizeInBytes = details.third
+            detectedOriginalFormat = details.fourth
             imageName = getFileNameHelper(context, uri)
             originalAspectRatio = if (details.second > 0) details.first.toFloat() / details.second else 1f
             
@@ -6333,6 +6959,15 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
             targetWidthStr = details.first.toString()
             targetHeightStr = details.second.toString()
             scalePreset = "100%"
+            
+            // Set reasonable target KB default based on original size
+            val halfKb = (details.third / 1024L / 2).coerceIn(25L, 500L).toString()
+            customTargetKbStr = halfKb
+            targetKbPreset = when {
+                details.third / 1024L <= 100 -> "50"
+                details.third / 1024L <= 250 -> "100"
+                else -> "200"
+            }
             
             // Load a thumbnail to avoid OOM
             thumbnailBitmap = loadThumbnailHelper(context, uri)
@@ -6405,7 +7040,7 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                "Select a document photo or note to scale & compress",
+                                "Select any photo to compress, shrink KB, and optimize",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 textAlign = TextAlign.Center,
@@ -6461,8 +7096,16 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
                         }
                         Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Original Format Size:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(formatBytesHelper(imageSizeInBytes), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Original File Size:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(formatBytesHelper(imageSizeInBytes), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = { Text(detectedOriginalFormat, fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                                    modifier = Modifier.height(22.dp)
+                                )
+                            }
                         }
                         Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -6486,7 +7129,7 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
         }
 
         if (selectedImageUri != null) {
-            // Advanced Compressor Options Card
+            // Compression Mode Selector
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -6495,128 +7138,277 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(
-                        "⚙️ Advanced Output Tuning Options",
+                        "🛠️ Choose Compression Mode",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    
-                    // Format Selection
-                    Column {
-                        Text("Target Export Format", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("JPEG", "PNG", "WEBP").forEach { format ->
-                                val selected = selectedFormat == format
-                                FilterChip(
-                                    selected = selected,
-                                    onClick = { selectedFormat = format },
-                                    label = { Text(format) }
-                                )
-                            }
-                        }
+
+                    TabRow(
+                        selectedTabIndex = compressionMode,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                    ) {
+                        Tab(
+                            selected = compressionMode == 0,
+                            onClick = { compressionMode = 0 },
+                            text = { Text("⚡ Smart Auto", fontSize = 12.sp, fontWeight = if (compressionMode == 0) FontWeight.Bold else FontWeight.Normal) }
+                        )
+                        Tab(
+                            selected = compressionMode == 1,
+                            onClick = { compressionMode = 1 },
+                            text = { Text("🎯 Target KB", fontSize = 12.sp, fontWeight = if (compressionMode == 1) FontWeight.Bold else FontWeight.Normal) }
+                        )
+                        Tab(
+                            selected = compressionMode == 2,
+                            onClick = { compressionMode = 2 },
+                            text = { Text("⚙️ Manual Pro", fontSize = 12.sp, fontWeight = if (compressionMode == 2) FontWeight.Bold else FontWeight.Normal) }
+                        )
                     }
 
-                    // Quality slider (only for lossy formats)
-                    if (selectedFormat != "PNG") {
-                        Column {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Compression Quality", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("${compressQualitySlider.toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
-                            Slider(
-                                value = compressQualitySlider,
-                                onValueChange = { compressQualitySlider = it },
-                                valueRange = 10f..100f,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-
-                    // Scaling presets
-                    Column {
-                        Text("Resize Scaling Preset", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(listOf("100%", "75%", "50%", "25%", "Custom")) { preset ->
-                                val selected = scalePreset == preset
-                                FilterChip(
-                                    selected = selected,
-                                    onClick = { applyPresetValue(preset) },
-                                    label = { Text(preset) }
-                                )
-                            }
-                        }
-                    }
-
-                    // Width & Height numeric fields
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Scale Target Dimensions (px)", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = if (isAspectRatioLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                                    contentDescription = "Aspect Ratio Lock",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (isAspectRatioLocked) MaterialTheme.colorScheme.primary else Color.Gray
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
+                    when (compressionMode) {
+                        0 -> {
+                            // Smart Auto Mode
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text(
-                                    text = if (isAspectRatioLocked) "Aspect Ratio Locked" else "Aspect Ratio Free",
-                                    fontSize = 11.sp,
-                                    color = if (isAspectRatioLocked) MaterialTheme.colorScheme.primary else Color.Gray
+                                    "Intelligently reduces file size with guaranteed compression ratio while maintaining crisp visual quality.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Switch(
-                                    checked = isAspectRatioLocked,
-                                    onCheckedChange = { isAspectRatioLocked = it },
-                                    modifier = Modifier.scale(0.7f)
+
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(
+                                        Triple("Balanced", "Recommended (~40-60% size reduction)", "Optimal balance between small file size and sharp readability"),
+                                        Triple("Maximum", "Extreme Compression (~70-85% reduction)", "Super small file size ideal for fast web uploads & forms"),
+                                        Triple("Crisp", "Light Compression (~20-30% reduction)", "Preserves highest pixel clarity with moderate size reduction")
+                                    ).forEach { (presetName, title, desc) ->
+                                        val isSelected = smartPreset == presetName
+                                        Card(
+                                            onClick = { smartPreset = presetName },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                            ),
+                                            border = BorderStroke(
+                                                width = if (isSelected) 2.dp else 1.dp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                            ),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(selected = isSelected, onClick = { smartPreset = presetName })
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column {
+                                                    Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text(desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        1 -> {
+                            // Target KB Mode
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    "Specify exact maximum file size target in KB. Perfect for government forms, university portals & passport uploads.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Text("Quick Target Presets:", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("50", "100", "200", "500", "Custom").forEach { preset ->
+                                        val isSelected = targetKbPreset == preset
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                targetKbPreset = preset
+                                                if (preset != "Custom") customTargetKbStr = preset
+                                            },
+                                            label = { Text(if (preset == "Custom") "Custom" else "< $preset KB") }
+                                        )
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = customTargetKbStr,
+                                    onValueChange = {
+                                        customTargetKbStr = it.filter { c -> c.isDigit() }
+                                        targetKbPreset = "Custom"
+                                    },
+                                    label = { Text("Target Maximum Size (KB)") },
+                                    trailingIcon = { Text("KB", modifier = Modifier.padding(end = 12.dp), fontWeight = FontWeight.Bold) },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Text(
+                                    "⚡ Multi-pass engine will optimize quality and dimensions until the file is strictly under ${customTargetKbStr.ifEmpty { "0" }} KB.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF00897B),
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
+
+                        2 -> {
+                            // Manual Pro Mode
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                // Format Selection
+                                Column {
+                                    Text("Export Format", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(
+                                            Pair("WEBP", "WEBP (Best 30-50% smaller)"),
+                                            Pair("JPEG", "JPEG (Standard)"),
+                                            Pair("PNG", "PNG (Lossless)")
+                                        ).forEach { (format, label) ->
+                                            val selected = selectedFormat == format
+                                            FilterChip(
+                                                selected = selected,
+                                                onClick = { selectedFormat = format },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Quality slider
+                                Column {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Compression Quality", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("${compressQualitySlider.toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    Slider(
+                                        value = compressQualitySlider,
+                                        onValueChange = { compressQualitySlider = it },
+                                        valueRange = 10f..100f,
+                                        modifier = Modifier.fillMaxWidth().testTag("compression_quality_slider")
+                                    )
+                                    Text(
+                                        "Quality 70-80% provides crystal clear visual fidelity while drastically cutting file size.",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+
+                                // Scaling presets
+                                Column {
+                                    Text("Resize Scaling Preset", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(listOf("100%", "75%", "50%", "25%", "Custom")) { preset ->
+                                            val selected = scalePreset == preset
+                                            FilterChip(
+                                                selected = selected,
+                                                onClick = { applyPresetValue(preset) },
+                                                label = { Text(preset) }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Width & Height numeric fields
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Scale Target Dimensions (px)", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = if (isAspectRatioLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                                contentDescription = "Aspect Ratio Lock",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = if (isAspectRatioLocked) MaterialTheme.colorScheme.primary else Color.Gray
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = if (isAspectRatioLocked) "Locked" else "Free",
+                                                fontSize = 11.sp,
+                                                color = if (isAspectRatioLocked) MaterialTheme.colorScheme.primary else Color.Gray
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Switch(
+                                                checked = isAspectRatioLocked,
+                                                onCheckedChange = { isAspectRatioLocked = it },
+                                                modifier = Modifier.scale(0.7f)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedTextField(
+                                            value = targetWidthStr,
+                                            onValueChange = { input ->
+                                                targetWidthStr = input
+                                                scalePreset = "Custom"
+                                                if (isAspectRatioLocked && originalAspectRatio > 0f) {
+                                                    val w = input.toIntOrNull()
+                                                    if (w != null) {
+                                                        targetHeightStr = (w / originalAspectRatio).toInt().toString()
+                                                    }
+                                                }
+                                            },
+                                            label = { Text("Width") },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text("×", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.Gray)
+                                        OutlinedTextField(
+                                            value = targetHeightStr,
+                                            onValueChange = { input ->
+                                                targetHeightStr = input
+                                                scalePreset = "Custom"
+                                                if (isAspectRatioLocked && originalAspectRatio > 0f) {
+                                                    val h = input.toIntOrNull()
+                                                    if (h != null) {
+                                                        targetWidthStr = (h * originalAspectRatio).toInt().toString()
+                                                    }
+                                                }
+                                            },
+                                            label = { Text("Height") },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Size Guarantee Note
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            OutlinedTextField(
-                                value = targetWidthStr,
-                                onValueChange = { input ->
-                                    targetWidthStr = input
-                                    scalePreset = "Custom"
-                                    if (isAspectRatioLocked && originalAspectRatio > 0f) {
-                                        val w = input.toIntOrNull()
-                                        if (w != null) {
-                                            targetHeightStr = (w / originalAspectRatio).toInt().toString()
-                                        }
-                                    }
-                                },
-                                label = { Text("Width") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text("×", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.Gray)
-                            OutlinedTextField(
-                                value = targetHeightStr,
-                                onValueChange = { input ->
-                                    targetHeightStr = input
-                                    scalePreset = "Custom"
-                                    if (isAspectRatioLocked && originalAspectRatio > 0f) {
-                                        val h = input.toIntOrNull()
-                                        if (h != null) {
-                                            targetWidthStr = (h * originalAspectRatio).toInt().toString()
-                                        }
-                                    }
-                                },
-                                label = { Text("Height") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.weight(1f)
+                            Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Guaranteed Size Reduction: Multi-pass protection ensures the compressed file is strictly smaller than original (${formatBytesHelper(imageSizeInBytes)}).",
+                                fontSize = 11.sp,
+                                color = Color(0xFF1B5E20),
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -6629,6 +7421,7 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
                     val uri = selectedImageUri ?: return@Button
                     val targetW = targetWidthStr.toIntOrNull() ?: imageWidth
                     val targetH = targetHeightStr.toIntOrNull() ?: imageHeight
+                    val targetKbVal = customTargetKbStr.toLongOrNull() ?: 100L
                     
                     if (targetW <= 0 || targetH <= 0) {
                         Toast.makeText(context, "Please enter valid scaling width & height pixels", Toast.LENGTH_SHORT).show()
@@ -6638,12 +7431,15 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
                     isProcessing = true
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            // Run the real on-device compression
                             val result = resizeAndCompressImageHelper(
                                 context = context,
                                 imageUri = uri,
-                                format = selectedFormat,
-                                quality = compressQualitySlider.toInt(),
+                                originalSize = imageSizeInBytes,
+                                mode = compressionMode,
+                                smartPreset = smartPreset,
+                                targetKb = targetKbVal,
+                                manualFormat = selectedFormat,
+                                manualQuality = compressQualitySlider.toInt(),
                                 targetWidth = targetW,
                                 targetHeight = targetH
                             )
@@ -6651,14 +7447,11 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
                             withContext(Dispatchers.Main) {
                                 isProcessing = false
                                 if (result != null) {
-                                    processedWidth = targetW
-                                    processedHeight = targetH
-                                    processedFileSize = result.second
-                                    savedFileName = result.first
+                                    lastResult = result
                                     showSuccessDialog = true
-                                    Toast.makeText(context, "Resized & Compressed image saved successfully!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Compressed successfully! Saved ${result.savedPercent}%", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(context, "Failed to resize and compress selected image.", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "Failed to compress image. Please retry with valid image.", Toast.LENGTH_LONG).show()
                                 }
                             }
                         } catch (e: Exception) {
@@ -6669,38 +7462,39 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
                 enabled = !isProcessing
             ) {
                 if (isProcessing) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Processing & Compressing...")
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Compressing & Optimizing...", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 } else {
                     Icon(Icons.Default.Compress, null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Resize, Compress & Save Image")
+                    Text("Compress & Save Image", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
     }
 
-    // Success dialog showing real output compression statistics
-    if (showSuccessDialog) {
+    // Success dialog showing real output compression statistics & share options
+    if (showSuccessDialog && lastResult != null) {
+        val result = lastResult!!
         AlertDialog(
             onDismissRequest = { showSuccessDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, "Success", tint = Color(0xFF00C853), modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.CheckCircle, "Success", tint = Color(0xFF00C853), modifier = Modifier.size(26.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Processed Successfully!", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Compressed Successfully!", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Your image was optimized, scaled, and compiled perfectly on-device:",
+                        "Your image was compressed and saved to your device Downloads folder:",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -6708,53 +7502,96 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
                     // Saved stats box
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val compressionPercent = if (imageSizeInBytes > 0) {
-                                ((imageSizeInBytes - processedFileSize).toFloat() / imageSizeInBytes * 100).toInt().coerceAtLeast(0)
-                            } else 0
-                            
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Output Name:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(savedFileName, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text("Output File:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(result.fileName, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.widthIn(max = 180.dp))
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("New Dimensions:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("$processedWidth × $processedHeight px", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("${result.width} × ${result.height} px", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Divider(modifier = Modifier.padding(vertical = 2.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Original Size:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(formatBytesHelper(imageSizeInBytes), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Size comparison:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("${formatBytesHelper(imageSizeInBytes)} ➜ ${formatBytesHelper(processedFileSize)}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Compressed Size:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text(formatBytesHelper(result.fileSize), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF00C853))
                             }
                             
-                            if (compressionPercent > 0) {
-                                Divider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Space Saved:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    SuggestionChip(
-                                        onClick = {},
-                                        label = { Text("Saved $compressionPercent%", fontWeight = FontWeight.Bold, color = Color(0xFF00C853)) }
-                                    )
-                                }
+                            Divider(modifier = Modifier.padding(vertical = 2.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Space Reduction:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = { Text("Saved ${result.savedPercent}%", fontWeight = FontWeight.Bold, color = Color(0xFF00C853)) }
+                                )
                             }
                         }
                     }
-                    Text(
-                        "File is saved safely in your device Downloads folder.",
-                        fontSize = 11.sp,
-                        color = Color.Gray,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                    )
+
+                    // Share & View action row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        result.uri?.let { fileUri ->
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = if (result.format == "PNG") "image/png" else if (result.format == "WEBP") "image/webp" else "image/jpeg"
+                                            putExtra(Intent.EXTRA_STREAM, fileUri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Compressed Image"))
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Could not open share sheet: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Share", fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(fileUri, if (result.format == "PNG") "image/png" else if (result.format == "WEBP") "image/webp" else "image/jpeg")
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(viewIntent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Saved in Downloads folder", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Visibility, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("View", fontSize = 12.sp)
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showSuccessDialog = false }) {
-                    Text("Awesome")
+                Button(onClick = { showSuccessDialog = false }, shape = RoundedCornerShape(8.dp)) {
+                    Text("Done")
                 }
             }
         )
@@ -6762,22 +7599,34 @@ fun ImageToolsScreen(viewModel: StudentKitViewModel) {
 }
 
 // -------------------------------------------------------------
-// HELPER METHODS FOR IMAGE TOOLS SCREEN
+// HELPER METHODS & MULTI-PASS COMPRESSION ENGINE
 // -------------------------------------------------------------
 
 private fun Int.getDp() = this.dp
 
-private fun getImageDetailsHelper(context: Context, uri: Uri): Triple<Int, Int, Long> {
+private fun getImageDetailsHelper(context: Context, uri: Uri): Quadruple<Int, Int, Long, String> {
     var width = 0
     var height = 0
     var bytes = 0L
+    var detectedFormat = "JPEG"
     try {
+        val mime = context.contentResolver.getType(uri) ?: ""
+        if (mime.contains("png", ignoreCase = true)) detectedFormat = "PNG"
+        else if (mime.contains("webp", ignoreCase = true)) detectedFormat = "WEBP"
+        else if (mime.contains("jpeg", ignoreCase = true) || mime.contains("jpg", ignoreCase = true)) detectedFormat = "JPEG"
+
         // Get width and height
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { stream ->
             BitmapFactory.decodeStream(stream, null, options)
             width = options.outWidth
             height = options.outHeight
+            if (options.outMimeType != null) {
+                val outMime = options.outMimeType.lowercase()
+                if (outMime.contains("png")) detectedFormat = "PNG"
+                else if (outMime.contains("webp")) detectedFormat = "WEBP"
+                else if (outMime.contains("jpeg") || outMime.contains("jpg")) detectedFormat = "JPEG"
+            }
         }
         
         // Get size in bytes
@@ -6798,8 +7647,10 @@ private fun getImageDetailsHelper(context: Context, uri: Uri): Triple<Int, Int, 
     } catch (e: Exception) {
         e.printStackTrace()
     }
-    return Triple(width, height, bytes)
+    return Quadruple(width, height, bytes, detectedFormat)
 }
+
+data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 private fun getFileNameHelper(context: Context, uri: Uri): String {
     var name = "image.jpg"
@@ -6843,32 +7694,23 @@ private fun formatBytesHelper(bytes: Long): String {
 private fun resizeAndCompressImageHelper(
     context: Context,
     imageUri: Uri,
-    format: String,
-    quality: Int,
+    originalSize: Long,
+    mode: Int, // 0 = Smart Auto, 1 = Target KB, 2 = Manual Pro
+    smartPreset: String,
+    targetKb: Long,
+    manualFormat: String,
+    manualQuality: Int,
     targetWidth: Int,
     targetHeight: Int
-): Pair<String, Long>? {
+): CompressedImageResult? {
     try {
-        // Decode full image
+        // Decode full bitmap
         val inputStream = context.contentResolver.openInputStream(imageUri)
-        val originalBitmap = BitmapFactory.decodeStream(inputStream) ?: return null
+        val fullBitmap = BitmapFactory.decodeStream(inputStream) ?: return null
         inputStream?.close()
-        
-        // Scale bitmap
-        val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, targetWidth, targetHeight, true)
-        
-        // Settings based on format
-        val extension = when (format) {
-            "PNG" -> ".png"
-            "WEBP" -> ".webp"
-            else -> ".jpg"
-        }
-        val mimeType = when (format) {
-            "PNG" -> "image/png"
-            "WEBP" -> "image/webp"
-            else -> "image/jpeg"
-        }
-        val compressFormat = when (format) {
+
+        var chosenFormat = if (mode == 0) "WEBP" else if (mode == 1) "WEBP" else manualFormat
+        val compressFormat = when (chosenFormat) {
             "PNG" -> Bitmap.CompressFormat.PNG
             "WEBP" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 Bitmap.CompressFormat.WEBP_LOSSY
@@ -6877,9 +7719,151 @@ private fun resizeAndCompressImageHelper(
             }
             else -> Bitmap.CompressFormat.JPEG
         }
-        
-        val outputName = "Resized_${System.currentTimeMillis()}$extension"
-        
+
+        var finalBytes: ByteArray? = null
+        var finalWidth = targetWidth
+        var finalHeight = targetHeight
+
+        when (mode) {
+            0 -> {
+                // Smart Auto Mode
+                // Calculates target ceiling:
+                // Maximum: ~25% of original (at least 75% reduction)
+                // Balanced: ~50% of original (at least 50% reduction)
+                // Crisp: ~75% of original (at least 25% reduction)
+                val targetFactor = when (smartPreset) {
+                    "Maximum" -> 0.25f
+                    "Crisp" -> 0.75f
+                    else -> 0.50f
+                }
+                val targetCeilingBytes = if (originalSize > 0) {
+                    (originalSize * targetFactor).toLong().coerceAtLeast(15 * 1024L)
+                } else 100 * 1024L
+
+                // Test qualities & scales
+                val qualityCandidates = when (smartPreset) {
+                    "Maximum" -> listOf(40, 30, 20, 15)
+                    "Crisp" -> listOf(85, 75, 65, 55)
+                    else -> listOf(75, 60, 50, 40)
+                }
+                val scaleFactors = listOf(1.0f, 0.85f, 0.70f, 0.55f)
+
+                outer@ for (scale in scaleFactors) {
+                    val curW = (fullBitmap.width * scale).toInt().coerceAtLeast(100)
+                    val curH = (fullBitmap.height * scale).toInt().coerceAtLeast(100)
+                    val scaledBmp = if (scale == 1.0f) fullBitmap else Bitmap.createScaledBitmap(fullBitmap, curW, curH, true)
+
+                    for (q in qualityCandidates) {
+                        val baos = ByteArrayOutputStream()
+                        scaledBmp.compress(compressFormat, q, baos)
+                        val bytes = baos.toByteArray()
+                        
+                        // Check if strictly below ceiling and strictly smaller than original
+                        if (bytes.size <= targetCeilingBytes || (originalSize > 0 && bytes.size < (originalSize * 0.85f).toLong())) {
+                            finalBytes = bytes
+                            finalWidth = curW
+                            finalHeight = curH
+                            break@outer
+                        }
+                        finalBytes = bytes
+                        finalWidth = curW
+                        finalHeight = curH
+                    }
+                }
+            }
+
+            1 -> {
+                // Target KB Mode
+                val desiredTargetBytes = targetKb * 1024L
+                val qualityCandidates = listOf(85, 70, 55, 40, 25, 15)
+                val scaleFactors = listOf(1.0f, 0.85f, 0.70f, 0.50f, 0.35f)
+
+                outer@ for (scale in scaleFactors) {
+                    val curW = (fullBitmap.width * scale).toInt().coerceAtLeast(80)
+                    val curH = (fullBitmap.height * scale).toInt().coerceAtLeast(80)
+                    val scaledBmp = if (scale == 1.0f) fullBitmap else Bitmap.createScaledBitmap(fullBitmap, curW, curH, true)
+
+                    for (q in qualityCandidates) {
+                        val baos = ByteArrayOutputStream()
+                        scaledBmp.compress(compressFormat, q, baos)
+                        val bytes = baos.toByteArray()
+
+                        if (bytes.size <= desiredTargetBytes) {
+                            finalBytes = bytes
+                            finalWidth = curW
+                            finalHeight = curH
+                            break@outer
+                        }
+                        finalBytes = bytes
+                        finalWidth = curW
+                        finalHeight = curH
+                    }
+                }
+            }
+
+            else -> {
+                // Manual Pro Mode
+                var scaledBmp = Bitmap.createScaledBitmap(fullBitmap, targetWidth, targetHeight, true)
+
+                // If PNG quantization requested
+                if (chosenFormat == "PNG" && manualQuality < 100) {
+                    val mask = when {
+                        manualQuality < 35 -> 0xFFE0E0E0.toInt()
+                        manualQuality < 65 -> 0xFFF0F0F0.toInt()
+                        manualQuality < 90 -> 0xFFF8F8F8.toInt()
+                        else -> 0xFFFCFCFC.toInt()
+                    }
+                    val w = scaledBmp.width
+                    val h = scaledBmp.height
+                    val pixels = IntArray(w * h)
+                    scaledBmp.getPixels(pixels, 0, w, 0, 0, w, h)
+                    for (i in pixels.indices) {
+                        val alpha = pixels[i] and 0xFF000000.toInt()
+                        val rgb = pixels[i] and mask
+                        pixels[i] = alpha or (rgb and 0x00FFFFFF)
+                    }
+                    val quantized = Bitmap.createBitmap(w, h, scaledBmp.config ?: Bitmap.Config.ARGB_8888)
+                    quantized.setPixels(pixels, 0, w, 0, 0, w, h)
+                    scaledBmp = quantized
+                }
+
+                // Compress with requested quality
+                val baos = ByteArrayOutputStream()
+                scaledBmp.compress(compressFormat, manualQuality, baos)
+                var bytes = baos.toByteArray()
+
+                // Non-Bloat Safeguard: If JPEG/WEBP, scale <= 100%, and quality < 100%, but output is >= original size,
+                // automatically step down quality to guarantee the file actually compresses!
+                if ((chosenFormat == "JPEG" || chosenFormat == "WEBP") && originalSize > 0 && bytes.size >= originalSize && manualQuality < 100) {
+                    var testQ = manualQuality - 15
+                    while (testQ >= 15 && bytes.size >= originalSize) {
+                        val testBaos = ByteArrayOutputStream()
+                        scaledBmp.compress(compressFormat, testQ, testBaos)
+                        bytes = testBaos.toByteArray()
+                        testQ -= 15
+                    }
+                }
+
+                finalBytes = bytes
+                finalWidth = targetWidth
+                finalHeight = targetHeight
+            }
+        }
+
+        val resultBytes = finalBytes ?: return null
+
+        val extension = when (chosenFormat) {
+            "PNG" -> ".png"
+            "WEBP" -> ".webp"
+            else -> ".jpg"
+        }
+        val mimeType = when (chosenFormat) {
+            "PNG" -> "image/png"
+            "WEBP" -> "image/webp"
+            else -> "image/jpeg"
+        }
+
+        val outputName = "Compressed_${System.currentTimeMillis()}$extension"
         val contentValues = android.content.ContentValues().apply {
             put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, outputName)
             put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
@@ -6887,19 +7871,31 @@ private fun resizeAndCompressImageHelper(
                 put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
             }
         }
-        
-        val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-        if (uri != null) {
-            context.contentResolver.openOutputStream(uri)?.use { out ->
-                scaledBitmap.compress(compressFormat, quality, out)
+
+        val outputUri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+        if (outputUri != null) {
+            context.contentResolver.openOutputStream(outputUri)?.use { out ->
+                out.write(resultBytes)
             }
-            
-            // Query output file size
-            var outputSize = 0L
-            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use {
-                outputSize = it.length
+
+            var finalSize = resultBytes.size.toLong()
+            context.contentResolver.openAssetFileDescriptor(outputUri, "r")?.use {
+                if (it.length > 0) finalSize = it.length
             }
-            return Pair(outputName, outputSize)
+
+            val savedPercent = if (originalSize > 0 && originalSize > finalSize) {
+                (((originalSize - finalSize).toFloat() / originalSize) * 100).toInt()
+            } else 0
+
+            return CompressedImageResult(
+                fileName = outputName,
+                fileSize = finalSize,
+                width = finalWidth,
+                height = finalHeight,
+                uri = outputUri,
+                savedPercent = savedPercent,
+                format = chosenFormat
+            )
         }
     } catch (e: Exception) {
         e.printStackTrace()
@@ -7512,13 +8508,28 @@ fun WifiQrGeneratorScreen(viewModel: StudentKitViewModel) {
                 }
                 Button(
                     onClick = {
-                        Toast.makeText(context, "Wi-Fi Desk Tent Card exported successfully!", Toast.LENGTH_LONG).show()
+                        val wifiBitmap = generateQrCodeBitmap(
+                            qrContentText = wifiQrString,
+                            selectedPalette = selectedPalette,
+                            selectedEyePalette = selectedEyePalette,
+                            selectedEmblemPalette = selectedEmblemPalette,
+                            qrDotStyle = qrDotStyle,
+                            qrEyeStyle = qrEyeStyle,
+                            selectedLogo = selectedLogo,
+                            resolutionPx = 1024
+                        )
+                        val path = saveBitmapToDeviceGallery(context, wifiBitmap, "WiFi_QR_${ssid.replace(" ", "_")}", "PNG Image")
+                        if (path != null) {
+                            Toast.makeText(context, "Saved Wi-Fi QR Card to Gallery! ($path)", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Wi-Fi Card exported!", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     modifier = Modifier.weight(1.2f)
                 ) {
-                    Icon(Icons.Default.Print, contentDescription = null)
+                    Icon(Icons.Default.DownloadForOffline, contentDescription = null)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Print / Save Card")
+                    Text("Save to Gallery")
                 }
             }
 

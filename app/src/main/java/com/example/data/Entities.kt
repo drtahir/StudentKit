@@ -231,6 +231,22 @@ data class CachedQuranVerse(
     @ColumnInfo(name = "text_english") val textEnglish: String
 )
 
+@Entity(tableName = "cached_offline_questions")
+data class CachedOfflineQuestion(
+    @PrimaryKey val id: String, // format: "HAJJ_1" or "PHARMACY_1"
+    @ColumnInfo(name = "category_type") val categoryType: String, // "HAJJ" or "PHARMACY"
+    @ColumnInfo(name = "question_id") val questionId: Int,
+    @ColumnInfo(name = "category_name") val categoryName: String,
+    @ColumnInfo(name = "question_text") val questionText: String,
+    @ColumnInfo(name = "options_joined") val optionsJoined: String, // joined by "|||"
+    @ColumnInfo(name = "correct_index") val correctIndex: Int,
+    @ColumnInfo(name = "explanation") val explanation: String,
+    @ColumnInfo(name = "reference") val reference: String,
+    @ColumnInfo(name = "is_bookmarked") val isBookmarked: Boolean = false,
+    @ColumnInfo(name = "user_saved_answer") val userSavedAnswer: Int = -1,
+    @ColumnInfo(name = "cached_timestamp") val cachedTimestamp: Long = System.currentTimeMillis()
+)
+
 
 
 

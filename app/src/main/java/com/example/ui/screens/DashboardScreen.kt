@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
@@ -57,7 +58,7 @@ val allToolsList = listOf(
     UtilityTool("income", "Income Tracker", "Monitor income streams & earnings", "Finance", Icons.Default.TrendingUp, Color(0xFF43A047), "SQLITE", Screen.IncomeTracker),
     UtilityTool("bills", "Utility Bills", "Reminders and logs for utility bills", "Finance", Icons.Default.ReceiptLong, Color(0xFF1E88E5), "ALERTS", Screen.UtilityBills),
     UtilityTool("zakat", "Zakat Calculator", "Calculate wealth Zakat accurately", "Finance", Icons.Default.AccountBalance, Color(0xFF00897B), "ISLAMIC", Screen.ZakatCalculator),
-    UtilityTool("committee", "BC Committees", "Kameti lucky draw & cycle logs", "Finance", Icons.Default.Groups, Color(0xFF8E24AA), "DRAWS", Screen.BcCommittee),
+    UtilityTool("committee", "BC Kommittees", "Kommittee lucky draw & cycle logs", "Finance", Icons.Default.Groups, Color(0xFF8E24AA), "DRAWS", Screen.BcCommittee),
     UtilityTool("loans", "Loan Ledger", "Track borrowings & lent payments", "Finance", Icons.Default.SwapHoriz, Color(0xFFD81B60), "TRACK", Screen.LoanTracker),
     UtilityTool("savings", "Savings Goals", "Target savings & deposit logs", "Finance", Icons.Default.Star, Color(0xFFF4511E), "SAVINGS", Screen.SavingsGoals),
 
@@ -78,7 +79,6 @@ val allToolsList = listOf(
     UtilityTool("converter", "Unit Converter", "Convert data, length, weight, speeds", "Utilities", Icons.Default.SwapVert, Color(0xFF00ACC1), "CONVERT", Screen.UnitConverter),
     UtilityTool("qr_gen", "QR Generator", "Generate secure colored QR codes", "Utilities", Icons.Default.QrCode, Color(0xFF3949AB), "VECTOR", Screen.QrGenerator),
     UtilityTool("qr_scan", "QR Scanner", "Scan bar codes & check web links", "Utilities", Icons.Default.QrCodeScanner, Color(0xFF00897B), "CAMERA", Screen.QrScanner),
-    UtilityTool("wifi_qr", "Wi-Fi QR Code", "Create offline network share QR codes", "Utilities", Icons.Default.Wifi, Color(0xFF5E35B1), "SECURE", Screen.WifiQrGenerator),
     UtilityTool("passwords", "Password Vault", "Local encrypted credentials keeper", "Utilities", Icons.Default.Lock, Color(0xFF2E7D32), "CRYPT", Screen.PasswordManager),
     UtilityTool("img_tools", "Image Compress", "Compress, resize & optimize images", "Utilities", Icons.Default.AddPhotoAlternate, Color(0xFFC2185B), "BATCH", Screen.ImageTools),
     UtilityTool("age", "Age Calculator", "Exact age in years, months & days", "Utilities", Icons.Default.Cake, Color(0xFFE91E63), "AGE FINDER", Screen.AgeCalculator),
@@ -90,6 +90,7 @@ val allToolsList = listOf(
     UtilityTool("ai_enhancer", "AI Enhancer", "Offline AI face & photo restorer", "Utilities", Icons.Default.AutoAwesome, Color(0xFF00ACC1), "REMINI", Screen.ImageEnhancer),
     UtilityTool("watermark_studio", "Watermark Studio", "Add text watermarks & photo filter matrix", "Utilities", Icons.Default.Brush, Color(0xFF7B1FA2), "STUDIO", Screen.WatermarkStudio),
     UtilityTool("bg_eraser", "Background Eraser", "AI background remover with precise brush refine", "Utilities", Icons.Default.FilterFrames, Color(0xFFE91E63), "AI SEGMENT", Screen.BackgroundEraser),
+    UtilityTool("teleprompter", "Teleprompter Pro", "World #1 Camera video prompter with AI", "Utilities", Icons.Default.Videocam, Color(0xFF6366F1), "PRO STUDIO", Screen.Teleprompter),
 
     // 🎓 Study & Health
     UtilityTool("notes", "Lecture Notes", "Organize lecture notes & study notes", "Study", Icons.Default.Book, Color(0xFFF57C00), "OFFLINE", Screen.Notes),
@@ -208,7 +209,6 @@ fun IslamicLibraryHeroButton(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "islamic_pulse")
     
-    // Smooth pulsing scale effect between 0.98f and 1.02f
     val scale by infiniteTransition.animateFloat(
         initialValue = 0.98f,
         targetValue = 1.02f,
@@ -219,7 +219,6 @@ fun IslamicLibraryHeroButton(
         label = "scale"
     )
     
-    // Shining gold glow translation
     val shimmerTranslate by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1200f,
@@ -239,8 +238,8 @@ fun IslamicLibraryHeroButton(
             }
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F5132)), // Beautiful Emerald Green background
-        border = BorderStroke(1.5.dp, Color(0xFFD4AF37)), // Glowing gold border
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F5132)),
+        border = BorderStroke(1.5.dp, Color(0xFFD4AF37)),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Box(
@@ -255,9 +254,8 @@ fun IslamicLibraryHeroButton(
                         )
                     )
                 )
-                .padding(18.dp)
+                .padding(horizontal = 14.dp, vertical = 14.dp)
         ) {
-            // Shiny highlight shimmer overlay
             Canvas(modifier = Modifier.matchParentSize()) {
                 val brush = Brush.linearGradient(
                     colors = listOf(
@@ -280,10 +278,9 @@ fun IslamicLibraryHeroButton(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Golden Circle with Book/Quran Icon
                     Box(
                         modifier = Modifier
-                            .size(50.dp)
+                            .size(46.dp)
                             .background(Color(0xFFD4AF37).copy(alpha = 0.15f), CircleShape)
                             .border(1.5.dp, Color(0xFFD4AF37), CircleShape),
                         contentAlignment = Alignment.Center
@@ -292,31 +289,39 @@ fun IslamicLibraryHeroButton(
                             imageVector = Icons.Default.MenuBook,
                             contentDescription = "Quran Icon",
                             tint = Color(0xFFD4AF37),
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                     
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
                             Text(
                                 text = "Islamic Library & Books",
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xFFD4AF37), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            Surface(
+                                color = Color(0xFFD4AF37),
+                                shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
                                     text = "MANZIL HD",
-                                    fontSize = 8.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0F5132)
+                                    color = Color(0xFF0F5132),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -324,12 +329,14 @@ fun IslamicLibraryHeroButton(
                         Text(
                             text = "Complete Protection Verses & Ruqyah",
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = Color.White.copy(alpha = 0.85f)
                         )
                     }
                 }
                 
-                // Beautiful Forward Gold Arrow
+                Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Default.ArrowForwardIos,
                     contentDescription = "Open Library",
@@ -347,7 +354,6 @@ fun Nursing12kMcqHeroButton(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "nursing_pulse")
     
-    // Smooth pulsing scale effect between 0.98f and 1.02f
     val scale by infiniteTransition.animateFloat(
         initialValue = 0.98f,
         targetValue = 1.02f,
@@ -358,7 +364,6 @@ fun Nursing12kMcqHeroButton(
         label = "scale"
     )
     
-    // Shining highlight translation
     val shimmerTranslate by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1200f,
@@ -379,8 +384,8 @@ fun Nursing12kMcqHeroButton(
             .clickable(onClick = onClick)
             .testTag("nursing_12k_hero_button"),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF004D40)), // Deep Medical Teal background
-        border = BorderStroke(1.5.dp, Color(0xFF00E5FF)), // Glowing Electric Cyan border
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF004D40)),
+        border = BorderStroke(1.5.dp, Color(0xFF00E5FF)),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Box(
@@ -395,9 +400,8 @@ fun Nursing12kMcqHeroButton(
                         )
                     )
                 )
-                .padding(18.dp)
+                .padding(horizontal = 14.dp, vertical = 14.dp)
         ) {
-            // Shiny highlight shimmer overlay
             Canvas(modifier = Modifier.matchParentSize()) {
                 val brush = Brush.linearGradient(
                     colors = listOf(
@@ -420,10 +424,9 @@ fun Nursing12kMcqHeroButton(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Electric Cyan Circle with Medical Services Icon
                     Box(
                         modifier = Modifier
-                            .size(50.dp)
+                            .size(46.dp)
                             .background(Color(0xFF00E5FF).copy(alpha = 0.15f), CircleShape)
                             .border(1.5.dp, Color(0xFF00E5FF), CircleShape),
                         contentAlignment = Alignment.Center
@@ -432,31 +435,39 @@ fun Nursing12kMcqHeroButton(
                             imageVector = Icons.Default.MedicalServices,
                             contentDescription = "Nursing MCQs",
                             tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                     
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
                             Text(
                                 text = "Nursing 12,000+ MCQs",
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xFF00E5FF), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            Surface(
+                                color = Color(0xFF00E5FF),
+                                shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
                                     text = "NCLEX & DHA",
-                                    fontSize = 8.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF00363A)
+                                    color = Color(0xFF00363A),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -464,12 +475,14 @@ fun Nursing12kMcqHeroButton(
                         Text(
                             text = "DHA, Saudi Prometric, NCLEX-RN & PNC Master",
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = Color.White.copy(alpha = 0.85f)
                         )
                     }
                 }
                 
-                // Forward Electric Cyan Arrow
+                Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Default.ArrowForwardIos,
                     contentDescription = "Open Nursing Exam Kit",
@@ -533,7 +546,7 @@ fun MoavineenHujjajHeroButton(
                         )
                     )
                 )
-                .padding(18.dp)
+                .padding(horizontal = 14.dp, vertical = 14.dp)
         ) {
             Canvas(modifier = Modifier.matchParentSize()) {
                 val brush = Brush.linearGradient(
@@ -559,7 +572,7 @@ fun MoavineenHujjajHeroButton(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(50.dp)
+                            .size(46.dp)
                             .background(Color(0xFFDAA520).copy(alpha = 0.2f), CircleShape)
                             .border(1.5.dp, Color(0xFFDAA520), CircleShape),
                         contentAlignment = Alignment.Center
@@ -568,31 +581,39 @@ fun MoavineenHujjajHeroButton(
                             imageVector = Icons.Default.Mosque,
                             contentDescription = "Moavineen Hujjaj",
                             tint = Color(0xFFDAA520),
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                     
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
                             Text(
                                 text = "Moavineen-e-Hujjaj Prep",
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xFFDAA520), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            Surface(
+                                color = Color(0xFFDAA520),
+                                shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
                                     text = "MORA NTS",
-                                    fontSize = 8.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF073822)
+                                    color = Color(0xFF073822),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -600,11 +621,14 @@ fun MoavineenHujjajHeroButton(
                         Text(
                             text = "1000+ Quizzes • Supervisor & Supporting Staff",
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = Color.White.copy(alpha = 0.85f)
                         )
                     }
                 }
                 
+                Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Default.ArrowForwardIos,
                     contentDescription = "Open Moavineen Prep",
@@ -652,8 +676,8 @@ fun OmniPosHeroButton(
             .clickable(onClick = onClick)
             .testTag("omnipos_hero_button"),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF311B92)), // Rich Royal Violet
-        border = BorderStroke(1.5.dp, Color(0xFFFF9800)), // Glowing Electric Amber Orange
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF311B92)),
+        border = BorderStroke(1.5.dp, Color(0xFFFF9800)),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Box(
@@ -662,13 +686,13 @@ fun OmniPosHeroButton(
                 .background(
                     Brush.horizontalGradient(
                         colors = listOf(
-                            Color(0xFF1A237E), // Deep Midnight Blue
-                            Color(0xFF311B92), // Deep Indigo
-                            Color(0xFF4A148C)  // Rich Amethyst Purple
+                            Color(0xFF1A237E),
+                            Color(0xFF311B92),
+                            Color(0xFF4A148C)
                         )
                     )
                 )
-                .padding(18.dp)
+                .padding(horizontal = 14.dp, vertical = 14.dp)
         ) {
             Canvas(modifier = Modifier.matchParentSize()) {
                 val brush = Brush.linearGradient(
@@ -694,7 +718,7 @@ fun OmniPosHeroButton(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(50.dp)
+                            .size(46.dp)
                             .background(Color(0xFFFF9800).copy(alpha = 0.18f), CircleShape)
                             .border(1.5.dp, Color(0xFFFF9800), CircleShape),
                         contentAlignment = Alignment.Center
@@ -703,31 +727,39 @@ fun OmniPosHeroButton(
                             imageVector = Icons.Default.PointOfSale,
                             contentDescription = "OmniPOS Enterprise",
                             tint = Color(0xFFFF9800),
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                     
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
                             Text(
                                 text = "OmniPOS Enterprise System",
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xFFFF9800), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            Surface(
+                                color = Color(0xFFFF9800),
+                                shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
                                     text = "360° POS",
-                                    fontSize = 8.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1A237E)
+                                    color = Color(0xFF1A237E),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -735,11 +767,14 @@ fun OmniPosHeroButton(
                         Text(
                             text = "Multi-Service POS, Stock, Invoices & Ledger",
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = Color.White.copy(alpha = 0.85f)
                         )
                     }
                 }
                 
+                Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Default.ArrowForwardIos,
                     contentDescription = "Open OmniPOS",
@@ -867,8 +902,13 @@ fun DashboardScreen(
     val df = SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault())
     val formattedDate = df.format(Date())
 
-    // Simulated Hijri Date (Pakistani Students standard calibration)
-    val hijriDate = "27 Dhul-Hijjah 1447 AH"
+    val hijriOffset by viewModel.hijriOffset.collectAsState()
+    var showIslamicCalendarDialog by remember { mutableStateOf(false) }
+
+    val hijriDateObj = remember(hijriOffset) {
+        IslamicCalendarUtils.getHijriDate(Calendar.getInstance(), hijriOffset)
+    }
+    val hijriDate = hijriDateObj.formattedEn
 
     // Card totals calculations
     val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -1363,7 +1403,8 @@ fun DashboardScreen(
                         // Hijri Date Pill
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = Color.White.copy(alpha = 0.18f)
+                            color = Color.White.copy(alpha = 0.18f),
+                            modifier = Modifier.clickable { showIslamicCalendarDialog = true }
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1382,10 +1423,24 @@ fun DashboardScreen(
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Calibrate Date",
+                                    tint = Color.White.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(12.dp)
+                                )
                             }
                         }
                     }
                 }
+            }
+
+            if (showIslamicCalendarDialog) {
+                IslamicCalendarDialog(
+                    viewModel = viewModel,
+                    onDismiss = { showIslamicCalendarDialog = false }
+                )
             }
 
             // Quick Stats Row
@@ -2000,7 +2055,8 @@ fun DashboardScreen(
                         OutlinedButton(
                             onClick = {
                                 try {
-                                    val url = "https://wa.me/923465552678"
+                                    val devMsg = Uri.encode("Assalamualaikum Tahir Buneri, I have explored your application and I'm highly interested in purchasing the application license. Please provide details regarding licensing terms, pricing, and onboarding support. Thank you!")
+                                    val url = "https://wa.me/923465552678?text=$devMsg"
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                     context.startActivity(intent)
                                 } catch (e: Exception) {

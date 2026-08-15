@@ -289,6 +289,26 @@ interface StudentKitDao {
 
     @Query("DELETE FROM cached_quran_verses")
     suspend fun clearCachedQuran()
+
+    // --- CACHED OFFLINE EXAM QUESTIONS ---
+    @Query("SELECT * FROM cached_offline_questions WHERE category_type = :categoryType ORDER BY question_id ASC")
+    fun getCachedQuestions(categoryType: String): Flow<List<CachedOfflineQuestion>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCachedQuestions(questions: List<CachedOfflineQuestion>)
+
+    @Query("SELECT COUNT(*) FROM cached_offline_questions WHERE category_type = :categoryType")
+    suspend fun getCachedQuestionsCount(categoryType: String): Int
+
+    @Query("DELETE FROM cached_offline_questions WHERE category_type = :categoryType")
+    suspend fun clearCachedQuestions(categoryType: String)
+
+    @Query("UPDATE cached_offline_questions SET user_saved_answer = :answer WHERE id = :id")
+    suspend fun updateQuestionSavedAnswer(id: String, answer: Int)
+
+    @Query("UPDATE cached_offline_questions SET is_bookmarked = :isBookmarked WHERE id = :id")
+    suspend fun updateQuestionBookmark(id: String, isBookmarked: Boolean)
+
     // --- POS SYSTEM ---
     @Query("SELECT * FROM pos_products ORDER BY name ASC")
     fun getAllPosProducts(): Flow<List<PosProduct>>
@@ -337,13 +357,14 @@ interface StudentKitDao {
         PrivateNoteEntry::class,
         WifiDevice::class,
         SpeedTestHistory::class,
-        CachedQuranVerse::class
-        ,PosProduct::class,
+        CachedQuranVerse::class,
+        CachedOfflineQuestion::class,
+        PosProduct::class,
         PosClient::class,
         PosOrder::class,
         PosOrderItem::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

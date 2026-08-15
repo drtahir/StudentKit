@@ -261,17 +261,47 @@ fun NursingQuizBankView() {
         }
     }
 
+    // Precompute Subject Counts Map for O(1) Chip Rendering
+    val subjectCountsMap = remember(allQuestions) {
+        val map = mutableMapOf<String, Int>()
+        allQuestions.forEach { q ->
+            val s = q.subject.trim()
+            if (s.isNotEmpty()) {
+                map[s] = (map[s] ?: 0) + 1
+            }
+        }
+        map
+    }
+
+    val answeredCountsMap = remember(allQuestions, selectedAnswers.size) {
+        val map = mutableMapOf<String, Int>()
+        allQuestions.forEach { q ->
+            if (selectedAnswers.containsKey(q.id)) {
+                val s = q.subject.trim()
+                if (s.isNotEmpty()) {
+                    map[s] = (map[s] ?: 0) + 1
+                }
+            }
+        }
+        map
+    }
+
     // Subject Filter Categories
     val subjectsList = remember(allQuestions) {
         listOf("All Subjects") + allQuestions.map { it.subject.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
     }
 
-    // Filtered Question List
+    // Filtered Question List with Fallback
     val filteredQuestions = remember(selectedSubjectFilter, searchQuery, allQuestions) {
-        allQuestions.filter { q ->
+        val filtered = allQuestions.filter { q ->
             val matchSubj = (selectedSubjectFilter == "All Subjects") || q.subject.equals(selectedSubjectFilter, ignoreCase = true)
             val matchSearch = searchQuery.isEmpty() || q.question.contains(searchQuery, ignoreCase = true) || q.options.any { it.contains(searchQuery, ignoreCase = true) }
             matchSubj && matchSearch
+        }
+        if (filtered.isEmpty() && selectedSubjectFilter != "All Subjects" && searchQuery.isEmpty()) {
+            allQuestions
+        } else {
+            filtered
         }
     }
 
@@ -357,7 +387,7 @@ fun NursingQuizBankView() {
                                 color = if (isDark) Color(0xFF1E3A20) else Color(0xFF2E7D32).copy(alpha = 0.15f)
                             ) {
                                 Text(
-                                    text = "${String.format("%.1f", correctPercentInFilter)}% Correct",
+                                    text = "${String.format(java.util.Locale.US, "%.1f", correctPercentInFilter)}% Correct",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32),
@@ -388,7 +418,7 @@ fun NursingQuizBankView() {
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Completed: $completedCountInFilter / $totalInFilter Qs (${String.format("%.1f", completedPercentInFilter)}%)",
+                                text = "Completed: $completedCountInFilter / $totalInFilter Qs (${String.format(java.util.Locale.US, "%.1f", completedPercentInFilter)}%)",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -471,7 +501,7 @@ fun NursingQuizBankView() {
                             val mins = timerSeconds / 60
                             val secs = timerSeconds % 60
                             Text(
-                                text = String.format("%02d:%02d", mins, secs),
+                                text = String.format(java.util.Locale.US, "%02d:%02d", mins, secs),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.error
@@ -491,12 +521,8 @@ fun NursingQuizBankView() {
                 items(subjectsList.size) { index ->
                     val subj = subjectsList[index]
                     val isSel = selectedSubjectFilter == subj
-                    val count = if (subj == "All Subjects") allQuestions.size else allQuestions.count { it.subject.equals(subj, ignoreCase = true) }
-                    val answeredCountSubj = if (subj == "All Subjects") {
-                        allQuestions.count { selectedAnswers.containsKey(it.id) }
-                    } else {
-                        allQuestions.count { it.subject.equals(subj, ignoreCase = true) && selectedAnswers.containsKey(it.id) }
-                    }
+                    val count = if (subj == "All Subjects") allQuestions.size else (subjectCountsMap[subj] ?: 0)
+                    val answeredCountSubj = if (subj == "All Subjects") selectedAnswers.size else (answeredCountsMap[subj] ?: 0)
 
                     FilterChip(
                         selected = isSel,

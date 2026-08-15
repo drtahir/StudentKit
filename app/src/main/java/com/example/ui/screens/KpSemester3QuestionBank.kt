@@ -40,7 +40,7 @@ object KpSemester3QuestionBank {
             Triple("Acute pulmonary embolism classically presents with sudden onset of:",
                 listOf("Gradual fever and cough", "Sudden dyspnea, pleuritic chest pain, tachypnea, and hypoxia", "Haematuria", "Epistaxis"), 1),
             Triple("Tuberculosis (TB) patient undergoing treatment requires combination Anti-TB Therapy (RIPE). The RIPE acronym includes:",
-                listOf("Rifampicin, Isoniazid, Pyrazinamide, Ethambutol", "Ribavirin, Insulin, Penicillin, Erythromycin", "Ranitidine, Ibuprofen, Paracetamol, Empart"), 0),
+                listOf("Rifampicin, Isoniazid, Pyrazinamide, Ethambutol", "Ribavirin, Insulin, Penicillin, Erythromycin", "Ranitidine, Ibuprofen, Paracetamol, Empart", "Aspirin, Metformin, Atorvastatin, Omeprazole"), 0),
             Triple("A patient on Isoniazid (INH) therapy is prescribed Pyridoxine (Vitamin B6) concurrently to prevent:",
                 listOf("Hepatotoxicity", "Peripheral Neuropathy", "Optic Neuritis", "Hyperuricemia"), 1),
             Triple("Rifampicin medication education must inform the patient that bodily secretions (urine, sweat, tears) may turn:",

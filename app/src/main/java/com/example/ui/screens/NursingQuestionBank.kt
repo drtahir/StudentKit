@@ -18,27 +18,45 @@ data class NursingExamQuestion(
  */
 object NursingQuestionBank {
 
-    private val questionList: MutableList<NursingExamQuestion> = mutableListOf()
-
-    init {
-        buildQuestionBank()
+    private val questionList: List<NursingExamQuestion> by lazy {
+        val list = mutableListOf<NursingExamQuestion>()
+        try {
+            buildQuestionBank(list)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        if (list.isEmpty()) {
+            list.add(
+                NursingExamQuestion(
+                    id = 1,
+                    subject = "Fundamentals of Nursing",
+                    examCategory = "NCLEX-RN / DHA",
+                    question = "A nurse is caring for a bedridden patient. Which positioning is most effective to prevent sacral pressure injury during extended bed rest?",
+                    options = listOf("30-degree lateral tilted position", "High Fowler's position (90 degrees)", "Prone position", "Strict Supine position"),
+                    correctIndex = 0,
+                    explanation = "The 30-degree lateral tilted position reduces pressure over the sacrum and trochanteric bone prominences.",
+                    reference = "Saunders Comprehensive NCLEX-RN / DHA Nursing Guidelines"
+                )
+            )
+        }
+        list
     }
 
     fun getAllQuestions(): List<NursingExamQuestion> {
         return questionList
     }
 
-    private fun buildQuestionBank() {
+    private fun buildQuestionBank(questionList: MutableList<NursingExamQuestion>) {
         var idCounter = 1
 
-        idCounter = buildFundamentalsSection(idCounter)
-        idCounter = buildMedSurgSection(idCounter)
-        idCounter = buildMaternalSection(idCounter)
-        idCounter = buildPediatricSection(idCounter)
-        idCounter = buildPsychiatricSection(idCounter)
-        idCounter = buildPharmacologySection(idCounter)
-        idCounter = buildInfectionControlSection(idCounter)
-        idCounter = buildEmergencySection(idCounter)
+        idCounter = buildFundamentalsSection(questionList, idCounter)
+        idCounter = buildMedSurgSection(questionList, idCounter)
+        idCounter = buildMaternalSection(questionList, idCounter)
+        idCounter = buildPediatricSection(questionList, idCounter)
+        idCounter = buildPsychiatricSection(questionList, idCounter)
+        idCounter = buildPharmacologySection(questionList, idCounter)
+        idCounter = buildInfectionControlSection(questionList, idCounter)
+        idCounter = buildEmergencySection(questionList, idCounter)
 
         // Add 500 Original High-Quality NCLEX & Competitive Nursing MCQs
         val original500Qs = Nursing500OriginalBank.get500OriginalQuestions(idCounter)
@@ -116,7 +134,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 1. FUNDAMENTALS OF NURSING & PATIENT SAFETY (160+ QUESTIONS)
     // =========================================================================
-    private fun buildFundamentalsSection(startId: Int): Int {
+    private fun buildFundamentalsSection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -245,7 +263,7 @@ object NursingQuestionBank {
             Triple("Intravenous Infiltration Signs", "Infiltration exhibits cool skin, pallor, swelling, and damp dressing around IV site; stop infusion immediately and elevate limb", "Infiltration exhibits warmth, red streak along vein, and purulent drainage"),
             Triple("Intravenous Phlebitis Signs", "Phlebitis exhibits warmth, erythema, tenderness, and palpable cord along vein; stop infusion, remove cannula, apply warm compress", "Phlebitis exhibits cold pale skin with severe dependent edema"),
             Triple("Hypokalemia Clinical Manifestations", "Hypokalemia presents with muscle weakness, U waves on ECG, flattened T waves, constipation, and cardiac dysrhythmias", "Hypokalemia presents with peaked T waves and hyperactive deep tendon reflexes"),
-            Triple("Hyperkalemia Emergency Management", "Administer IV Calcium Gluconate to protect myocardium, followed by insulin/dextrose or Kayexalate to lower serum potassium", "Administer potassium chloride IV push immediately"),
+            Triple("Aortic Aneurysm Rupture Signs & Emergency Care", "Sudden severe tearing abdominal/back pain, pulsating abdominal mass, severe hypotension; immediate emergency IV access, blood crossmatch, and surgical repair", "Administer oral laxatives and encourage vigorous walking"),
             Triple("Hyponatremia Neurological Impact", "Hyponatremia (serum Na < 135 mEq/L) leads to cellular swelling, cerebral edema, headache, confusion, seizures, and coma", "Hyponatremia causes severe dehydration and hyperreflexia"),
             Triple("Hypernatremia Nursing Management", "Administer hypotonic IV fluids (0.45% NaCl) slowly to prevent rapid cerebral fluid shifts and cerebral edema", "Infuse 3% hypertonic saline rapidly"),
             Triple("Hypocalcemia Manifestations", "Hypocalcemia exhibits positive Trousseau and Chvostek signs, muscle cramps, circumoral numbness, hyperactive reflexes, and tetany", "Hypocalcemia exhibits muscle flaccidity and bone pain"),
@@ -316,7 +334,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 2. ADULT MEDICAL-SURGICAL NURSING (220+ QUESTIONS)
     // =========================================================================
-    private fun buildMedSurgSection(startId: Int): Int {
+    private fun buildMedSurgSection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -395,7 +413,7 @@ object NursingQuestionBank {
             Triple("Peripheral Artery Disease (PAD) Features", "Intermittent claudication, weak or absent peripheral pulses, shiny hairless skin, cool extremity, and leg pain relieved by dependency", "Warm swollen leg with positive Homan sign"),
             Triple("Deep Vein Thrombosis (DVT) Management", "Maintain bed rest, elevate affected limb, administer IV Heparin or LMWH, and avoid massaging leg muscle", "Massage calf vigorously to break up clot"),
             Triple("Tension Pneumothorax Management", "Perform immediate needle decompression at 2nd intercostal space midclavicular line followed by chest tube insertion", "Administer oral antacids and place in supine position"),
-            Triple("Acute Respiratory Distress Syndrome (ARDS)", "Refractory hypoxemia despite 100% O2 delivery, bilateral diffuse infiltrates on chest X-ray ('whiteout'), and reduced lung compliance", "Clear lung fields on X-ray with normal PaO2"),
+            Triple("Myasthenia Gravis Crisis vs Cholinergic Crisis", "Myasthenia Crisis: severe weakness, respiratory failure improved by Tensilon test; Cholinergic Crisis: muscle twitching, SLUDGE signs worsened by Tensilon, give Atropine", "Cholinergic crisis is treated with high dose edrophonium bolus"),
             Triple("Mechanical Ventilation High Pressure Alarm", "Assess for secretions requiring suctioning, patient biting tube, kinked tubing, or developing pneumothorax", "Check for air leak around endotracheal cuff or disconnected tubing"),
             Triple("Mechanical Ventilation Low Pressure Alarm", "Check for tube disconnection, cuff leak, or patient self-extubation", "Suction patient airways aggressively"),
             Triple("Acute Peptic Ulcer Perforation", "Sudden severe sharp abdominal pain, rigid board-like abdomen, absent bowel sounds, and free air under diaphragm on X-ray", "Hyperactive bowel sounds with mild painless watery diarrhea"),
@@ -406,7 +424,7 @@ object NursingQuestionBank {
             Triple("Graves Disease & Thyroid Storm", "Thyroid storm manifests with severe fever (> 103F), tachycardia, delirium, and tremor; administer PTU/Methimazole, Beta blockers, and cooling blankets", "Thyroid storm causes severe bradycardia, hypothermia, and weight gain"),
             Triple("Addisonian Crisis Intervention", "Infuse IV Hydrocortisone/Dexamethasone STAT, along with IV Normal Saline and dextrose to correct severe hypotension and hyponatremia", "Restrict fluids and withhold steroid medications"),
             Triple("Cushing Syndrome Features", "Moon face, buffalo hump, central obesity with thin extremities, purple abdominal striae, hyperglycemia, and hypertension", "Severe weight loss, hyperkalemia, and skin hyperpigmentation"),
-            Triple("Acute Kidney Injury (AKI) Oliguric Phase", "Oliguria (< 400 mL/day), hyperkalemia, fluid retention, metabolic acidosis, elevated BUN and Creatinine", "Polyuria > 5 L/day with hypernatremia"),
+            Triple("Compartment Syndrome 6 Ps & Immediate Fasciotomy", "Pain out of proportion, Paresthesia, Pallor, Pulselessness, Poikilothermia, Paralysis; immediate surgical fasciotomy to prevent tissue necrosis", "Apply tight compression wrap and elevate leg 3 feet above head"),
             Triple("Hemodialysis AV Fistula Assessment", "Palpate for thrill and auscultate for bruit over fistula site; never take blood pressure or draw blood on fistula arm", "Use AV fistula arm for routine blood pressure measurements"),
             Triple("Peritoneal Dialysis Complication", "Cloudy dialysate effluent with abdominal pain and fever indicates Peritonitis; collect effluent sample for culture and notify provider", "Clear yellow dialysate effluent indicates active infection"),
             Triple("Increased Intracranial Pressure Care", "Elevate head of bed to 30 degrees, maintain head in neutral alignment, administer Mannitol, avoid hypercapnia, and minimize stimulation", "Place patient in Trendelenburg position and encourage frequent coughing"),
@@ -415,7 +433,7 @@ object NursingQuestionBank {
             Triple("Compartment Syndrome Emergency", "6 Ps (Pain unrelieved by analgesics, Paresthesia, Pallor, Paralysis, Pulselessness, Poikilothermia); prepare for emergency Fasciotomy", "Apply tight circumferential dressing and elevate limb above heart level"),
             Triple("Skeletal Traction Care", "Maintain continuous free-hanging weights without touching floor or bed, perform pin site care with sterile technique", "Remove traction weights during bedmaking and repositioning"),
             Triple("Total Hip Arthroplasty Precautions", "Maintain leg abduction using abduction pillow, avoid hip flexion > 90 degrees, and avoid crossing legs to prevent dislocation", "Instruct patient to cross legs and flex hip past 90 degrees when sitting"),
-            Triple("Neutropenic Precautions (Absolute Neutrophil Count < 500)", "Private room, strict hand hygiene, avoid fresh flowers/plants, raw fruits/vegetables, and monitor temperature q4h", "Allow fresh cut flowers and unwashed raw fruits in patient room"),
+            Triple("Severe Burn Fluid Resuscitation Parkland Formula", "Parkland Formula: 4 mL x weight (kg) x %TBSA burned over 24 hrs; administer 50% in first 8 hours and remaining 50% over next 16 hours", "Administer total fluid volume evenly across 7 days"),
             Triple("Blood Transfusion Reaction Protocol", "Stop blood immediately, keep IV line open with 0.9% Normal Saline via NEW tubing, notify blood bank and physician", "Increase infusion rate to finish blood bag quickly"),
             Triple("Gout & Allopurinol Therapy", "Administer Allopurinol to decrease uric acid synthesis; instruct patient to drink 2-3 L fluids daily and avoid purine-rich foods (organ meats, shellfish)", "High purine diet with red wine is recommended")
         )
@@ -480,7 +498,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 3. MATERNAL & CHILD HEALTH / OBSTETRIC NURSING (160+ QUESTIONS)
     // =========================================================================
-    private fun buildMaternalSection(startId: Int): Int {
+    private fun buildMaternalSection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -529,9 +547,9 @@ object NursingQuestionBank {
 
         val obTopics = listOf(
             Triple("Presumptive Signs of Pregnancy", "Amenorrhea, nausea/vomiting, breast tenderness, urinary frequency, and fatigue experienced subjectively by woman", "Positive serum pregnancy test and fetal heart tones"),
-            Triple("Probable Signs of Pregnancy", "Goodell sign (cervical softening), Chadwicks sign (bluish cervix), Hegar sign, and positive urine pregnancy test", "Fetal movement felt by examiner and fetal ultrasound visualization"),
-            Triple("Positive Signs of Pregnancy", "Visualization of fetus on ultrasound, audible fetal heart tones by Doppler, and fetal movement felt by trained examiner", "Amenorrhea and morning sickness"),
-            Triple("GTPAL Obstetric History System", "Gravida (total pregnancies), Term births (>= 37 wks), Preterm births (20-36 wks), Abortions (< 20 wks), Living children", "Measuring fundal height in centimeters"),
+            Triple("Preeclampsia Severe Features & HELLP Syndrome", "BP >= 160/110, severe headache, visual disturbances, epigastric pain, elevated AST/ALT, platelets < 100,000; administer Magnesium Sulfate", "Treat severe preeclampsia with high sodium diet and bed exercises"),
+            Triple("Placental Abruption Painful Dark Bleeding", "Sudden severe continuous abdominal/back pain, dark red vaginal bleeding, hypertonic rigid uterus, fetal distress; immediate emergency C-section", "Placental abruption presents with painless bright red bleeding and soft uterus"),
+            Triple("Postpartum Hemorrhage Uterine Atony Management", "Soft boggy uterus is primary cause; immediate priority is vigorous bimanual fundal massage followed by IV Oxytocin, Methergine, and Carboprost", "Apply heating pad to abdomen and encourage immediate ambulation"),
             Triple("Preeclampsia Diagnostic Criteria", "Hypertension (BP >= 140/90 mmHg after 20 wks) accompanied by proteinuria (>= 300 mg/24h) or end-organ dysfunction", "Hypotension with severe hypoglycemia"),
             Triple("Placenta Previa Clinical Presentation", "Painless, bright red vaginal bleeding in third trimester without abdominal rigidity or uterine tenderness", "Painful dark red bleeding with board-like rigid uterus"),
             Triple("Umbilical Cord Prolapse Intervention", "Call for help, manually elevate presenting part off umbilical cord with sterile gloved hand, place patient in Knee-Chest or Trendelenburg position, prepare for emergency C-section", "Push umbilical cord back into vagina with dry gauze"),
@@ -543,7 +561,7 @@ object NursingQuestionBank {
             Triple("Ectopic Pregnancy Rupture Symptoms", "Unilateral lower quadrant pelvic pain, spotty vaginal bleeding, shoulder tip pain (Kehr sign), and hemorrhagic shock", "Generalized bilateral pedal edema with severe hypertension"),
             Triple("Hydatidiform Mole (Molar Pregnancy)", "Grapelike vesicles passed vaginally, abnormally high hCG levels, rapid uterine enlargement greater than gestational age, and dark brown prune-juice discharge", "Slow uterine growth with undetectable hCG levels"),
             Triple("Gestational Diabetes Screening", "1-hour 50g oral glucose tolerance test performed between 24-28 weeks gestation; blood glucose >= 140 mg/dL requires 3-hour diagnostic test", "Fasting blood sugar test performed at 6 weeks gestation"),
-            Triple("Hyperemesis Gravidarum Management", "NPO initially, IV fluid resuscitation with electrolytes and Thiamine, parenteral nutrition if severe, antiemetics", "Encourage large heavy meals three times daily"),
+            Triple("Eclampsia Seizure Management & Airway Protocol", "Turn client to side-lying position, maintain patent airway, suction oral secretions, administer O2, and give IV Magnesium Sulfate bolus", "Place metal spoon in client mouth and hold down arms"),
             Triple("Magnesium Sulfate Antidote", "Calcium Gluconate 10% IV push administered slowly over 3 minutes for Magnesium toxicity", "Protamine Sulfate IV push"),
             Triple("Oxytocin (Pitocin) Induction Rules", "Titrate IV infusion via infusion pump; discontinue immediately if uterine hyperstimulation occurs (contractions < 2 mins apart or > 90 seconds duration)", "Increase infusion rate rapidly if tetanic contractions occur"),
             Triple("Cervical Incompetence & Cerclage", "Placement of McDonald cerclage suture at 12-14 weeks gestation to reinforce weak cervix; instruct patient to report contractions or fluid leakage", "Cerclage placed at 38 weeks during active labor"),
@@ -610,7 +628,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 4. PEDIATRIC NURSING & NEONATAL CARE (160+ QUESTIONS)
     // =========================================================================
-    private fun buildPediatricSection(startId: Int): Int {
+    private fun buildPediatricSection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -669,13 +687,13 @@ object NursingQuestionBank {
             Triple("Fontanelle Closure Timeline", "Anterior fontanelle closes between 12-18 months; posterior fontanelle closes between 2-3 months of age", "Anterior fontanelle closes at 2 weeks of age"),
             Triple("Toddler Developmental Play Style", "Parallel play (playing alongside other children without interactive cooperation)", "Cooperative team sports with complex rules"),
             Triple("Preschooler Play Style & Cognition", "Associative play (playing together without rigid rules), magical thinking, and egocentrism", "Abstract logic reasoning and team competition"),
-            Triple("Pediatric Dehydration Severity Signs", "Severe dehydration manifests as sunken fontanelle, absence of tears, dry mucous membranes, delayed capillary refill > 3s, and lethargy", "Bulging fontanelle with profuse tearing"),
+            Triple("Pediatric Hirschsprung Disease Ribbon-Like Stools", "Congenital aganglionic megacolon; delayed meconium passage (> 48 hrs), foul-smelling ribbon-like stools, abdominal distension, bilious vomiting", "Hirschsprung disease causes profuse watery diarrhea with red cheeks"),
             Triple("Otitis Media Instillation Technique", "Pull pinna DOWN and BACK for infants and children under 3 years old; instil drops along ear canal wall", "Pull pinna UP and BACK for 1-year-old infant"),
             Triple("Pediatric Digoxin Administration Safety", "Withhold Digoxin if infant apical pulse is less than 90-110 bpm (or < 70 bpm in older child)", "Administer Digoxin regardless of heart rate"),
             Triple("Reye Syndrome Prevention", "Do NOT give Aspirin or salicylate-containing drugs to children with viral illnesses (influenza, varicella) due to risk of fatal encephalopathy and liver damage", "Administer Aspirin for fever control during varicella infection"),
             Triple("Sickle Cell Vaso-Occlusive Crisis Care", "Prioritize IV hydration and oxygenation, manage severe pain with IV opioids, and maintain bed rest", "Apply cold ice packs to painful joints and restrict fluid intake"),
             Triple("Developmental Dysplasia of the Hip (DDH)", "Positive Ortolani and Barlow maneuvers, asymmetrical gluteal skin folds, and limited hip abduction on affected side", "Symmetrical thigh folds with hyper-abduction"),
-            Triple("Acute Glomerulonephritis Features", "Periorbital edema, gross hematuria (tea-colored/cola-colored urine), hypertension, and oliguria following group A beta-hemolytic strep infection", "Profuse pale watery polyuria with hypotension"),
+            Triple("Pediatric Croup (Laryngotracheobronchitis) Barking Cough", "Viral infection causing subglottic edema; seal-like barking cough, inspiratory stridor, hoarseness; treat with cool mist, nebulized L-epinephrine, and dexamethasone", "Treat croup with immediate intubation and high dose aspirin"),
             Triple("Nephrotic Syndrome Key Manifestations", "Massive proteinuria, severe generalized edema (anasarca), hypoalbuminemia, and hyperlipidemia", "Gross hematuria with normal serum albumin"),
             Triple("Measles (Rubeola) Koplik Spots", "Koplik spots (small white spots on red buccal mucosa) pathognomonic for measles; enforce Airborne Precautions", "Koplik spots appear on palm of hands in chickenpox")
         )
@@ -740,7 +758,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 5. PSYCHIATRIC & MENTAL HEALTH NURSING (150+ QUESTIONS)
     // =========================================================================
-    private fun buildPsychiatricSection(startId: Int): Int {
+    private fun buildPsychiatricSection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -870,7 +888,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 6. PHARMACOLOGY FOR NURSES & DRUG SAFETY (160+ QUESTIONS)
     // =========================================================================
-    private fun buildPharmacologySection(startId: Int): Int {
+    private fun buildPharmacologySection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -921,7 +939,7 @@ object NursingQuestionBank {
             Triple("ACE Inhibitors Side Effects", "Persistent dry cough, hyperkalemia, orthostatic hypotension, and potential life-threatening Angioedema", "Hypokalemia with severe diarrhea"),
             Triple("Beta Blockers Contraindication", "Non-selective beta blockers (Propranolol) are contraindicated in Asthma / COPD due to risk of bronchospasm", "Hypertension with sinus tachycardia"),
             Triple("Warfarin Therapy & Antidote", "Monitor PT/INR (target INR 2.0-3.0); antidote is Vitamin K (Phytonadione); instruct patient to maintain consistent Vitamin K intake", "Monitor aPTT; antidote is Protamine Sulfate"),
-            Triple("Insulin Administration Peak Times", "Rapid-acting Lispro peak 1 hour; Short-acting Regular peak 2-3 hours; Intermediate NPH peak 4-12 hours; Long-acting Glargine HAS NO PEAK", "Regular insulin peaks in 12 hours and cannot be given IV"),
+            Triple("Hypoglycemia Emergency Management Rule of 15", "If blood glucose < 70 mg/dL: give 15g fast-acting carbohydrate (4 oz juice/soda), recheck in 15 mins; if unconscious, give IV 50% Dextrose (D50W) or IM Glucagon", "Give unconscious hypoglycemic patient 16 oz of whole milk orally"),
             Triple("Hypoglycemia Emergency Management", "Rule of 15: Give 15g fast-acting carbohydrate (4 oz juice), recheck blood glucose in 15 mins; give IV 50% Dextrose if unconscious", "Give 50 units NPH insulin subcutaneously"),
             Triple("Inhaled Corticosteroids Patient Teaching", "Rinse mouth thoroughly with water and spit out after using steroid inhaler to prevent Oral Candidiasis (Thrush)", "Swallow rinse water after inhalation"),
             Triple("Phenytoin (Dilantin) Therapeutic Range", "Therapeutic level 10-20 mcg/mL; adverse effects include Gingival Hyperplasia, ataxia, nystagmus, and Stevens-Johnson syndrome", "Therapeutic level 50-100 mcg/mL with hypoglycemia"),
@@ -932,7 +950,7 @@ object NursingQuestionBank {
             Triple("Nitroglycerin Sublingual Administration", "Take 1 tablet sublingually at onset of chest pain; repeat every 5 minutes for up to 3 doses; call emergency if pain persists after dose 1", "Swallow 5 tablets at once with hot coffee"),
             Triple("Gentamicin Aminoglycoside Toxicity", "Ototoxicity (hearing loss, tinnitus) and Nephrotoxicity (elevated serum creatinine); monitor trough levels", "Hepatotoxicity with jaundice"),
             Triple("Tetracycline Administration Rules", "Take on empty stomach with full glass of water; avoid milk/dairy/antacids; avoid in children < 8 yrs due to teeth discoloration", "Take with double glass of whole milk"),
-            Triple("Levothyroxine (Synthroid) Administration", "Take in morning on empty stomach 30-60 minutes before breakfast with full glass of water", "Take at bedtime immediately after heavy meal"),
+            Triple("Thyroid Storm Crisis Interventions", "Severe hyperthyroidism surge; high fever, extreme tachycardia, agitation; administer Propylthiouracil/Methimazole, Propranolol, Hydrocortisone; avoid Aspirin", "Give high dose aspirin for fever in thyroid storm"),
             Triple("IV Drop Rate Formula", "Drop rate (gtt/min) = [Total Volume (mL) x Drop Factor (gtt/mL)] / Time (minutes)", "Multiply volume by weight and divide by age"),
             Triple("High-Alert Medications Double-Check", "High-alert drugs (Insulin, Heparin, Chemotherapy, Concentrated Electrolytes) require mandatory independent double-check by 2 RNs", "Single nurse calculates and administers IV Heparin bolus"),
             Triple("Statins (HMG-CoA Reductase Inhibitors)", "Monitor liver enzymes and report muscle pain/weakness immediately due to risk of Rhabdomyolysis", "Take with grapefruit juice every morning"),
@@ -1000,7 +1018,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 7. INFECTION CONTROL, HYGIENE & EPIDEMIOLOGY (150+ QUESTIONS)
     // =========================================================================
-    private fun buildInfectionControlSection(startId: Int): Int {
+    private fun buildInfectionControlSection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -1036,9 +1054,9 @@ object NursingQuestionBank {
             Triple("Airborne Precaution Diseases", "Tuberculosis, Measles (Rubeola), Varicella (Chickenpox), and Disseminated Zoster", "Influenza, Mumps, and Rubella"),
             Triple("Droplet Precaution Diseases", "Influenza, Pertussis, Meningococcal Meningitis, Rubella, and Mumps; require surgical mask within 3 feet", "Tuberculosis and Chickenpox"),
             Triple("Contact Precaution Diseases", "MRSA, VRE, C. difficile, Scabies, and Impetigo; require gown and gloves", "Measles and Tuberculosis"),
-            Triple("Ventilator-Associated Pneumonia (VAP) Bundle", "Elevate head of bed 30-45 degrees, oral hygiene with Chlorhexidine, daily sedation vacations, and peptic ulcer prophylaxis", "Maintain patient in flat supine position without oral care"),
+            Triple("Central Venous Catheter Care & Air Embolism Protocol", "Position client in Trendelenburg and left lateral decubitus position during line removal; if air embolism occurs, place on left side and give 100% O2", "Place client in high Fowler position on right side for air embolism"),
             Triple("Central Line-Associated Bloodstream Infection (CLABSI) Bundle", "Maximal sterile barrier precautions during insertion, chlorhexidine skin antisepsis, optimal catheter site selection, daily assessment for removal", "Change central line dressing with non-sterile gloves"),
-            Triple("Catheter-Associated Urinary Tract Infection (CAUTI) Bundle", "Insert catheter using sterile technique, maintain closed drainage system, keep bag below bladder level, remove catheter as soon as no longer needed", "Elevate urine bag above level of bladder"),
+            Triple("Surgical Site Infection (SSI) Prevention Protocol", "Administer prophylactic IV antibiotic within 60 mins prior to surgical incision; avoid hair shaving (use electric clippers), maintain perioperative normothermia", "Shave surgical site with dull razor 24 hours before surgery"),
             Triple("Surgical Site Infection (SSI) Prevention", "Administer prophylactic antibiotics within 60 minutes prior to surgical incision, clip hair (do not shave with razor), maintain normothermia", "Shave surgical site with razor 24 hours before surgery"),
             Triple("Needlestick Injury Immediate Protocol", "Wash injured area immediately with soap and water, report incident to supervisor/occupational health, and initiate post-exposure prophylaxis (PEP) as indicated", "Squeeze wound forcefully and apply household bleach"),
             Triple("Autoclave Steam Sterilization Parameters", "Standard autoclaving requires moist heat at 121°C (250°F) for 15-30 minutes under 15 psi pressure", "Dry heat at 50°C for 5 minutes"),
@@ -1114,7 +1132,7 @@ object NursingQuestionBank {
     // =========================================================================
     // 8. EMERGENCY, TRAUMA & CRITICAL CARE NURSING (160+ QUESTIONS)
     // =========================================================================
-    private fun buildEmergencySection(startId: Int): Int {
+    private fun buildEmergencySection(questionList: MutableList<NursingExamQuestion>, startId: Int): Int {
         var idCounter = startId
 
         val core = listOf(
@@ -1148,24 +1166,24 @@ object NursingQuestionBank {
         val emTopics = listOf(
             Triple("START Triage Red Tag (Immediate)", "Life-threatening conditions requiring immediate resuscitation (e.g. severe airway compromise, tension pneumothorax, massive hemorrhage)", "Minor walking wounded abrasions"),
             Triple("START Triage Black Tag (Deceased)", "Unresponsive patients with no breathing after opening airway, or catastrophic nonsurvivable brain injury", "Stable closed fracture of radius"),
-            Triple("ACLS Cardiac Arrest Shockable Rhythms", "Pulseless Ventricular Tachycardia and Ventricular Fibrillation; perform immediate unsynchronized defibrillation and high-quality CPR", "Asystole and Pulseless Electrical Activity"),
+            Triple("ACLS Bradycardia with Pulse Algorithm", "Symptomatic bradycardia (HR < 50 bpm with hypotension/altered mental status); administer Atropine 1 mg IV push every 3-5 mins up to 3 mg total; prepare transcutaneous pacing", "Give IV diltiazem bolus for symptomatic bradycardia"),
             Triple("ACLS Non-Shockable Rhythms Protocol", "Asystole and Pulseless Electrical Activity (PEA); perform continuous CPR and administer IV Epinephrine 1 mg q3-5min", "Immediate 360 Joule defibrillation shock"),
             Triple("Anaphylactic Shock First-Line Drug", "Epinephrine 1:1,000 IM (0.3-0.5 mg in mid-outer thigh); repeat every 5-15 minutes if symptoms persist", "Oral Paracetamol syrup"),
             Triple("Hypovolemic Shock Resuscitation", "Rapid IV infusion of isotonic crystalloids (0.9% Normal Saline or Lactated Ringers) using large-bore IV catheters (14-16 gauge)", "Restricting IV fluids to 50 mL/hr"),
-            Triple("Septic Shock Sepsis 1-Hour Bundle", "Measure lactate level, obtain blood cultures BEFORE starting antibiotics, administer broad-spectrum IV antibiotics, infuse 30 mL/kg crystalloid for hypotension", "Delay blood cultures until day 3 of hospital stay"),
-            Triple("Cardiogenic Shock Interventions", "Inotropic support (Dobutamine, Dopamine), cautious fluid management, vasopressors, and intra-aortic balloon pump (IABP)", "Infuse 5 Liters of Normal Saline rapidly"),
-            Triple("Neurogenic Shock Clinical Triad", "Hypotension, Bradycardia, and Poikilothermia due to loss of sympathetic tone following spinal cord injury above T6", "Hypertension, Tachycardia, and severe fever"),
+            Triple("Massive Transfusion Protocol (MTP) Lethal Triad Prevention", "Prevention of Lethal Triad (Hypothermia, Coagulopathy, Acidosis); administer 1:1:1 balanced ratio of Packed Red Blood Cells, Fresh Frozen Plasma, and Platelets", "Infuse 10 liters of unheated 0.9% Normal Saline without blood products"),
+            Triple("Spinal Shock vs Neurogenic Shock Differentiation", "Spinal shock: temporary loss of motor, sensory, and reflex activity below level of injury; Neurogenic shock: loss of sympathetic tone causing hypotension and bradycardia", "Spinal shock causes severe hypertension with tachycardia"),
+            Triple("Spinal Cord Injury Autonomic Dysreflexia Interventions", "T6 or higher injury with severe hypertension, bradycardia, throbbing headache, and diaphoresis above injury; immediate priority is sitting client upright (90 degrees), loosening tight clothing, and checking for bladder distension or fecal impaction", "Place client supine and elevate legs 45 degrees during autonomic dysreflexia crisis"),
             Triple("Arterial Line Phlebostatic Axis", "Zero and calibrate transducer at 4th intercostal space, mid-axillary line (level of right atrium)", "Zero transducer at top of intravenous IV pole"),
             Triple("Central Venous Pressure (CVP) Reference", "Normal CVP is 2 to 6 mmHg (3 to 8 cmH2O); CVP < 2 indicates hypovolemia; CVP > 6 indicates hypervolemia or right heart failure", "Normal CVP is 20 to 30 mmHg"),
             Triple("Endotracheal Tube Cuff Pressure", "Maintain cuff pressure between 20 to 30 cmH2O to prevent aspiration while avoiding tracheal mucosal ischemia", "Inflate cuff pressure to 80 cmH2O"),
             Triple("Tension Pneumothorax Manifestations", "Tracheal deviation away from affected side, absent breath sounds on affected side, jugular vein distension, and severe hypotension", "Tracheal deviation toward affected side with hyperactive lung sounds"),
             Triple("Cardiac Tamponade Becks Triad", "Muffled heart sounds, Jugular Vein Distension (JVD), and Hypotension with narrowed pulse pressure", "Peaked T waves, bradycardia, and hypertension"),
-            Triple("Carbon Monoxide Poisoning Management", "Administer 100% High-Flow Oxygen via Non-Rebreather Mask (or hyperbaric oxygen); pulse oximetry readings are falsely normal", "Rely on standard pulse oximeter reading of 98% and give room air"),
+            Triple("Smoke Inhalation Injury Assessment Signs", "Facial burns, singed nasal hairs, carbonaceous sputum, hoarseness, stridor; high risk of acute airway edema requiring immediate endotracheal intubation", "Discharge home with cough drops if respiratory rate is 12"),
             Triple("Heat Stroke Emergency Management", "Rapid cooling interventions (ice bath immersion, cold saline gastric lavage, evaporative cooling) until core temp drops to 38°C (100.4°F)", "Wrap patient in heavy warm blankets"),
             Triple("Hypothermia Re-warming Safety", "Re-warm core before shell to prevent 'Rewarming Shock' and fatal cardiac arrhythmias (Osborn J wave)", "Vigorously rub cold extremities with hot water"),
             Triple("Primary Survey Trauma Sequence", "A = Airway with C-spine, B = Breathing, C = Circulation with hemorrhage control, D = Disability, E = Exposure/Environment", "E = Exposure first, then A = Airway"),
-            Triple("Secondary Survey Trauma Components", "Head-to-toe detailed physical examination, full vital signs, history (AMPLE: Allergies, Meds, Past history, Last meal, Events), and diagnostic tests", "Quick 10-second triage tag assignment"),
-            Triple("Snake Bite Emergency First Aid", "Immobilize limb at or slightly below heart level, keep patient calm, do NOT apply tourniquet or suction wound", "Cut wound open and apply ice with tight arterial tourniquet")
+            Triple("Chest Tube Water Seal Chamber Continuous Bubbling", "Continuous bubbling in water seal chamber indicates AIR LEAK in system; check connections and dress site; intermittent bubbling on expiration is normal", "Continuous bubbling in water seal chamber means lung is 100% re-expanded"),
+            Triple("Extremity Compartment Syndrome Pressure Assessment", "Normal compartment pressure is 0-8 mmHg; pressure > 30 mmHg or Delta pressure < 30 mmHg indicates acute compartment syndrome requiring urgent fasciotomy", "Apply ice compression and elevate limb above head with compartment pressure 60")
         )
 
         emTopics.forEachIndexed { idx, item ->

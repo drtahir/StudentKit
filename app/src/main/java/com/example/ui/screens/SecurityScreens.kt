@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import com.example.data.EmailAlertHelper
+import com.example.data.IntruderNotificationHelper
+
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -279,39 +282,53 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
 
     val logs by viewModel.intruderLogs.collectAsStateWithLifecycle()
 
-    // Configurable security configurations
-    var userPIN by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("1234") }
-    var decoyPIN by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("0000") }
-    var failedThreshold by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(1) }
-    var alertEmail by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("security.alert@device-guardian.com") }
+    // Configurable security configurations with SharedPreferences persistence
+    var userPIN by remember { mutableStateOf("1234") }
+    var failedThreshold by remember { mutableIntStateOf(1) }
+    var alertEmail by remember { mutableStateOf("security.alert@device-guardian.com") }
+    var isEmailAlertEnabled by remember { mutableStateOf(true) }
 
     // Arming states
-    var isSirenMuted by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var isMotionShieldArmed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var isPocketShieldArmed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var isChargerShieldArmed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var useNightFlash by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
-    var motionSensitivityThreshold by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(3.0f) } // 1.5 High, 3.0 Med, 5.0 Low
+    var isSirenMuted by remember { mutableStateOf(false) }
+    var isMotionShieldArmed by remember { mutableStateOf(false) }
+    var isPocketShieldArmed by remember { mutableStateOf(false) }
+    var isChargerShieldArmed by remember { mutableStateOf(false) }
+    var useNightFlash by remember { mutableStateOf(true) }
+    var motionSensitivityThreshold by remember { mutableFloatStateOf(3.0f) } // 1.5 High, 3.0 Med, 5.0 Low
+
+    // Device Power & Charging Status
+    var isDevicePluggedIn by remember { mutableStateOf(false) }
 
     // Live attempt and visual states
     var showLockScreen by remember { mutableStateOf(false) }
     var enteredPIN by remember { mutableStateOf("") }
-    var attemptCount by remember { mutableStateOf(0) }
+    var attemptCount by remember { mutableIntStateOf(0) }
     var lastTriggerReason by remember { mutableStateOf("Failed Unlock Attempt") }
-    val latestLocation = remember { mutableStateOf(Pair(34.2000, 71.3000)) } // Swat / KPK default regional coordinates
+    val latestLocation = remember { mutableStateOf(Pair(34.2000, 71.3000)) } // Regional coordinates
     var triggerCameraSnap by remember { mutableStateOf(false) }
     var cameraFacingLabel by remember { mutableStateOf("Front Camera") }
     var selectedLogForDialog by remember { mutableStateOf<IntruderLog?>(null) }
     var showEmailDispatchBanner by remember { mutableStateOf(false) }
+    var emailDispatchMessage by remember { mutableStateOf("Email alert dispatched to recipient") }
     var showWhiteFlashOverlay by remember { mutableStateOf(false) }
 
     // Unhandled Lockscreen Breach Banner state
-    var unhandledBreachCount by remember { mutableStateOf(0) }
+    var unhandledBreachCount by remember { mutableIntStateOf(0) }
     var hasUnhandledBreachAlert by remember { mutableStateOf(false) }
 
+    // Load persistent security settings on launch
     LaunchedEffect(Unit) {
         try {
             val prefs = context.getSharedPreferences("intruder_guard_prefs", Context.MODE_PRIVATE)
+            userPIN = prefs.getString("user_pin", "1234") ?: "1234"
+            failedThreshold = prefs.getInt("failed_threshold", 1)
+            alertEmail = prefs.getString("alert_email", "security.alert@device-guardian.com") ?: "security.alert@device-guardian.com"
+            isEmailAlertEnabled = prefs.getBoolean("is_email_alert_enabled", true)
+            isChargerShieldArmed = prefs.getBoolean("is_charger_shield_armed", false)
+            isMotionShieldArmed = prefs.getBoolean("is_motion_shield_armed", false)
+            isPocketShieldArmed = prefs.getBoolean("is_pocket_shield_armed", false)
+            isSirenMuted = prefs.getBoolean("is_siren_muted", false)
+
             if (prefs.getBoolean("has_unhandled_lockscreen_breach", false)) {
                 hasUnhandledBreachAlert = true
                 unhandledBreachCount = prefs.getInt("unhandled_breach_count", 1)
@@ -321,14 +338,27 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
         }
     }
 
-    // Decoy Calculator state variables
-    var isDecoyModeActive by remember { mutableStateOf(false) }
-    var isFakeCrashActive by remember { mutableStateOf(false) }
-    var calcInput by remember { mutableStateOf("") }
-    var calcResult by remember { mutableStateOf("") }
+    // Save preferences helper
+    fun savePrefs() {
+        try {
+            val prefs = context.getSharedPreferences("intruder_guard_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("user_pin", userPIN)
+                .putInt("failed_threshold", failedThreshold)
+                .putString("alert_email", alertEmail)
+                .putBoolean("is_email_alert_enabled", isEmailAlertEnabled)
+                .putBoolean("is_charger_shield_armed", isChargerShieldArmed)
+                .putBoolean("is_motion_shield_armed", isMotionShieldArmed)
+                .putBoolean("is_pocket_shield_armed", isPocketShieldArmed)
+                .putBoolean("is_siren_muted", isSirenMuted)
+                .apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     // Dashboard tabs: 0 = Shield Hub, 1 = Activity Logs, 2 = Guard Configurations
-    var activeTab by remember { mutableStateOf(0) }
+    var activeTab by remember { mutableIntStateOf(0) }
 
     // Radar scanning ring rotation
     val infiniteTransition = rememberInfiniteTransition()
@@ -360,7 +390,32 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
         refreshAdminStatus()
     }
 
-    // Helper to request latest network/GPS coordinates safely across Android versions
+    // Monitor battery charging state continuously
+    DisposableEffect(Unit) {
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent != null) {
+                    val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                    isDevicePluggedIn = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+                }
+            }
+        }
+        val currentBatteryIntent = context.registerReceiver(receiver, filter)
+        if (currentBatteryIntent != null) {
+            val status = currentBatteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            isDevicePluggedIn = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        }
+        onDispose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    // Helper to request latest network/GPS coordinates safely
     fun getLatestCoordinates(): Pair<Double, Double> {
         try {
             val attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -394,7 +449,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
             val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
             val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
             val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-            Pair(if (level > 0) level else 85, if (isCharging) "AC Charging" else "Battery Discharging")
+            Pair(if (level > 0) level else 85, if (isCharging) "Charging" else "Battery Power")
         } catch (e: Exception) {
             Pair(85, "Battery Power")
         }
@@ -427,6 +482,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             lastTriggerTime = now
                             scope.launch {
                                 val coords = getLatestCoordinates()
+                                val batInfo = getBatteryInfo()
                                 lastTriggerReason = "Theft Motion Sensor Alert"
                                 latestLocation.value = coords
 
@@ -437,7 +493,26 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                     showWhiteFlashOverlay = true
                                 }
                                 triggerCameraSnap = true
-                                showEmailDispatchBanner = true
+                                showLockScreen = true
+
+                                IntruderNotificationHelper.showBreachNotification(
+                                    context,
+                                    "🚨 MOTION DETECTED ANTI-THEFT ALARM!",
+                                    "Phone movement detected while armed! Loud siren active. Tap to view intruder selfie."
+                                )
+
+                                if (isEmailAlertEnabled && alertEmail.isNotBlank()) {
+                                    EmailAlertHelper.sendSecurityAlertEmail(
+                                        context = context,
+                                        recipientEmail = alertEmail,
+                                        reason = "Motion Theft Sensor Triggered",
+                                        latitude = coords.first,
+                                        longitude = coords.second,
+                                        batteryLevel = batInfo.first
+                                    )
+                                    emailDispatchMessage = "Motion security alert sent to $alertEmail"
+                                    showEmailDispatchBanner = true
+                                }
 
                                 try {
                                     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
@@ -473,6 +548,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             lastTriggerTime = now
                             scope.launch {
                                 val coords = getLatestCoordinates()
+                                val batInfo = getBatteryInfo()
                                 lastTriggerReason = "Pocket Snatch Protection Alert"
                                 latestLocation.value = coords
 
@@ -483,7 +559,26 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                     showWhiteFlashOverlay = true
                                 }
                                 triggerCameraSnap = true
-                                showEmailDispatchBanner = true
+                                showLockScreen = true
+
+                                IntruderNotificationHelper.showBreachNotification(
+                                    context,
+                                    "🚨 POCKET SNATCH BREACH ALARM!",
+                                    "Device removed from pocket/bag while armed! Tap to view intruder selfie."
+                                )
+
+                                if (isEmailAlertEnabled && alertEmail.isNotBlank()) {
+                                    EmailAlertHelper.sendSecurityAlertEmail(
+                                        context = context,
+                                        recipientEmail = alertEmail,
+                                        reason = "Pocket Snatch Protection Triggered",
+                                        latitude = coords.first,
+                                        longitude = coords.second,
+                                        batteryLevel = batInfo.first
+                                    )
+                                    emailDispatchMessage = "Pocket snatch alert sent to $alertEmail"
+                                    showEmailDispatchBanner = true
+                                }
 
                                 try {
                                     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
@@ -504,35 +599,83 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
         }
     }
 
-    // Charger Unplugged Anti-Theft Shield
+    // Charger Unplugged Anti-Theft Shield (REAL Production Implementation)
     DisposableEffect(isChargerShieldArmed) {
         if (isChargerShieldArmed) {
             var lastTriggerTime = 0L
+            var wasPluggedIn = isDevicePluggedIn
+
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(ctx: Context?, intent: Intent?) {
-                    if (intent?.action == Intent.ACTION_POWER_DISCONNECTED) {
-                        val now = System.currentTimeMillis()
-                        if (now - lastTriggerTime > 5000L) {
-                            lastTriggerTime = now
-                            scope.launch {
-                                val coords = getLatestCoordinates()
-                                lastTriggerReason = "Charger Disconnect Anti-Theft Alert"
-                                latestLocation.value = coords
+                    when (intent?.action) {
+                        Intent.ACTION_POWER_CONNECTED -> {
+                            wasPluggedIn = true
+                            isDevicePluggedIn = true
+                        }
+                        Intent.ACTION_POWER_DISCONNECTED -> {
+                            isDevicePluggedIn = false
+                            val now = System.currentTimeMillis()
+                            if (wasPluggedIn && now - lastTriggerTime > 3000L) {
+                                lastTriggerTime = now
+                                wasPluggedIn = false
 
-                                if (!isSirenMuted) {
-                                    SirenPlayer.start(context)
+                                scope.launch {
+                                    val coords = getLatestCoordinates()
+                                    val batInfo = getBatteryInfo()
+                                    lastTriggerReason = "Charger Removal Anti-Theft Alarm"
+                                    latestLocation.value = coords
+
+                                    if (!isSirenMuted) {
+                                        SirenPlayer.start(context)
+                                    }
+                                    if (useNightFlash) {
+                                        showWhiteFlashOverlay = true
+                                    }
+                                    triggerCameraSnap = true
+                                    showLockScreen = true
+
+                                    // System notification
+                                    IntruderNotificationHelper.showBreachNotification(
+                                        context,
+                                        "🚨 CHARGER DISCONNECTED ANTI-THEFT ALARM!",
+                                        "Charger unplugged while armed! Loud siren active. Tap to view intruder photo."
+                                    )
+
+                                    // Email alert dispatch
+                                    if (isEmailAlertEnabled && alertEmail.isNotBlank()) {
+                                        EmailAlertHelper.sendSecurityAlertEmail(
+                                            context = context,
+                                            recipientEmail = alertEmail,
+                                            reason = "Charger Removal Anti-Theft Alarm Triggered",
+                                            latitude = coords.first,
+                                            longitude = coords.second,
+                                            batteryLevel = batInfo.first
+                                        )
+                                        emailDispatchMessage = "Charger removal alert dispatched to $alertEmail"
+                                        showEmailDispatchBanner = true
+                                    }
+
+                                    // Record breach event in local database
+                                    viewModel.addIntruderLog(
+                                        photoPath = null,
+                                        status = "Charger Removal Alarm Triggered",
+                                        notes = "Charger disconnected while armed. Battery: ${batInfo.first}%. GPS: ${String.format(Locale.US, "%.5f, %.5f", coords.first, coords.second)}.",
+                                        latitude = coords.first,
+                                        longitude = coords.second,
+                                        batteryLevel = batInfo.first,
+                                        networkStatus = "Charger Unplugged",
+                                        cameraFacing = "Front Camera"
+                                    )
                                 }
-                                if (useNightFlash) {
-                                    showWhiteFlashOverlay = true
-                                }
-                                triggerCameraSnap = true
-                                showEmailDispatchBanner = true
                             }
                         }
                     }
                 }
             }
-            val filter = IntentFilter(Intent.ACTION_POWER_DISCONNECTED)
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_POWER_CONNECTED)
+                addAction(Intent.ACTION_POWER_DISCONNECTED)
+            }
             context.registerReceiver(receiver, filter)
             onDispose {
                 try {
@@ -546,7 +689,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
         }
     }
 
-    // Camera Capture Helper with auto front/rear fallback
+    // Real Camera Capture Helper with auto front/rear fallback
     CameraCaptureHelper(
         triggerCapture = triggerCameraSnap,
         useFrontCamera = true,
@@ -557,13 +700,28 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
             viewModel.addIntruderLog(
                 photoPath = file.absolutePath,
                 status = lastTriggerReason,
-                notes = "GPS Lock: ${String.format(Locale.US, "%.5f, %.5f", loc.first, loc.second)}. Battery: ${batInfo.first}% (${batInfo.second}). Report dispatched to $alertEmail.",
+                notes = "Intruder selfie captured. GPS: ${String.format(Locale.US, "%.5f, %.5f", loc.first, loc.second)}. Battery: ${batInfo.first}% (${batInfo.second}). Dispatched to $alertEmail.",
                 latitude = loc.first,
                 longitude = loc.second,
                 batteryLevel = batInfo.first,
                 networkStatus = batInfo.second,
                 cameraFacing = usedFacing
             )
+
+            if (isEmailAlertEnabled && alertEmail.isNotBlank()) {
+                scope.launch {
+                    EmailAlertHelper.sendSecurityAlertEmail(
+                        context = context,
+                        recipientEmail = alertEmail,
+                        reason = lastTriggerReason,
+                        photoFile = file,
+                        latitude = loc.first,
+                        longitude = loc.second,
+                        batteryLevel = batInfo.first
+                    )
+                }
+            }
+
             showWhiteFlashOverlay = false
         },
         onCaptureHandled = {
@@ -571,106 +729,6 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
             showWhiteFlashOverlay = false
         }
     )
-
-    // Decoy Calculator Interface Mode
-    if (isDecoyModeActive) {
-        DecoyCalculatorLayout(
-            calcInput = calcInput,
-            calcResult = calcResult,
-            onKeyClick = { key ->
-                when (key) {
-                    "C" -> {
-                        calcInput = ""
-                        calcResult = ""
-                    }
-                    "=" -> {
-                        if (calcInput == userPIN) {
-                            isDecoyModeActive = false
-                            calcInput = ""
-                            calcResult = ""
-                            Toast.makeText(context, "True Security Vault Unlocked", Toast.LENGTH_SHORT).show()
-                        } else {
-                            calcResult = evaluateSimpleMath(calcInput)
-                        }
-                    }
-                    else -> {
-                        calcInput += key
-                    }
-                }
-            },
-            onExitCalculator = {
-                isDecoyModeActive = false
-            }
-        )
-        return
-    }
-
-    // Fake System Crash Overlay Decoy
-    if (isFakeCrashActive) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .clickable {
-                    // Secret triple tap area or long press to unlock
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth(0.88f)
-                    .padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "System Crash",
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clickable {
-                                // Secret escape from fake crash: tap warning icon 3 times
-                                isFakeCrashActive = false
-                                Toast.makeText(context, "Fake Crash Bypassed", Toast.LENGTH_SHORT).show()
-                            }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("System UI Isn't Responding", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("Do you want to close it or wait for process #402 response?", color = Color.LightGray, fontSize = 12.sp, textAlign = TextAlign.Center)
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                Toast.makeText(context, "System UI terminated", Toast.LENGTH_SHORT).show()
-                            },
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Wait", color = Color.LightGray, fontSize = 11.sp)
-                        }
-                        Button(
-                            onClick = {
-                                Toast.makeText(context, "Closing application...", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Close App", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-        return
-    }
 
     Box(
         modifier = Modifier
@@ -736,7 +794,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                 letterSpacing = 2.sp
             )
             Text(
-                text = "Competitor-Beating Multi-Sensor Anti-Theft Shield",
+                text = "Multi-Sensor Anti-Theft Shield & Intruder Selfie System",
                 fontSize = 11.sp,
                 color = Color.LightGray,
                 modifier = Modifier.padding(bottom = 12.dp)
@@ -845,13 +903,13 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                 Icon(Icons.Default.Notifications, null, tint = Color(0xFFEF4444))
                                 Column {
                                     Text(
-                                        text = if (isAdminActive) "System Lockscreen Guard Armed" else "Local App Shield Armed",
+                                        text = if (isAdminActive) "System Lockscreen Guard Armed" else "Intruder Guard Active",
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White,
                                         fontSize = 13.sp
                                     )
                                     Text(
-                                        text = "Front camera selfie trigger bound to $failedThreshold failed attempt.",
+                                        text = "Front camera selfie trigger bound to $failedThreshold failed attempt(s). Alert email: $alertEmail",
                                         color = Color.LightGray,
                                         fontSize = 10.sp
                                     )
@@ -859,69 +917,40 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             }
                         }
 
-                        // Lockdown Simulator Button Card
+                        // Real Security Lock Screen Test Card
                         Card(
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Text(
-                                    text = "Interactive Lock & Decoy Simulator",
+                                    text = "🔒 Intruder Guard PIN Protection",
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
                                     fontSize = 13.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Simulates locking your phone or launching fake decoys. Wrong attempts trigger silent selfie, siren & location lock.",
+                                    text = "Arm or test the real Intruder Guard lock screen. Incorrect PIN entries capture a real camera selfie, trigger a siren alarm, and send an alert to your email.",
                                     color = Color.LightGray,
                                     fontSize = 10.sp
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(
-                                        onClick = {
-                                            if (!cameraPermissionState.status.isGranted) {
-                                                cameraPermissionState.launchPermissionRequest()
-                                            } else {
-                                                showLockScreen = true
-                                                enteredPIN = ""
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.Lock, null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Simulate Lock", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            isDecoyModeActive = true
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.Calculate, null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Decoy Cal", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            isFakeCrashActive = true
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.BugReport, null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Fake Crash", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    }
+                                Button(
+                                    onClick = {
+                                        if (!cameraPermissionState.status.isGranted) {
+                                            cameraPermissionState.launchPermissionRequest()
+                                        }
+                                        showLockScreen = true
+                                        enteredPIN = ""
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Lock, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Arm / Test Security Guard", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -934,7 +963,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                // Proximity Card Row
+                                // Charger Unplugged Anti-Theft Row
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -944,15 +973,35 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Icon(Icons.Default.MoveToInbox, null, tint = if (isPocketShieldArmed) Color(0xFF10B981) else Color.Gray)
+                                        Icon(
+                                            imageVector = Icons.Default.PowerOff,
+                                            contentDescription = null,
+                                            tint = if (isChargerShieldArmed) Color(0xFF10B981) else Color.Gray
+                                        )
                                         Column {
-                                            Text("Pocket & Bag Snatch Protection", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            Text("Sounds siren if phone is pulled out of your pocket or handbag.", color = Color.LightGray, fontSize = 9.sp)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Charger Removal Alarm", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = if (isDevicePluggedIn) "⚡ Plugged In" else "🔋 Unplugged",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isDevicePluggedIn) Color(0xFF10B981) else Color(0xFFF59E0B)
+                                                )
+                                            }
+                                            Text(
+                                                text = "Triggers siren & selfie if charger is unplugged while armed.",
+                                                color = Color.LightGray,
+                                                fontSize = 9.sp
+                                            )
                                         }
                                     }
                                     Switch(
-                                        checked = isPocketShieldArmed,
-                                        onCheckedChange = { isPocketShieldArmed = it },
+                                        checked = isChargerShieldArmed,
+                                        onCheckedChange = {
+                                            isChargerShieldArmed = it
+                                            savePrefs()
+                                        },
                                         colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF10B981))
                                     )
                                 }
@@ -977,14 +1026,17 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                     }
                                     Switch(
                                         checked = isMotionShieldArmed,
-                                        onCheckedChange = { isMotionShieldArmed = it },
+                                        onCheckedChange = {
+                                            isMotionShieldArmed = it
+                                            savePrefs()
+                                        },
                                         colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF10B981))
                                     )
                                 }
 
                                 Divider(color = Color.Gray.copy(alpha = 0.2f))
 
-                                // Charger Unplugged Row
+                                // Proximity Card Row
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -994,15 +1046,18 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Icon(Icons.Default.PowerOff, null, tint = if (isChargerShieldArmed) Color(0xFF10B981) else Color.Gray)
+                                        Icon(Icons.Default.MoveToInbox, null, tint = if (isPocketShieldArmed) Color(0xFF10B981) else Color.Gray)
                                         Column {
-                                            Text("Charger Unplug Anti-Theft", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            Text("Triggers alert if phone cable is unplugged while locked.", color = Color.LightGray, fontSize = 9.sp)
+                                            Text("Pocket & Bag Snatch Protection", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("Sounds siren if phone is pulled out of your pocket or handbag.", color = Color.LightGray, fontSize = 9.sp)
                                         }
                                     }
                                     Switch(
-                                        checked = isChargerShieldArmed,
-                                        onCheckedChange = { isChargerShieldArmed = it },
+                                        checked = isPocketShieldArmed,
+                                        onCheckedChange = {
+                                            isPocketShieldArmed = it
+                                            savePrefs()
+                                        },
                                         colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF10B981))
                                     )
                                 }
@@ -1013,6 +1068,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                         OutlinedButton(
                             onClick = {
                                 isSirenMuted = !isSirenMuted
+                                savePrefs()
                                 if (isSirenMuted) {
                                     SirenPlayer.stop()
                                 }
@@ -1028,7 +1084,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isSirenMuted) "Siren Silent Mode" else "Police Siren Ringing Mode Enabled", fontSize = 11.sp)
+                            Text(if (isSirenMuted) "Siren Silent Mode" else "Police Siren Mode Active", fontSize = 11.sp)
                         }
                     }
                 }
@@ -1189,6 +1245,146 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        // Email Alert Settings Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("📧 Security Alert Email Settings", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                    Text("When an intruder breach happens, full telemetry and photos are automatically dispatched to this email address.", color = Color.LightGray, fontSize = 10.sp)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Enable Email Alerts", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Switch(
+                                            checked = isEmailAlertEnabled,
+                                            onCheckedChange = {
+                                                isEmailAlertEnabled = it
+                                                savePrefs()
+                                            },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF10B981))
+                                        )
+                                    }
+
+                                    OutlinedTextField(
+                                        value = alertEmail,
+                                        onValueChange = {
+                                            alertEmail = it
+                                            savePrefs()
+                                        },
+                                        label = { Text("Recipient Email Address") },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            focusedLabelColor = Color(0xFF10B981),
+                                            unfocusedLabelColor = Color.LightGray
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            if (alertEmail.isNotBlank()) {
+                                                scope.launch {
+                                                    val batInfo = getBatteryInfo()
+                                                    val coords = getLatestCoordinates()
+                                                    EmailAlertHelper.sendSecurityAlertEmail(
+                                                        context = context,
+                                                        recipientEmail = alertEmail,
+                                                        reason = "Manual Test Security Email Alert",
+                                                        latitude = coords.first,
+                                                        longitude = coords.second,
+                                                        batteryLevel = batInfo.first
+                                                    )
+                                                    emailDispatchMessage = "Test security email alert sent to $alertEmail"
+                                                    showEmailDispatchBanner = true
+                                                    Toast.makeText(context, "Test security alert email dispatched!", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Please enter a valid email address.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.Email, null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Send Test Email Alert", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        // PIN Settings Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("🔑 Security Access PIN", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+
+                                    OutlinedTextField(
+                                        value = userPIN,
+                                        onValueChange = {
+                                            if (it.length <= 8) {
+                                                userPIN = it
+                                                savePrefs()
+                                            }
+                                        },
+                                        label = { Text("Set Real Access PIN Code") },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            focusedLabelColor = Color(0xFF3B82F6),
+                                            unfocusedLabelColor = Color.LightGray
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+
+                        // Passcode Fail Threshold settings card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Text("🚨 Passcode Fail Threshold", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("Triggers siren & alert emails after selected consecutive wrong attempts.", color = Color.LightGray, fontSize = 10.sp)
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Attempts Limit: $failedThreshold", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Slider(
+                                            value = failedThreshold.toFloat(),
+                                            onValueChange = {
+                                                failedThreshold = it.toInt()
+                                                savePrefs()
+                                            },
+                                            valueRange = 1f..5f,
+                                            steps = 3,
+                                            colors = SliderDefaults.colors(thumbColor = Color(0xFFEF4444), activeTrackColor = Color(0xFFEF4444)),
+                                            modifier = Modifier.width(180.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // Night Flash & Motion Sensitivity card
                         item {
                             Card(
@@ -1237,101 +1433,6 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                             label = { Text("Low (5.0g)", fontSize = 10.sp) }
                                         )
                                     }
-                                }
-                            }
-                        }
-
-                        // PIN settings card
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text("🔑 Access & Security PINs", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-
-                                    OutlinedTextField(
-                                        value = userPIN,
-                                        onValueChange = { if (it.length <= 8) userPIN = it },
-                                        label = { Text("Set Real Access PIN") },
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White,
-                                            focusedLabelColor = Color(0xFF3B82F6),
-                                            unfocusedLabelColor = Color.LightGray
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-
-                                    OutlinedTextField(
-                                        value = decoyPIN,
-                                        onValueChange = { if (it.length <= 8) decoyPIN = it },
-                                        label = { Text("Set Decoy Calculator PIN") },
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White,
-                                            focusedLabelColor = Color(0xFFF59E0B),
-                                            unfocusedLabelColor = Color.LightGray
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-                        }
-
-                        // Slider Threshold settings card
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Text("🚨 Passcode Fail Threshold", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text("Triggers background snapshot + alert emails after selected consecutive wrong attempts.", color = Color.LightGray, fontSize = 10.sp)
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Attempts Limit: $failedThreshold", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                        Slider(
-                                            value = failedThreshold.toFloat(),
-                                            onValueChange = { failedThreshold = it.toInt() },
-                                            valueRange = 1f..5f,
-                                            steps = 3,
-                                            colors = SliderDefaults.colors(thumbColor = Color(0xFFEF4444), activeTrackColor = Color(0xFFEF4444)),
-                                            modifier = Modifier.width(180.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Email Settings Card
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text("📧 Emergency Backup Email", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                                    Text("When a breach happens, full telemetry + pictures are securely auto-dispatched to this backup alert address.", color = Color.LightGray, fontSize = 10.sp)
-
-                                    OutlinedTextField(
-                                        value = alertEmail,
-                                        onValueChange = { alertEmail = it },
-                                        label = { Text("Backup Emergency Email Address") },
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White,
-                                            focusedLabelColor = Color(0xFF10B981),
-                                            unfocusedLabelColor = Color.LightGray
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
                                 }
                             }
                         }
@@ -1418,7 +1519,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                     ) {
                         Icon(Icons.Default.Email, null, tint = Color.White)
                         Text(
-                            text = "Email notification dispatch transmitted to $alertEmail with satellite telemetry.",
+                            text = emailDispatchMessage,
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
@@ -1431,7 +1532,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
             }
         }
 
-        // Lock Screen Simulator Fullscreen overlay
+        // Lock Screen Protection Fullscreen Overlay
         if (showLockScreen) {
             Box(
                 modifier = Modifier
@@ -1454,7 +1555,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                     )
 
                     Text(
-                        text = "SECURE DEVICE LOCK",
+                        text = "INTRUDER GUARD PROTECTED",
                         fontWeight = FontWeight.Black,
                         fontSize = 16.sp,
                         color = Color.White,
@@ -1462,7 +1563,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                     )
 
                     Text(
-                        text = "Enter secure PIN code to unlock vault",
+                        text = "Enter secure PIN code to disarm security",
                         fontSize = 11.sp,
                         color = Color.Gray,
                         modifier = Modifier.padding(bottom = 20.dp)
@@ -1525,35 +1626,62 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
                                                                     SirenPlayer.stop()
                                                                     enteredPIN = ""
                                                                     attemptCount = 0
-                                                                    Toast.makeText(context, "System Securely Unlocked", Toast.LENGTH_SHORT).show()
-                                                                } else if (enteredPIN == decoyPIN) {
-                                                                    showLockScreen = false
-                                                                    isDecoyModeActive = true
-                                                                    SirenPlayer.stop()
-                                                                    enteredPIN = ""
-                                                                    attemptCount = 0
-                                                                    Toast.makeText(context, "Decoy Mode Initiated", Toast.LENGTH_SHORT).show()
+                                                                    Toast.makeText(context, "Disarmed & Unlocked Successfully", Toast.LENGTH_SHORT).show()
                                                                 } else {
                                                                     attemptCount++
+                                                                    val curAttempts = attemptCount
                                                                     enteredPIN = ""
 
-                                                                    if (attemptCount >= failedThreshold) {
-                                                                        if (!isSirenMuted) {
-                                                                            SirenPlayer.start(context)
+                                                                    // Vibrate phone
+                                                                    try {
+                                                                        val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                                                                        vibrator.vibrate(400)
+                                                                    } catch (e: Exception) {}
+
+                                                                    // Always trigger camera snap on incorrect PIN
+                                                                    triggerCameraSnap = true
+
+                                                                    scope.launch {
+                                                                        val coords = getLatestCoordinates()
+                                                                        val batInfo = getBatteryInfo()
+                                                                        lastTriggerReason = "Failed Unlock Attempt (#$curAttempts)"
+                                                                        latestLocation.value = coords
+
+                                                                        if (curAttempts >= failedThreshold) {
+                                                                            if (!isSirenMuted) {
+                                                                                SirenPlayer.start(context)
+                                                                            }
+                                                                            if (useNightFlash) {
+                                                                                showWhiteFlashOverlay = true
+                                                                            }
+
+                                                                            // Trigger System Alert Notification
+                                                                            IntruderNotificationHelper.showBreachNotification(
+                                                                                context,
+                                                                                "🚨 INTRUDER BREACH ALERT!",
+                                                                                "Incorrect PIN entered $curAttempts time(s). Selfie captured!"
+                                                                            )
+
+                                                                            // Trigger Email alert
+                                                                            if (isEmailAlertEnabled && alertEmail.isNotBlank()) {
+                                                                                EmailAlertHelper.sendSecurityAlertEmail(
+                                                                                    context = context,
+                                                                                    recipientEmail = alertEmail,
+                                                                                    reason = "Failed Unlock Attempt (#$curAttempts)",
+                                                                                    latitude = coords.first,
+                                                                                    longitude = coords.second,
+                                                                                    batteryLevel = batInfo.first
+                                                                                )
+                                                                                emailDispatchMessage = "Security breach alert sent to $alertEmail"
+                                                                                showEmailDispatchBanner = true
+                                                                            }
                                                                         }
-                                                                        if (useNightFlash) {
-                                                                            showWhiteFlashOverlay = true
-                                                                        }
-                                                                        scope.launch {
-                                                                            val coords = getLatestCoordinates()
-                                                                            lastTriggerReason = "Failed Unlock Attempt"
-                                                                            latestLocation.value = coords
-                                                                            triggerCameraSnap = true
-                                                                            showEmailDispatchBanner = true
-                                                                        }
-                                                                        Toast.makeText(context, "BREACH DETECTED! Police siren activated & alert dispatched.", Toast.LENGTH_LONG).show()
+                                                                    }
+
+                                                                    if (curAttempts >= failedThreshold) {
+                                                                        Toast.makeText(context, "BREACH DETECTED! Police siren activated & selfie captured.", Toast.LENGTH_LONG).show()
                                                                     } else {
-                                                                        Toast.makeText(context, "Incorrect PIN. Attempt $attemptCount of $failedThreshold.", Toast.LENGTH_SHORT).show()
+                                                                        Toast.makeText(context, "Incorrect PIN! Attempt $curAttempts of $failedThreshold. Selfie captured.", Toast.LENGTH_SHORT).show()
                                                                     }
                                                                 }
                                                             }
@@ -1577,7 +1705,7 @@ fun IntruderGuardScreen(viewModel: StudentKitViewModel) {
 
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
-                        text = "Real PIN: $userPIN | Decoy PIN: $decoyPIN",
+                        text = "Access PIN Code: $userPIN",
                         color = Color.LightGray.copy(alpha = 0.5f),
                         fontSize = 11.sp
                     )
