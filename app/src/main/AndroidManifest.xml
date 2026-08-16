@@ -54,7 +54,7 @@
         </activity>
 
         <receiver
-            android:name="com.example.data.IntruderDeviceAdminReceiver"
+            android:name="com.drtahir.studentkit.data.IntruderDeviceAdminReceiver"
             android:label="Intruder Shield Administrator"
             android:description="@string/device_admin_description"
             android:permission="android.permission.BIND_DEVICE_ADMIN"
@@ -70,7 +70,7 @@
 
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.example.fileprovider"
+            android:authorities="com.drtahir.studentkit.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
