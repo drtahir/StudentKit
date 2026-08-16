@@ -2132,7 +2132,7 @@ fun evaluateSimpleMath(expr: String): String {
 // -------------------------------------------------------------
 fun shareSecureFile(context: Context, file: File, mimeType: String = "*/*") {
     try {
-        val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", file)
+        val uri = FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -2747,7 +2747,7 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                 FileOutputStream(file).use { out ->
                     bitmap.compress(CompressFormat.PNG, 100, out)
                 }
-                val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", file)
+                val uri = FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", file)
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "image/png"
                     putExtra(Intent.EXTRA_STREAM, uri)
@@ -2854,7 +2854,7 @@ fun SteganographyScreen(viewModel: StudentKitViewModel) {
                 }
                 val isImg = payload.fileName.endsWith(".png", true) || payload.fileName.endsWith(".jpg", true) || payload.fileName.endsWith(".jpeg", true)
                 val mime = if (isImg) "image/*" else "*/*"
-                val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", file)
+                val uri = FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", file)
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = mime
                     putExtra(Intent.EXTRA_STREAM, uri)
@@ -3887,7 +3887,7 @@ fun SteganalysisContent() {
             try {
                 val extractedFile = File(context.cacheDir, "extracted_overlay_$parentName")
                 FileOutputStream(extractedFile).use { out -> out.write(bytes) }
-                val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", extractedFile)
+                val uri = FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", extractedFile)
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "*/*"
                     putExtra(Intent.EXTRA_STREAM, uri)
@@ -3909,7 +3909,7 @@ fun SteganalysisContent() {
         scope.launch(Dispatchers.IO) {
             try {
                 val (sanitizedFile, msg) = SteganalysisHelper.sanitizeFile(context, uri, selectedFileName)
-                val sanitizedUri = FileProvider.getUriForFile(context, "com.example.fileprovider", sanitizedFile)
+                val sanitizedUri = FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", sanitizedFile)
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "*/*"
                     putExtra(Intent.EXTRA_STREAM, sanitizedUri)

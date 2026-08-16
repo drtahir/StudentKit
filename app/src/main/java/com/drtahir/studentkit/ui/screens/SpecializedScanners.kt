@@ -1128,7 +1128,7 @@ fun createTempImageUri(context: Context): Uri? {
         val tempFile = File.createTempFile("id_scan_", ".jpg", cacheDir).apply {
             createNewFile()
         }
-        FileProvider.getUriForFile(context, "com.example.fileprovider", tempFile)
+        FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", tempFile)
     } catch (e: Exception) {
         null
     }

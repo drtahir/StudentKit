@@ -3051,7 +3051,7 @@ interface GeminiTranslationService {
 }
 
 suspend fun translateVersesToUrduWithGemini(missingVerses: List<Pair<String, String>>): Map<String, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-    val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+    val apiKey = com.drtahir.studentkit.BuildConfig.GEMINI_API_KEY
     if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") return@withContext emptyMap()
     
     // Escapes and joins verses into a mini JSON structure for the prompt

@@ -739,7 +739,7 @@ fun saveBitmapToGallery(context: Context, bitmap: Bitmap): File? {
 
         // Also persist directly into public phone Pictures and Downloads memory
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            com.example.data.PhoneStorageSaver.saveImageToPhoneMemory(
+            com.drtahir.studentkit.data.PhoneStorageSaver.saveImageToPhoneMemory(
                 context = context,
                 imageFile = tempFile,
                 desiredFileName = "Signed_Document_${System.currentTimeMillis()}.jpg",

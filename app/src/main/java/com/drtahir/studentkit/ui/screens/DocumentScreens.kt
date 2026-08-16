@@ -7149,7 +7149,7 @@ fun createDocumentTempImageUri(context: Context): Uri? {
         val tempFile = File.createTempFile("doc_scan_", ".jpg", cacheDir).apply {
             createNewFile()
         }
-        FileProvider.getUriForFile(context, "com.example.fileprovider", tempFile)
+        FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", tempFile)
     } catch (e: Exception) {
         null
     }
@@ -8092,7 +8092,7 @@ fun CameraScannerTab(
                                             ContextCompat.getMainExecutor(context),
                                             object : ImageCapture.OnImageSavedCallback {
                                                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                                    val savedUri = FileProvider.getUriForFile(context, "com.example.fileprovider", file)
+                                                    val savedUri = FileProvider.getUriForFile(context, "com.drtahir.studentkit.fileprovider", file)
                                                     activeBatch.add(ScannedPage(uri = savedUri, preset = selectedPreset))
                                                     Toast.makeText(context, "📸 Captured document page successfully!", Toast.LENGTH_SHORT).show()
                                                 }

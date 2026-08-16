@@ -17,7 +17,7 @@ import javax.crypto.spec.GCMParameterSpec
 object KeystoreHelper {
 
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-    private const val FILE_ENCRYPT_ALIAS = "com.example.studentkit.filekey"
+    private const val FILE_ENCRYPT_ALIAS = "com.drtahir.studentkit.studentkit.filekey"
 
     /**
      * Retrieves or generates a 256-bit AES key securely inside the Android KeyStore hardware.

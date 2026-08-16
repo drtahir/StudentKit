@@ -1647,13 +1647,13 @@ fun BackgroundEraserScreen(viewModel: StudentKitViewModel) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { loadSampleImage(com.example.R.drawable.sample_portrait) },
+                    onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_portrait) },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Sample Portrait", fontSize = 12.sp)
                 }
                 Button(
-                    onClick = { loadSampleImage(com.example.R.drawable.sample_object) },
+                    onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_object) },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Sample Object", fontSize = 12.sp)

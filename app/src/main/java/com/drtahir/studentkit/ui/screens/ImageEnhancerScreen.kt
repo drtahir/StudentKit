@@ -225,14 +225,14 @@ fun ImageEnhancerScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { loadSampleImage(com.example.R.drawable.sample_portrait) },
+                            onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_portrait) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("Portrait", fontSize = 11.sp)
                         }
                         OutlinedButton(
-                            onClick = { loadSampleImage(com.example.R.drawable.sample_object) },
+                            onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_object) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -618,13 +618,13 @@ fun BeforeAfterSlider(
 
 @Composable
 fun MultiPassQualityControlPanel(
-    selectedProfile: com.example.viewmodel.EnhancePassProfile,
+    selectedProfile: com.drtahir.studentkit.viewmodel.EnhancePassProfile,
     sharpeningStrength: Float,
     skinSmoothStrength: Float,
     enablePreDenoise: Boolean,
     enableColorBoost: Boolean,
     showAdvancedTuning: Boolean,
-    onProfileSelected: (com.example.viewmodel.EnhancePassProfile) -> Unit,
+    onProfileSelected: (com.drtahir.studentkit.viewmodel.EnhancePassProfile) -> Unit,
     onSharpeningChanged: (Float) -> Unit,
     onSkinSmoothChanged: (Float) -> Unit,
     onPreDenoiseToggled: (Boolean) -> Unit,
@@ -681,7 +681,7 @@ fun MultiPassQualityControlPanel(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                com.example.viewmodel.EnhancePassProfile.values().forEach { profile ->
+                com.drtahir.studentkit.viewmodel.EnhancePassProfile.values().forEach { profile ->
                     val isSelected = profile == selectedProfile
                     Surface(
                         shape = RoundedCornerShape(12.dp),

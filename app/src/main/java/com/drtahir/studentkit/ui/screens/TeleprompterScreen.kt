@@ -689,7 +689,7 @@ fun ScriptCardItem(
                     IconButton(onClick = {
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                com.example.data.PhoneStorageSaver.saveTextDocumentToPhoneMemory(
+                                com.drtahir.studentkit.data.PhoneStorageSaver.saveTextDocumentToPhoneMemory(
                                     context = context,
                                     content = "${script.title}\nCategory: ${script.category}\n\n${script.content}",
                                     desiredFileName = "${script.title.take(20).replace("[^a-zA-Z0-9]".toRegex(), "_")}_Script.txt"

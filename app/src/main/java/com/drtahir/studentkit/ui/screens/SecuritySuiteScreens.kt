@@ -2944,7 +2944,7 @@ fun FullScreenPhotoViewer(encryptedPath: String, title: String, onDismiss: () ->
                                     java.io.FileOutputStream(tempFile).use { out ->
                                         bitmap!!.compress(Bitmap.CompressFormat.JPEG, 95, out)
                                     }
-                                    com.example.data.PhoneStorageSaver.saveImageToPhoneMemory(
+                                    com.drtahir.studentkit.data.PhoneStorageSaver.saveImageToPhoneMemory(
                                         context = context,
                                         imageFile = tempFile,
                                         desiredFileName = "Vault_Export_${System.currentTimeMillis()}.jpg",

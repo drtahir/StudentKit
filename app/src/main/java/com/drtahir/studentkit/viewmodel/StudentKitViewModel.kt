@@ -489,7 +489,7 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     var vaultKeyBytes by mutableStateOf<ByteArray?>(null)
 
     fun unlockVault(pin: String) {
-        val salt = "com.example.studentkit.salt.1234".toByteArray()
+        val salt = "com.drtahir.studentkit.studentkit.salt.1234".toByteArray()
         vaultKeyBytes = Argon2.deriveKey(pin.toByteArray(), salt, mCost = 1024, tCost = 2)
     }
 
@@ -745,10 +745,10 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- QURAN CACHE METHODS ---
-    fun getCachedVersesForSurah(surahNumber: Int): Flow<List<com.example.data.CachedQuranVerse>> = repository.getCachedVersesForSurah(surahNumber)
-    fun getCachedVersesForPage(pageNumber: Int): Flow<List<com.example.data.CachedQuranVerse>> = repository.getCachedVersesForPage(pageNumber)
+    fun getCachedVersesForSurah(surahNumber: Int): Flow<List<com.drtahir.studentkit.data.CachedQuranVerse>> = repository.getCachedVersesForSurah(surahNumber)
+    fun getCachedVersesForPage(pageNumber: Int): Flow<List<com.drtahir.studentkit.data.CachedQuranVerse>> = repository.getCachedVersesForPage(pageNumber)
     
-    fun insertQuranVerses(verses: List<com.example.data.CachedQuranVerse>) {
+    fun insertQuranVerses(verses: List<com.drtahir.studentkit.data.CachedQuranVerse>) {
         viewModelScope.launch {
             repository.insertQuranVerses(verses)
         }
@@ -765,15 +765,15 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- OFFLINE EXAM QUESTION CACHE METHODS ---
-    fun getCachedQuestions(categoryType: String): Flow<List<com.example.data.CachedOfflineQuestion>> = repository.getCachedQuestions(categoryType)
+    fun getCachedQuestions(categoryType: String): Flow<List<com.drtahir.studentkit.data.CachedOfflineQuestion>> = repository.getCachedQuestions(categoryType)
 
     suspend fun getCachedQuestionsCount(categoryType: String): Int = repository.getCachedQuestionsCount(categoryType)
 
-    fun cacheHajjQuestions(questions: List<com.example.ui.screens.HajjQuestion>) {
+    fun cacheHajjQuestions(questions: List<com.drtahir.studentkit.ui.screens.HajjQuestion>) {
         viewModelScope.launch {
             repository.clearCachedQuestions("HAJJ")
             val entities = questions.map { q ->
-                com.example.data.CachedOfflineQuestion(
+                com.drtahir.studentkit.data.CachedOfflineQuestion(
                     id = "HAJJ_${q.id}",
                     categoryType = "HAJJ",
                     questionId = q.id,
@@ -789,11 +789,11 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun cachePharmacyQuestions(questions: List<com.example.ui.screens.ExamQuestion>) {
+    fun cachePharmacyQuestions(questions: List<com.drtahir.studentkit.ui.screens.ExamQuestion>) {
         viewModelScope.launch {
             repository.clearCachedQuestions("PHARMACY")
             val entities = questions.map { q ->
-                com.example.data.CachedOfflineQuestion(
+                com.drtahir.studentkit.data.CachedOfflineQuestion(
                     id = "PHARMACY_${q.id}",
                     categoryType = "PHARMACY",
                     questionId = q.id,
