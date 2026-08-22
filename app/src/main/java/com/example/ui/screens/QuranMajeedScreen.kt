@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.drtahir.studentkit.ui.screens
 
 import android.content.Context
 import android.media.MediaPlayer
@@ -43,8 +43,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.CachedQuranVerse
-import com.example.viewmodel.StudentKitViewModel
+import com.drtahir.studentkit.data.CachedQuranVerse
+import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first

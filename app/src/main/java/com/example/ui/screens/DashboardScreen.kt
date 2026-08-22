@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.drtahir.studentkit.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -28,9 +28,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.TextStyle
-import com.example.data.*
-import com.example.viewmodel.Screen
-import com.example.viewmodel.StudentKitViewModel
+import com.drtahir.studentkit.data.*
+import com.drtahir.studentkit.viewmodel.Screen
+import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 import android.content.Intent
@@ -41,7 +41,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
-import com.example.R
+import com.drtahir.studentkit.R
 import kotlinx.coroutines.launch
 
 data class UtilityTool(

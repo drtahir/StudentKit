@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.drtahir.studentkit.ui.screens
 
 import android.content.Intent
 import android.net.Uri
@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
-import com.example.R
-import com.example.viewmodel.StudentKitViewModel
+import com.drtahir.studentkit.R
+import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

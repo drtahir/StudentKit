@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.drtahir.studentkit.ui.screens
 
 /**
  * MOAVINEEN-E-HUJJAJ QUESTION BANK - Moavineen1000Part3

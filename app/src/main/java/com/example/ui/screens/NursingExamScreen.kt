@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.drtahir.studentkit.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.*
@@ -24,7 +24,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.viewmodel.StudentKitViewModel
+import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import kotlinx.coroutines.delay
 
 @Composable

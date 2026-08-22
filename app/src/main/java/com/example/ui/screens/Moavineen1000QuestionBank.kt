@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.drtahir.studentkit.ui.screens
 
 /**
  * MOAVINEEN-E-HUJJAJ 1000+ QUESTION BANK MASTER ASSEMBLY

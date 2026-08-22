@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.drtahir.studentkit.ui.screens
 
 import android.content.Context
 import android.content.Intent
@@ -58,12 +58,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import com.example.data.KeystoreHelper
-import com.example.data.PinVaultEntry
-import com.example.data.PhotoVaultEntry
-import com.example.data.PrivateNoteEntry
-import com.example.viewmodel.Screen
-import com.example.viewmodel.StudentKitViewModel
+import com.drtahir.studentkit.data.KeystoreHelper
+import com.drtahir.studentkit.data.PinVaultEntry
+import com.drtahir.studentkit.data.PhotoVaultEntry
+import com.drtahir.studentkit.data.PrivateNoteEntry
+import com.drtahir.studentkit.viewmodel.Screen
+import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
@@ -94,8 +94,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import com.example.data.WifiDevice
-import com.example.data.SpeedTestHistory
+import com.drtahir.studentkit.data.WifiDevice
+import com.drtahir.studentkit.data.SpeedTestHistory
 
 
 // ==========================================

@@ -1,4 +1,4 @@
-package com.example.viewmodel
+package com.drtahir.studentkit.viewmodel
 
 import android.app.Application
 import android.content.Context
@@ -7,7 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.*
+import com.drtahir.studentkit.data.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
