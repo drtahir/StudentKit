@@ -333,6 +333,40 @@ interface StudentKitDao {
     fun getPosOrderItems(orderId: String): Flow<List<PosOrderItem>>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPosOrderItem(item: PosOrderItem)
+
+    // --- POS EMPLOYEES & STAFF MANAGEMENT ---
+    @Query("SELECT * FROM pos_employees ORDER BY fullName ASC")
+    fun getAllPosEmployees(): Flow<List<PosEmployee>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosEmployee(employee: PosEmployee)
+    @Query("DELETE FROM pos_employees WHERE id = :id")
+    suspend fun deletePosEmployeeById(id: String)
+    @Query("SELECT * FROM pos_employees WHERE id = :id LIMIT 1")
+    suspend fun getPosEmployeeById(id: String): PosEmployee?
+    @Query("SELECT * FROM pos_employees WHERE pinCode = :pin AND isActive = 1 LIMIT 1")
+    suspend fun getPosEmployeeByPin(pin: String): PosEmployee?
+
+    // Shifts
+    @Query("SELECT * FROM pos_employee_shifts ORDER BY clockInTime DESC")
+    fun getAllPosEmployeeShifts(): Flow<List<PosEmployeeShifts>>
+    @Query("SELECT * FROM pos_employee_shifts WHERE employeeId = :employeeId ORDER BY clockInTime DESC")
+    fun getPosEmployeeShiftsByEmployee(employeeId: String): Flow<List<PosEmployeeShifts>>
+    @Query("SELECT * FROM pos_employee_shifts WHERE status = 'OPEN' ORDER BY clockInTime DESC")
+    fun getOpenPosEmployeeShifts(): Flow<List<PosEmployeeShifts>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosEmployeeShift(shift: PosEmployeeShifts)
+    @Query("DELETE FROM pos_employee_shifts WHERE id = :id")
+    suspend fun deletePosEmployeeShiftById(id: String)
+
+    // Payouts & Advances
+    @Query("SELECT * FROM pos_employee_advances_payouts ORDER BY date DESC")
+    fun getAllPosEmployeePayouts(): Flow<List<PosEmployeePayout>>
+    @Query("SELECT * FROM pos_employee_advances_payouts WHERE employeeId = :employeeId ORDER BY date DESC")
+    fun getPosEmployeePayoutsByEmployee(employeeId: String): Flow<List<PosEmployeePayout>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosEmployeePayout(payout: PosEmployeePayout)
+    @Query("DELETE FROM pos_employee_advances_payouts WHERE id = :id")
+    suspend fun deletePosEmployeePayoutById(id: String)
 }
 
 @Database(
@@ -362,9 +396,12 @@ interface StudentKitDao {
         PosProduct::class,
         PosClient::class,
         PosOrder::class,
-        PosOrderItem::class
+        PosOrderItem::class,
+        PosEmployee::class,
+        PosEmployeeShifts::class,
+        PosEmployeePayout::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

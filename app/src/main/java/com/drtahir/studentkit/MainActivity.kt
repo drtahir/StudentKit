@@ -74,25 +74,15 @@ class MainActivity : FragmentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppContainer(viewModel: StudentKitViewModel) {
-    val context = LocalContext.current
-    SideEffect {
-        val window = (context as? Activity)?.window
-        if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            val controller = WindowCompat.getInsetsController(window, window.decorView)
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-
     val currentScreen by viewModel.currentScreen.collectAsState()
     var selectedTabItem by remember { mutableStateOf(0) } // 0=Home, 1=Finance, 2=Docs, 3=Tools, 4=Study, 5=Security
     var activeCategorySheet by remember { mutableStateOf<CategorySheetType?>(null) }
+    var showInitialSplash by remember { mutableStateOf(true) }
 
     // Sync selected bottom tab item when currentScreen changes
     LaunchedEffect(currentScreen) {
         selectedTabItem = when (currentScreen) {
-            is Screen.Dashboard, is Screen.About, is Screen.Settings -> 0
+            is Screen.Dashboard, is Screen.About, is Screen.Settings, is Screen.Splash -> 0
             is Screen.ExpenseTracker, is Screen.IncomeTracker, is Screen.UtilityBills,
             is Screen.ZakatCalculator, is Screen.BcCommittee, is Screen.BcCommitteeDetails,
             is Screen.LoanTracker, is Screen.SavingsGoals, is Screen.FinanceReportAndBackup -> 1
@@ -123,12 +113,18 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
         }
     }
 
-    Scaffold(
-        bottomBar = {
-            if (currentScreen != Screen.IslamicHub) {
-                NavigationBar(
-                    modifier = Modifier.testTag("bottom_nav_bar")
-                ) {
+    if (showInitialSplash) {
+        SplashScreen(
+            viewModel = viewModel,
+            onFinish = { showInitialSplash = false }
+        )
+    } else {
+        Scaffold(
+            bottomBar = {
+                if (currentScreen != Screen.IslamicHub && currentScreen != Screen.Splash) {
+                    NavigationBar(
+                        modifier = Modifier.testTag("bottom_nav_bar")
+                    ) {
                     NavigationBarItem(
                         selected = selectedTabItem == 0 && activeCategorySheet == null,
                         onClick = {
@@ -261,8 +257,14 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                     is Screen.PassportScanner -> DocumentHubScreen(viewModel = viewModel, title = "Passport & Document Scanner") {
                         PassportScannerScreen(viewModel = viewModel)
                     }
-                    is Screen.PdfTools -> DocumentHubScreen(viewModel = viewModel, title = "PDF Tool Suite") {
-                        PdfToolsScreen(viewModel = viewModel)
+                    is Screen.PassportPhotoStudio -> DocumentHubScreen(viewModel = viewModel, title = "Passport & Photo Studio") {
+                        PassportPhotoStudioScreen(viewModel = viewModel)
+                    }
+                    is Screen.AssignmentOcrStudio -> DocumentHubScreen(viewModel = viewModel, title = "Handwritten Assignment & OCR Studio") {
+                        AssignmentOcrStudioScreen(viewModel = viewModel)
+                    }
+                    is Screen.PdfTools -> DocumentHubScreen(viewModel = viewModel, title = "Comprehensive PDF Tool Suite") {
+                        EnhancedPdfToolsScreen(viewModel = viewModel)
                     }
                     is Screen.InvoiceGenerator -> DocumentHubScreen(viewModel = viewModel, title = "OmniPOS Invoice Suite") {
                         InvoiceGeneratorScreen(viewModel = viewModel)
@@ -408,6 +410,12 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                     is Screen.Settings -> ToolsHubScreen(viewModel = viewModel, title = "App Settings") {
                         SettingsScreen(viewModel = viewModel)
                     }
+                    is Screen.Splash -> {
+                        SplashScreen(
+                            viewModel = viewModel,
+                            onFinish = { viewModel.navigateTo(Screen.Dashboard) }
+                        )
+                    }
                     else -> {}
                 }
             }
@@ -425,6 +433,7 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
             )
         }
     }
+}
 }
 
 enum class CategorySheetType {

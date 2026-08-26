@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import com.drtahir.studentkit.data.*
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.core.content.FileProvider
 import java.io.File
 import androidx.compose.ui.draw.shadow
@@ -6861,9 +6862,9 @@ private fun loadSavedDocuments(context: Context): List<ScannedDocument> {
     val prefs = context.getSharedPreferences("student_scanner_prefs", Context.MODE_PRIVATE)
     val json = prefs.getString("saved_scans", null)
     if (json == null) {
-        val mocks = getMockScannedDocuments()
-        saveDocuments(context, mocks)
-        return mocks
+        val defaultDocs = getDefaultScannedTemplates()
+        saveDocuments(context, defaultDocs)
+        return defaultDocs
     }
     try {
         val documents = mutableListOf<ScannedDocument>()
@@ -6893,7 +6894,7 @@ private fun loadSavedDocuments(context: Context): List<ScannedDocument> {
         }
         return documents
     } catch (e: Exception) {
-        return getMockScannedDocuments()
+        return getDefaultScannedTemplates()
     }
 }
 
@@ -6920,7 +6921,7 @@ private fun saveDocuments(context: Context, documents: List<ScannedDocument>) {
     prefs.edit().putString("saved_scans", sb.toString()).apply()
 }
 
-private fun getMockScannedDocuments(): List<ScannedDocument> {
+private fun getDefaultScannedTemplates(): List<ScannedDocument> {
     return listOf(
         ScannedDocument(
             id = "doc_1",
@@ -7155,8 +7156,8 @@ fun createDocumentTempImageUri(context: Context): Uri? {
     }
 }
 
-// Helper to generate a gorgeous mock paper document bitmap dynamically if no physical camera or image is uploaded
-fun createMockPaperDocument(preset: String): Bitmap {
+// Helper to generate a document bitmap template canvas dynamically
+fun createSampleDocumentCanvas(preset: String): Bitmap {
     val width = 600
     val height = 850
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -7289,7 +7290,7 @@ fun loadDocumentBitmapFromUri(context: Context, uri: Uri, preset: String): Bitma
             BitmapFactory.decodeStream(stream) ?: throw Exception("Null decoded bitmap")
         }
     } catch (e: Exception) {
-        createMockPaperDocument(preset)
+        createSampleDocumentCanvas(preset)
     }
 }
 
@@ -9239,6 +9240,352 @@ fun savePdfDocumentToDownloads(context: Context, pdfDoc: android.graphics.pdf.Pd
     return uri
 }
 
+fun renderPdfPageBitmap(context: Context, uri: Uri, pageIndex: Int, maxDim: Int = 480): Bitmap? {
+    return try {
+        val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
+        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+        if (pageIndex !in 0 until renderer.pageCount) {
+            renderer.close()
+            pfd.close()
+            return null
+        }
+        val page = renderer.openPage(pageIndex)
+        val aspect = page.width.toFloat() / page.height.toFloat().coerceAtLeast(1f)
+        val targetW = if (aspect >= 1f) maxDim else (maxDim * aspect).toInt().coerceAtLeast(100)
+        val targetH = if (aspect >= 1f) (maxDim / aspect).toInt().coerceAtLeast(100) else maxDim
+        val bmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        canvas.drawColor(android.graphics.Color.WHITE)
+        page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+        page.close()
+        renderer.close()
+        pfd.close()
+        bmp
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
+@Composable
+fun PdfRealtimeLivePreviewCard(
+    fileItem: PdfToolFileItem,
+    previewBitmap: Bitmap?,
+    activeTool: ActivePdfTool,
+    watermarkText: String,
+    watermarkColor: Color,
+    watermarkAngle: Float,
+    watermarkOpacity: Float,
+    watermarkTextSizeSp: Float,
+    watermarkIsRepeated: Boolean,
+    rotateAngleDegrees: Float,
+    currentPageIndex: Int,
+    onPageChange: (Int) -> Unit,
+    onQuickRotate: ((Float) -> Unit)? = null
+) {
+    val animatedRotation by animateFloatAsState(
+        targetValue = rotateAngleDegrees,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow),
+        label = "pdf_preview_rotation"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Live Header with Pulsing Badge and Page Switcher
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981))
+                    )
+                    Text(
+                        text = "LIVE REAL-TIME PREVIEW",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 11.sp,
+                        color = Color(0xFF10B981),
+                        letterSpacing = 0.8.sp
+                    )
+                }
+
+                if (fileItem.pageCount > 1) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                if (currentPageIndex > 0) onPageChange(currentPageIndex - 1)
+                            },
+                            enabled = currentPageIndex > 0,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronLeft,
+                                contentDescription = "Previous Page",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text(
+                            text = "Page ${currentPageIndex + 1}/${fileItem.pageCount}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        IconButton(
+                            onClick = {
+                                if (currentPageIndex < fileItem.pageCount - 1) onPageChange(currentPageIndex + 1)
+                            },
+                            enabled = currentPageIndex < fileItem.pageCount - 1,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Next Page",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Page 1 of 1",
+                        fontSize = 11.sp,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Preview Stage Container
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                            )
+                        )
+                    )
+                    .padding(12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val baseBmp = previewBitmap ?: fileItem.previewBitmap
+
+                if (baseBmp != null) {
+                    when (activeTool) {
+                        ActivePdfTool.ROTATE -> {
+                            val origAspect = baseBmp.width.toFloat() / baseBmp.height.toFloat().coerceAtLeast(1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight(0.85f)
+                                    .aspectRatio(origAspect)
+                                    .graphicsLayer {
+                                        rotationZ = animatedRotation
+                                    }
+                                    .shadow(8.dp, RoundedCornerShape(4.dp))
+                                    .background(Color.White, RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(4.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(
+                                    bitmap = baseBmp.asImageBitmap(),
+                                    contentDescription = "Rotated PDF Page Preview",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+
+                        ActivePdfTool.WATERMARK -> {
+                            val aspect = baseBmp.width.toFloat() / baseBmp.height.toFloat().coerceAtLeast(1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .aspectRatio(aspect)
+                                    .shadow(8.dp, RoundedCornerShape(4.dp))
+                                    .background(Color.White, RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(4.dp))
+                            ) {
+                                Image(
+                                    bitmap = baseBmp.asImageBitmap(),
+                                    contentDescription = "Watermark PDF Page Preview",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    val canvasW = size.width
+                                    val canvasH = size.height
+                                    val paintColorInt = android.graphics.Color.argb(
+                                        (watermarkOpacity * 255).toInt().coerceIn(0, 255),
+                                        (watermarkColor.red * 255).toInt(),
+                                        (watermarkColor.green * 255).toInt(),
+                                        (watermarkColor.blue * 255).toInt()
+                                    )
+                                    val scaledFontSize = (watermarkTextSizeSp * (canvasH / 300f)).coerceAtLeast(10f)
+                                    val paint = android.graphics.Paint().apply {
+                                        color = paintColorInt
+                                        textSize = scaledFontSize
+                                        isAntiAlias = true
+                                        typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                                        textAlign = android.graphics.Paint.Align.CENTER
+                                    }
+
+                                    if (watermarkText.isNotBlank()) {
+                                        if (watermarkIsRepeated) {
+                                            val stepX = canvasW / 2.2f
+                                            val stepY = canvasH / 3.2f
+                                            for (gx in -1..3) {
+                                                for (gy in -1..4) {
+                                                    drawContext.canvas.nativeCanvas.save()
+                                                    drawContext.canvas.nativeCanvas.translate(gx * stepX, gy * stepY)
+                                                    drawContext.canvas.nativeCanvas.rotate(watermarkAngle)
+                                                    drawContext.canvas.nativeCanvas.drawText(watermarkText, 0f, 0f, paint)
+                                                    drawContext.canvas.nativeCanvas.restore()
+                                                }
+                                            }
+                                        } else {
+                                            drawContext.canvas.nativeCanvas.save()
+                                            drawContext.canvas.nativeCanvas.translate(canvasW / 2f, canvasH / 2f)
+                                            drawContext.canvas.nativeCanvas.rotate(watermarkAngle)
+                                            drawContext.canvas.nativeCanvas.drawText(watermarkText, 0f, 0f, paint)
+                                            drawContext.canvas.nativeCanvas.restore()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        else -> {
+                            val aspect = baseBmp.width.toFloat() / baseBmp.height.toFloat().coerceAtLeast(1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .aspectRatio(aspect)
+                                    .shadow(8.dp, RoundedCornerShape(4.dp))
+                                    .background(Color.White, RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(4.dp))
+                            ) {
+                                Image(
+                                    bitmap = baseBmp.asImageBitmap(),
+                                    contentDescription = "PDF Page Preview",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                }
+            }
+
+            // Quick Status Info / Stepper Bar underneath preview
+            when (activeTool) {
+                ActivePdfTool.ROTATE -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "Angle: ${rotateAngleDegrees.toInt()}° (${when ((rotateAngleDegrees.toInt() % 360 + 360) % 360) {
+                                    90 -> "90° CW"
+                                    180 -> "180° Invert"
+                                    270 -> "270° CCW"
+                                    else -> "0° Normal"
+                                }})",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            OutlinedButton(
+                                onClick = { onQuickRotate?.invoke((rotateAngleDegrees - 90f + 360f) % 360f) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("↶ -90°", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { onQuickRotate?.invoke((rotateAngleDegrees + 90f) % 360f) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("↷ +90°", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { onQuickRotate?.invoke(0f) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("↺ Reset", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                ActivePdfTool.WATERMARK -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "Stamp: \"${watermarkText.ifEmpty { "None" }}\" • ${watermarkAngle.toInt()}° • ${(watermarkOpacity * 100).toInt()}% • ${watermarkTextSizeSp.toInt()}sp",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1
+                            )
+                        }
+
+                        Text(
+                            text = if (watermarkIsRepeated) "Tiled Pattern" else "Center Stamp",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                else -> {}
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfToolsScreen(viewModel: StudentKitViewModel) {
@@ -9264,10 +9611,16 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
     var watermarkColor by remember { mutableStateOf(Color(0xFFE53935)) } // Default Red
     var watermarkAngle by remember { mutableFloatStateOf(-45f) }
     var watermarkOpacity by remember { mutableFloatStateOf(0.35f) }
+    var watermarkTextSizeSp by remember { mutableFloatStateOf(36f) }
+    var watermarkIsRepeated by remember { mutableStateOf(false) }
 
     var rotateAngleDegrees by remember { mutableFloatStateOf(90f) }
 
     var isPngExportFormat by remember { mutableStateOf(false) }
+
+    // Page preview navigation state
+    var previewPageIndex by remember { mutableIntStateOf(0) }
+    var currentPreviewPageBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     // Progress Modal States
     var isProcessingModalVisible by remember { mutableStateOf(false) }
@@ -9285,12 +9638,29 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
             val item = parsePdfFileItem(context, uri)
             if (item != null) {
                 singleFile = item
+                previewPageIndex = 0
                 if (item.pageCount > 0) {
                     splitPageRangeText = "1-${item.pageCount}"
                 }
             } else {
                 Toast.makeText(context, "Failed to read selected PDF file.", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    LaunchedEffect(singleFile, previewPageIndex) {
+        val file = singleFile
+        if (file != null) {
+            if (previewPageIndex == 0 && file.previewBitmap != null) {
+                currentPreviewPageBitmap = file.previewBitmap
+            } else {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val bmp = renderPdfPageBitmap(context, file.uri, previewPageIndex, maxDim = 480)
+                    currentPreviewPageBitmap = bmp
+                }
+            }
+        } else {
+            currentPreviewPageBitmap = null
         }
     }
 
@@ -9559,33 +9929,39 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
                                 }
                             }
                         } else {
-                            // Selected File Card
+                            // Selected File Card & Live Realtime Preview
+                            PdfRealtimeLivePreviewCard(
+                                fileItem = singleFile!!,
+                                previewBitmap = currentPreviewPageBitmap,
+                                activeTool = activeTool,
+                                watermarkText = watermarkText,
+                                watermarkColor = watermarkColor,
+                                watermarkAngle = watermarkAngle,
+                                watermarkOpacity = watermarkOpacity,
+                                watermarkTextSizeSp = watermarkTextSizeSp,
+                                watermarkIsRepeated = watermarkIsRepeated,
+                                rotateAngleDegrees = rotateAngleDegrees,
+                                currentPageIndex = previewPageIndex,
+                                onPageChange = { previewPageIndex = it },
+                                onQuickRotate = { newAngle -> rotateAngleDegrees = newAngle }
+                            )
+
                             OutlinedCard(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(12.dp),
+                                    modifier = Modifier.padding(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    if (singleFile?.previewBitmap != null) {
-                                        Image(
-                                            bitmap = singleFile!!.previewBitmap!!.asImageBitmap(),
-                                            contentDescription = null,
-                                            modifier = Modifier
-                                                .size(52.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                        )
-                                    } else {
-                                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(singleFile!!.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
-                                        Text("${singleFile!!.pageCount} Pages • ${singleFile!!.sizeFormatted}", fontSize = 12.sp, color = Color.Gray)
+                                        Text(singleFile!!.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                                        Text("${singleFile!!.pageCount} Pages • ${singleFile!!.sizeFormatted}", fontSize = 11.sp, color = Color.Gray)
                                     }
                                     TextButton(onClick = { pickSinglePdfLauncher.launch(arrayOf("application/pdf")) }) {
-                                        Text("Change", fontSize = 12.sp)
+                                        Text("Change PDF", fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -9670,28 +10046,56 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
                                     }
 
                                     ActivePdfTool.WATERMARK -> {
-                                        Text("Watermark Stamp Settings:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text("Watermark Stamp Text:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                         OutlinedTextField(
                                             value = watermarkText,
                                             onValueChange = { watermarkText = it },
-                                            label = { Text("Watermark Text") },
+                                            label = { Text("Watermark Text (Real-time Preview)") },
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(10.dp)
                                         )
 
-                                        Text("Text Color:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Quick Presets:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(listOf("CONFIDENTIAL", "DRAFT", "SAMPLE", "COPY", "APPROVED", "TOP SECRET")) { preset ->
+                                                FilterChip(
+                                                    selected = watermarkText.equals(preset, ignoreCase = true),
+                                                    onClick = { watermarkText = preset },
+                                                    label = { Text(preset, fontSize = 11.sp) }
+                                                )
+                                            }
+                                        }
+
+                                        Text("Watermark Layout Style:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            FilterChip(
+                                                selected = !watermarkIsRepeated,
+                                                onClick = { watermarkIsRepeated = false },
+                                                label = { Text("Center Stamp", fontSize = 12.sp) }
+                                            )
+                                            FilterChip(
+                                                selected = watermarkIsRepeated,
+                                                onClick = { watermarkIsRepeated = true },
+                                                label = { Text("Repeated Grid Pattern", fontSize = 12.sp) }
+                                            )
+                                        }
+
+                                        Text("Stamp Color:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                             listOf(
                                                 Color(0xFFE53935) to "Red",
                                                 Color(0xFF424242) to "Gray",
                                                 Color(0xFF1E88E5) to "Blue",
-                                                Color(0xFF43A047) to "Green"
+                                                Color(0xFF43A047) to "Green",
+                                                Color(0xFFFB8C00) to "Orange",
+                                                Color(0xFF8E24AA) to "Purple",
+                                                Color(0xFF000000) to "Black"
                                             ).forEach { (color, name) ->
                                                 Surface(
                                                     shape = CircleShape,
                                                     color = color,
                                                     modifier = Modifier
-                                                        .size(36.dp)
+                                                        .size(34.dp)
                                                         .border(
                                                             2.dp,
                                                             if (watermarkColor == color) MaterialTheme.colorScheme.primary else Color.Transparent,
@@ -9702,9 +10106,14 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
                                             }
                                         }
 
-                                        Text("Stamp Angle:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Stamp Angle (${watermarkAngle.toInt()}°):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            listOf(-45f to "-45° Diagonal", 0f to "0° Horizontal", 45f to "45° Diagonal").forEach { (angle, label) ->
+                                            listOf(
+                                                -45f to "-45° Diagonal",
+                                                0f to "0° Horizontal",
+                                                45f to "45° Diagonal",
+                                                90f to "90° Vertical"
+                                            ).forEach { (angle, label) ->
                                                 FilterChip(
                                                     selected = watermarkAngle == angle,
                                                     onClick = { watermarkAngle = angle },
@@ -9712,27 +10121,124 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
                                                 )
                                             }
                                         }
+                                        Slider(
+                                            value = watermarkAngle,
+                                            onValueChange = { watermarkAngle = it },
+                                            valueRange = -90f..90f
+                                        )
 
-                                        Text("Opacity (${(watermarkOpacity * 100).toInt()}%):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Stamp Opacity:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            Text("${(watermarkOpacity * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        }
                                         Slider(
                                             value = watermarkOpacity,
                                             onValueChange = { watermarkOpacity = it },
-                                            valueRange = 0.15f..0.8f
+                                            valueRange = 0.10f..0.85f
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Font Size:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            Text("${watermarkTextSizeSp.toInt()} sp", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                        Slider(
+                                            value = watermarkTextSizeSp,
+                                            onValueChange = { watermarkTextSizeSp = it },
+                                            valueRange = 18f..64f
                                         )
                                     }
 
                                     ActivePdfTool.ROTATE -> {
                                         Text("Rotation Orientation:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
                                             listOf(
-                                                90f to "90° Clockwise",
+                                                0f to "0° (Original)",
+                                                90f to "90° CW",
                                                 180f to "180° Flip",
                                                 270f to "270° CCW"
                                             ).forEach { (angle, label) ->
                                                 FilterChip(
                                                     selected = rotateAngleDegrees == angle,
                                                     onClick = { rotateAngleDegrees = angle },
-                                                    label = { Text(label, fontSize = 12.sp) }
+                                                    label = { Text(label, fontSize = 11.sp) }
+                                                )
+                                            }
+                                        }
+
+                                        Text("Quick Steppers:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Button(
+                                                onClick = { rotateAngleDegrees = (rotateAngleDegrees - 90f + 360f) % 360f },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(10.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            ) {
+                                                Text("↶ -90°", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Button(
+                                                onClick = { rotateAngleDegrees = (rotateAngleDegrees + 90f) % 360f },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(10.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            ) {
+                                                Text("↷ +90°", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Button(
+                                                onClick = { rotateAngleDegrees = (rotateAngleDegrees + 180f) % 360f },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(10.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            ) {
+                                                Text("↻ 180°", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            OutlinedButton(
+                                                onClick = { rotateAngleDegrees = 0f },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Text("0°", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Info,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = when ((rotateAngleDegrees.toInt() % 360 + 360) % 360) {
+                                                        90 -> "All pages will be rotated 90° Clockwise into Landscape orientation."
+                                                        180 -> "All pages will be rotated 180° Inverted upside down."
+                                                        270 -> "All pages will be rotated 270° Counter-Clockwise into Landscape orientation."
+                                                        else -> "Document remains in its original orientation (0°)."
+                                                    },
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
                                         }
@@ -9858,9 +10364,10 @@ fun PdfToolsScreen(viewModel: StudentKitViewModel) {
                                                     fileItem = targetFile,
                                                     watermarkText = watermarkText,
                                                     textColor = watermarkColor,
-                                                    textSizeSp = 40f,
+                                                    textSizeSp = watermarkTextSizeSp,
                                                     rotationAngle = watermarkAngle,
                                                     opacity = watermarkOpacity,
+                                                    isRepeated = watermarkIsRepeated,
                                                     onProgress = { prog, status ->
                                                         processingProgress = prog
                                                         processingStatusText = status
@@ -10402,6 +10909,7 @@ suspend fun processAddWatermarkPdf(
     textSizeSp: Float,
     rotationAngle: Float,
     opacity: Float,
+    isRepeated: Boolean = false,
     onProgress: (Float, String) -> Unit,
     onComplete: (Uri?) -> Unit
 ) {
@@ -10442,11 +10950,27 @@ suspend fun processAddWatermarkPdf(
                     textAlign = android.graphics.Paint.Align.CENTER
                 }
 
-                canvas.save()
-                canvas.translate(w / 2f, h / 2f)
-                canvas.rotate(rotationAngle)
-                canvas.drawText(watermarkText, 0f, 0f, wmPaint)
-                canvas.restore()
+                if (watermarkText.isNotBlank()) {
+                    if (isRepeated) {
+                        val stepX = w / 2.2f
+                        val stepY = h / 3.2f
+                        for (gx in -1..3) {
+                            for (gy in -1..4) {
+                                canvas.save()
+                                canvas.translate(gx * stepX, gy * stepY)
+                                canvas.rotate(rotationAngle)
+                                canvas.drawText(watermarkText, 0f, 0f, wmPaint)
+                                canvas.restore()
+                            }
+                        }
+                    } else {
+                        canvas.save()
+                        canvas.translate(w / 2f, h / 2f)
+                        canvas.rotate(rotationAngle)
+                        canvas.drawText(watermarkText, 0f, 0f, wmPaint)
+                        canvas.restore()
+                    }
+                }
 
                 val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(page.width, page.height, i + 1).create()
                 val docPage = pdfDoc.startPage(pageInfo)
@@ -10677,11 +11201,13 @@ fun InvoiceGeneratorScreen(viewModel: StudentKitViewModel) {
     val tabs = listOf(
         Pair("Terminal", Icons.Default.PointOfSale),
         Pair("Inventory", Icons.Default.Inventory2),
+        Pair("Staff & HR", Icons.Default.Badge),
         Pair("Procurement", Icons.Default.LocalShipping),
         Pair("Shift Close", Icons.Default.Calculate),
         Pair("Expenses", Icons.Default.AccountBalanceWallet),
         Pair("Clients", Icons.Default.People),
         Pair("Analytics", Icons.Default.Assessment),
+        Pair("Reports Hub", Icons.Default.Summarize),
         Pair("Settings", Icons.Default.Settings)
     )
 
@@ -10705,12 +11231,14 @@ fun InvoiceGeneratorScreen(viewModel: StudentKitViewModel) {
             when (currentTab) {
                 0 -> OmniPosTerminalTab(viewModel)
                 1 -> OmniPosInventoryTab(viewModel)
-                2 -> OmniPosProcurementTab(viewModel)
-                3 -> OmniPosShiftTab(viewModel)
-                4 -> OmniPosExpensesTab(viewModel)
-                5 -> OmniPosClientsTab(viewModel)
-                6 -> OmniPosAnalyticsTab(viewModel)
-                7 -> OmniPosSettingsTab(viewModel)
+                2 -> OmniPosEmployeesTab(viewModel)
+                3 -> OmniPosProcurementTab(viewModel)
+                4 -> OmniPosShiftTab(viewModel)
+                5 -> OmniPosExpensesTab(viewModel)
+                6 -> OmniPosClientsTab(viewModel)
+                7 -> OmniPosAnalyticsTab(viewModel)
+                8 -> OmniPosFinancialReportsScreen(viewModel)
+                9 -> OmniPosSettingsTab(viewModel)
             }
         }
     }
@@ -10722,6 +11250,16 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
     val products by viewModel.allPosProducts.collectAsState(initial = emptyList())
     val clients by viewModel.allPosClients.collectAsState(initial = emptyList())
+    val employees by viewModel.allPosEmployees.collectAsState(initial = emptyList())
+
+    var activeCashier by remember { mutableStateOf<PosEmployee?>(null) }
+    var showCashierPicker by remember { mutableStateOf(false) }
+
+    LaunchedEffect(employees) {
+        if (activeCashier == null && employees.isNotEmpty()) {
+            activeCashier = employees.firstOrNull { it.isActive }
+        }
+    }
     
     var selectedIndustryMode by remember { mutableStateOf("All") }
     val industryModes = listOf("All", "Retail & Mart", "Pharma", "Bakery & Cafe", "Services", "Wholesale")
@@ -10931,12 +11469,12 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
                         }
                     }
 
-                    // Customer Selector
+                    // Customer & Cashier Selector
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                         var showClientPicker by remember { mutableStateOf(false) }
                         OutlinedButton(
                             onClick = { showClientPicker = true },
-                            modifier = Modifier.weight(1f).height(38.dp),
+                            modifier = Modifier.weight(1.2f).height(38.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp)
                         ) {
                             Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
@@ -10945,6 +11483,23 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
                                 selectedClient?.name ?: "Walk-in Customer",
                                 fontSize = 10.sp,
                                 maxLines = 1
+                            )
+                        }
+
+                        // Cashier Switch Button
+                        OutlinedButton(
+                            onClick = { showCashierPicker = true },
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                activeCashier?.fullName?.split(" ")?.firstOrNull() ?: "Cashier",
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
@@ -10976,6 +11531,31 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
                                     }
                                 },
                                 confirmButton = { TextButton(onClick = { showClientPicker = false }) { Text("Close") } }
+                            )
+                        }
+
+                        if (showCashierPicker) {
+                            AlertDialog(
+                                onDismissRequest = { showCashierPicker = false },
+                                title = { Text("Switch Operating Cashier") },
+                                text = {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        items(employees) { emp ->
+                                            ListItem(
+                                                headlineContent = { Text(emp.fullName, fontWeight = FontWeight.Bold) },
+                                                supportingContent = { Text("${emp.role} • ${if (emp.isActive) "Active" else "Inactive"}") },
+                                                leadingContent = {
+                                                    Icon(Icons.Default.Badge, contentDescription = null, tint = if (activeCashier?.id == emp.id) MaterialTheme.colorScheme.primary else Color.Gray)
+                                                },
+                                                modifier = Modifier.clickable {
+                                                    activeCashier = emp
+                                                    showCashierPicker = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                },
+                                confirmButton = { TextButton(onClick = { showCashierPicker = false }) { Text("Close") } }
                             )
                         }
                     }
@@ -11355,12 +11935,12 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
                                 }
                             }
 
-                            // Customer & Order Mode Selectors
+                            // Customer & Cashier Selectors
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 var showClientPicker by remember { mutableStateOf(false) }
                                 OutlinedButton(
                                     onClick = { showClientPicker = true },
-                                    modifier = Modifier.weight(1f).height(38.dp),
+                                    modifier = Modifier.weight(1.2f).height(38.dp),
                                     contentPadding = PaddingValues(horizontal = 8.dp)
                                 ) {
                                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
@@ -11369,6 +11949,23 @@ fun OmniPosTerminalTab(viewModel: StudentKitViewModel) {
                                         selectedClient?.name ?: "Walk-in Customer",
                                         fontSize = 10.sp,
                                         maxLines = 1
+                                    )
+                                }
+
+                                // Cashier Switch Button
+                                OutlinedButton(
+                                    onClick = { showCashierPicker = true },
+                                    modifier = Modifier.weight(1f).height(38.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                                    contentPadding = PaddingValues(horizontal = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        activeCashier?.fullName?.split(" ")?.firstOrNull() ?: "Cashier",
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
 
@@ -12258,7 +12855,14 @@ fun OmniPosAnalyticsTab(viewModel: StudentKitViewModel) {
     val totalTax = orders.sumOf { it.tax }
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-        Text("Executive Financial Dashboard", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Executive Financial Dashboard", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("${orders.size} Total Transactions", fontSize = 11.sp, color = Color.Gray)
+        }
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -12278,6 +12882,38 @@ fun OmniPosAnalyticsTab(viewModel: StudentKitViewModel) {
                 Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Tax Collected", fontSize = 10.sp)
                     Text("Rs ${String.format("%.0f", totalTax)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.tertiary)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 7-Day Sales Trend (Recharts-style Line Chart)
+        PosSalesTrendLineChart(
+            orders = orders,
+            currency = "Rs"
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 1-Click Financial Reports Banner
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0D47A1).copy(alpha = 0.08f)),
+            border = CardDefaults.outlinedCardBorder()
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Summarize, contentDescription = null, tint = Color(0xFF0D47A1), modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("1-Click Financial Reports Suite", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0D47A1))
+                        Text("12 Enterprise Reports: Z/X-Report, P&L, ABC Analysis, Khata Aging & VAT", fontSize = 10.sp, color = Color.DarkGray)
+                    }
                 }
             }
         }

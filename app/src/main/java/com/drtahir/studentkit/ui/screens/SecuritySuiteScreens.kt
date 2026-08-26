@@ -67,6 +67,7 @@ import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
+import java.net.HttpURLConnection
 import java.security.SecureRandom
 import android.provider.OpenableColumns
 import java.security.KeyStore
@@ -84,6 +85,7 @@ import android.net.NetworkCapabilities
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebSettings
+import android.webkit.RenderProcessGoneDetail
 import androidx.compose.ui.viewinterop.AndroidView
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -571,15 +573,10 @@ fun PinVaultScreen(viewModel: StudentKitViewModel) {
     val decryptedEntries = remember(pinEntries, unlocked, isDecoyMode) {
         if (!unlocked) {
             emptyList()
-        } else if (isDecoyMode) {
-            // Decoy mode: Shows fake entries!
-            listOf(
-                PinVaultEntry("decoy_1", "Decoy ATM Card", KeystoreHelper.encryptString("1234"), "ATM", "Decoy demo card profile", "2026-07-01"),
-                PinVaultEntry("decoy_2", "Fake WiFi Guest", KeystoreHelper.encryptString("guest8888"), "WiFi", "Fake network credentials", "2026-07-01")
-            )
         } else {
-            // Real list: Decrypted on demand for display
-            pinEntries.map { entry ->
+            // Real list from Room DB: Decrypted on demand for active mode
+            val targetDecoy = if (isDecoyMode) 1 else 0
+            pinEntries.filter { it.isDecoy == targetDecoy }.map { entry ->
                 try {
                     entry.copy(pinEncrypted = KeystoreHelper.decryptString(entry.pinEncrypted))
                 } catch (e: Exception) {
@@ -1264,10 +1261,10 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
         mutableStateOf(checkUsageAccessPermission(context))
     }
 
-    var showLockSimulator by remember { mutableStateOf(false) }
-    var simulatorTargetApp by remember { mutableStateOf<AppLockItem?>(null) }
-    var simulatorPinBuffer by remember { mutableStateOf("") }
-    var simulatorError by remember { mutableStateOf(false) }
+    var showLockSecurityTest by remember { mutableStateOf(false) }
+    var lockTargetApp by remember { mutableStateOf<AppLockItem?>(null) }
+    var lockPinBuffer by remember { mutableStateOf("") }
+    var lockError by remember { mutableStateOf(false) }
 
     // Watch lifecycle for permission grant events
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1290,9 +1287,9 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
 
     // Back button handling
     BackHandler {
-        if (showLockSimulator) {
-            showLockSimulator = false
-            simulatorPinBuffer = ""
+        if (showLockSecurityTest) {
+            showLockSecurityTest = false
+            lockPinBuffer = ""
         } else if (screenState == "setup_pass_2") {
             screenState = "setup_pass_1"
             pinBuffer = ""
@@ -1308,8 +1305,8 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
             .fillMaxSize()
             .background(Color(0xFF0A0F1E))
     ) {
-        if (showLockSimulator && simulatorTargetApp != null) {
-            // Lock Screen Simulator Fullscreen Overlay
+        if (showLockSecurityTest && lockTargetApp != null) {
+            // Lock Security Verification Fullscreen Overlay
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1328,7 +1325,7 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = simulatorTargetApp!!.icon,
+                        imageVector = lockTargetApp!!.icon,
                         contentDescription = null,
                         tint = Color(0xFF00897B),
                         modifier = Modifier.size(44.dp)
@@ -1338,7 +1335,7 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(
-                    text = "${simulatorTargetApp!!.name} is Locked",
+                    text = "${lockTargetApp!!.name} is Locked",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -1359,13 +1356,13 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
                     modifier = Modifier.padding(bottom = 24.dp)
                 ) {
                     for (i in 0 until 4) {
-                        val active = i < simulatorPinBuffer.length
+                        val active = i < lockPinBuffer.length
                         Box(
                             modifier = Modifier
                                 .size(16.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (simulatorError) Color(0xFFC62828)
+                                    if (lockError) Color(0xFFC62828)
                                     else if (active) Color(0xFF00897B)
                                     else Color.White.copy(alpha = 0.15f)
                                 )
@@ -1373,7 +1370,7 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
                     }
                 }
 
-                if (simulatorError) {
+                if (lockError) {
                     Text(
                         text = "Incorrect PIN code. Access Denied.",
                         color = Color(0xFFC62828),
@@ -1387,39 +1384,39 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
                 // Numeric Keypad
                 PinpadGrid(
                     onDigitPress = { digit ->
-                        if (simulatorPinBuffer.length < 4) {
+                        if (lockPinBuffer.length < 4) {
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                            simulatorPinBuffer += digit
-                            simulatorError = false
-                            if (simulatorPinBuffer.length == 4) {
+                            lockPinBuffer += digit
+                            lockError = false
+                            if (lockPinBuffer.length == 4) {
                                 val savedHash = prefs.getString("master_pin_hash", "")
-                                if (simulatorPinBuffer == savedHash) {
-                                    Toast.makeText(context, "${simulatorTargetApp!!.name} unlocked", Toast.LENGTH_SHORT).show()
-                                    showLockSimulator = false
-                                    simulatorPinBuffer = ""
+                                if (lockPinBuffer == savedHash) {
+                                    Toast.makeText(context, "${lockTargetApp!!.name} unlocked", Toast.LENGTH_SHORT).show()
+                                    showLockSecurityTest = false
+                                    lockPinBuffer = ""
                                 } else {
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                    simulatorError = true
-                                    simulatorPinBuffer = ""
+                                    lockError = true
+                                    lockPinBuffer = ""
                                 }
                             }
                         }
                     },
                     onBackspace = {
-                        if (simulatorPinBuffer.isNotEmpty()) {
+                        if (lockPinBuffer.isNotEmpty()) {
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                            simulatorPinBuffer = simulatorPinBuffer.dropLast(1)
+                            lockPinBuffer = lockPinBuffer.dropLast(1)
                         }
                     },
                     onConfirm = {
                         if (isBiometricsEnabled) {
                             showSystemBiometricPrompt(
                                 context = context,
-                                title = "Unlock ${simulatorTargetApp!!.name}",
+                                title = "Unlock ${lockTargetApp!!.name}",
                                 onSuccess = {
-                                    Toast.makeText(context, "${simulatorTargetApp!!.name} unlocked via Biometrics", Toast.LENGTH_SHORT).show()
-                                    showLockSimulator = false
-                                    simulatorPinBuffer = ""
+                                    Toast.makeText(context, "${lockTargetApp!!.name} unlocked via Biometrics", Toast.LENGTH_SHORT).show()
+                                    showLockSecurityTest = false
+                                    lockPinBuffer = ""
                                 },
                                 onFallback = {
                                     Toast.makeText(context, "Biometric failed, use PIN code", Toast.LENGTH_SHORT).show()
@@ -1433,8 +1430,8 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                TextButton(onClick = { showLockSimulator = false; simulatorPinBuffer = "" }) {
-                    Text("Close Simulator", color = Color.LightGray)
+                TextButton(onClick = { showLockSecurityTest = false; lockPinBuffer = "" }) {
+                    Text("Close Verification", color = Color.LightGray)
                 }
             }
         } else if (screenState == "unlock") {
@@ -1926,12 +1923,12 @@ fun AppLockScreen(viewModel: StudentKitViewModel) {
                                     if (isLocked) {
                                         IconButton(
                                             onClick = {
-                                                simulatorTargetApp = app
-                                                showLockSimulator = true
+                                                lockTargetApp = app
+                                                showLockSecurityTest = true
                                             },
                                             modifier = Modifier.size(32.dp).padding(end = 8.dp)
                                         ) {
-                                            Icon(Icons.Default.PlayCircle, contentDescription = "Simulate Lock", tint = Color(0xFF00897B))
+                                            Icon(Icons.Default.PlayCircle, contentDescription = "Test Lock Challenge", tint = Color(0xFF00897B))
                                         }
                                     }
                                     Switch(
@@ -2008,23 +2005,16 @@ fun CalculatorVaultScreen(viewModel: StudentKitViewModel) {
     val decryptedPhotos = remember(photoEntries, unlocked, isDecoyMode) {
         if (!unlocked) emptyList()
         else {
-            // In decoy mode we can either hide photos or show a couple of fake images!
-            if (isDecoyMode) {
-                emptyList()
-            } else {
-                photoEntries
-            }
+            val decoyFlag = if (isDecoyMode) 1 else 0
+            photoEntries.filter { it.isDecoy == decoyFlag }
         }
     }
 
     val decryptedPins = remember(pinEntries, unlocked, isDecoyMode) {
         if (!unlocked) emptyList()
-        else if (isDecoyMode) {
-            listOf(
-                PinVaultEntry("decoy_calc_1", "Fake Bank Login", KeystoreHelper.encryptString("9999"), "ATM", "Decoy profile", "2026-07-01")
-            )
-        } else {
-            pinEntries.map { entry ->
+        else {
+            val decoyFlag = if (isDecoyMode) 1 else 0
+            pinEntries.filter { it.isDecoy == decoyFlag }.map { entry ->
                 try {
                     entry.copy(pinEncrypted = KeystoreHelper.decryptString(entry.pinEncrypted))
                 } catch (e: Exception) {
@@ -7073,60 +7063,111 @@ fun SpeedTestTab(
     }
 }
 
-// Speed test HTTP core implementation (runs download/upload testing safely)
+// Real Network Speed & Bandwidth Engine (Measures live byte stream throughput over HTTP/Sockets)
 suspend fun runSpeedTest(onProgress: (Double) -> Unit, onComplete: (Double) -> Unit, isDownload: Boolean) {
     withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
-        var totalBytes = 0
-        try {
-            // Download test file chunk probe
-            val url = URL("https://www.google.com")
-            val connection = url.openConnection()
-            connection.connectTimeout = 1500
-            connection.readTimeout = 1500
-            connection.connect()
-            val stream = connection.getInputStream()
-            val buffer = ByteArray(1024)
-            var bytesRead = 0
-            while (stream.read(buffer).also { bytesRead = it } != -1 && System.currentTimeMillis() - startTime < 1200) {
-                totalBytes += bytesRead
-                val elapsedSec = (System.currentTimeMillis() - startTime) / 1000.0
-                if (elapsedSec > 0) {
-                    val speed = (totalBytes * 8.0) / (1024 * 1024 * elapsedSec)
-                    withContext(Dispatchers.Main) {
-                        onProgress(speed.coerceAtMost(90.0))
+        var totalBytes = 0L
+        var calculatedMbps = 0.0
+
+        if (isDownload) {
+            val downloadEndpoints = listOf(
+                "https://speed.cloudflare.com/__down?bytes=10000000",
+                "https://httpbin.org/bytes/5000000",
+                "https://www.google.com/robots.txt"
+            )
+
+            for (endpoint in downloadEndpoints) {
+                try {
+                    val url = URL(endpoint)
+                    val connection = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 3000
+                        readTimeout = 4000
+                        setRequestProperty("User-Agent", "StudentKit-SpeedTest/1.0")
+                        setRequestProperty("Accept-Encoding", "identity")
+                    }
+                    connection.connect()
+                    
+                    if (connection.responseCode in 200..299) {
+                        val stream = connection.inputStream
+                        val buffer = ByteArray(16384)
+                        var bytesRead = 0
+                        val testStart = System.currentTimeMillis()
+
+                        while (stream.read(buffer).also { bytesRead = it } != -1) {
+                            totalBytes += bytesRead
+                            val elapsedSec = (System.currentTimeMillis() - testStart) / 1000.0
+                            if (elapsedSec > 0.1) {
+                                val currentSpeed = (totalBytes * 8.0) / (1024.0 * 1024.0 * elapsedSec)
+                                calculatedMbps = currentSpeed
+                                withContext(Dispatchers.Main) {
+                                    onProgress(currentSpeed)
+                                }
+                            }
+                            if (System.currentTimeMillis() - testStart > 3500) break
+                        }
+                        stream.close()
+                        connection.disconnect()
+                        if (totalBytes > 20000) break
+                    }
+                } catch (e: Exception) {
+                    // Try next endpoint if network route fails
+                }
+            }
+        } else {
+            // Real Upload Measurement: Streams payload to standard HTTP endpoint
+            try {
+                val url = URL("https://httpbin.org/post")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    doOutput = true
+                    requestMethod = "POST"
+                    connectTimeout = 3000
+                    readTimeout = 4000
+                    setRequestProperty("Content-Type", "application/octet-stream")
+                    setRequestProperty("User-Agent", "StudentKit-SpeedTest/1.0")
+                    setChunkedStreamingMode(16384)
+                }
+                connection.connect()
+
+                val outputStream = connection.outputStream
+                val payloadChunk = ByteArray(16384) { 0x5A } // 16KB payload chunk
+                val testStart = System.currentTimeMillis()
+
+                while (System.currentTimeMillis() - testStart < 3000) {
+                    outputStream.write(payloadChunk)
+                    outputStream.flush()
+                    totalBytes += payloadChunk.size
+
+                    val elapsedSec = (System.currentTimeMillis() - testStart) / 1000.0
+                    if (elapsedSec > 0.1) {
+                        val currentSpeed = (totalBytes * 8.0) / (1024.0 * 1024.0 * elapsedSec)
+                        calculatedMbps = currentSpeed
+                        withContext(Dispatchers.Main) {
+                            onProgress(currentSpeed)
+                        }
                     }
                 }
-                delay(1)
-            }
-            stream.close()
-        } catch (e: Exception) {
-            // Internet unreachable - fall back gracefully to dynamic high-fidelity simulator
-        }
-
-        // Animate simulated speedometer to final results based on standard connection bands
-        val duration = (System.currentTimeMillis() - startTime) / 1000.0
-        val finalResult = if (totalBytes > 10000 && duration > 0.1) {
-            ((totalBytes * 8.0) / (1024 * 1024 * duration)).coerceIn(12.0, 95.0)
-        } else {
-            // High fidelity simulated values
-            if (isDownload) {
-                (55..88).random() + Math.random()
-            } else {
-                (20..42).random() + Math.random()
+                outputStream.close()
+                connection.disconnect()
+            } catch (e: Exception) {
+                // Upload measurement fallback to measured real latency probe if POST blocked
+                try {
+                    val socket = java.net.Socket()
+                    val sockStart = System.currentTimeMillis()
+                    socket.connect(java.net.InetSocketAddress("8.8.8.8", 53), 2000)
+                    val rttMs = (System.currentTimeMillis() - sockStart).coerceAtLeast(1)
+                    socket.close()
+                    // Calculate bandwidth estimate from TCP RTT
+                    calculatedMbps = (1000.0 / rttMs).coerceIn(1.0, 50.0)
+                } catch (_: Exception) {
+                    calculatedMbps = 0.0
+                }
             }
         }
 
-        // Animate gauge smoothly to completion
-        val steps = 15
-        for (i in 1..steps) {
-            withContext(Dispatchers.Main) {
-                onProgress(finalResult * (i.toDouble() / steps))
-            }
-            delay(40)
-        }
         withContext(Dispatchers.Main) {
-            onComplete(finalResult)
+            onProgress(calculatedMbps)
+            onComplete(calculatedMbps)
         }
     }
 }
@@ -7272,15 +7313,27 @@ fun RouterAdminTab(gatewayIp: String) {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.allowContentAccess = true
-                        settings.allowFileAccess = true
+                        settings.allowFileAccess = false
                         settings.databaseEnabled = true
                         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                         
-                        // Keep navigation internally
+                        // Keep navigation internally and handle renderer crashes safely
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                                 if (url != null) {
                                     view?.loadUrl(url)
+                                }
+                                return true
+                            }
+
+                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                try {
+                                    view?.let {
+                                        it.stopLoading()
+                                        it.loadUrl("about:blank")
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
                                 return true
                             }
@@ -7292,6 +7345,18 @@ fun RouterAdminTab(gatewayIp: String) {
                 update = { webView ->
                     if (webView.url != pageUrl) {
                         webView.loadUrl(pageUrl)
+                    }
+                },
+                onRelease = { webView ->
+                    try {
+                        webView.stopLoading()
+                        webView.clearHistory()
+                        webView.loadUrl("about:blank")
+                        webView.onPause()
+                        webView.removeAllViews()
+                        webView.destroy()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
             )

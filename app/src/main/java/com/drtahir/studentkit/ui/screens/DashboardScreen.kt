@@ -66,11 +66,13 @@ val allToolsList = listOf(
     UtilityTool("cv", "CV Resume Builder", "Create custom print-ready A4 PDF resumes", "Documents", Icons.Default.Badge, Color(0xFF00C853), "A4 PRINT", Screen.CvBuilder),
     UtilityTool("id_scanner", "ID Card Scanner", "Scan front & back of ID on single page", "Documents", Icons.Default.ContactPage, Color(0xFF1E88E5), "SINGLE PAGE", Screen.IdCardScanner),
     UtilityTool("passport_scanner", "Passport Scanner", "Full photo passport page scan utility", "Documents", Icons.Default.AssignmentInd, Color(0xFF00ACC1), "GOVT DOC", Screen.PassportScanner),
+    UtilityTool("passport_studio", "Passport Photo Studio", "Biometric visa sizer, target KB shrink & EXIF cleaner", "Documents", Icons.Default.CameraEnhance, Color(0xFF00897B), "BIOMETRIC", Screen.PassportPhotoStudio),
+    UtilityTool("assignment_ocr", "Handwritten Assignment & OCR", "Offline Photo OCR & text to handwritten ruled notebook PDF", "Documents", Icons.Default.Draw, Color(0xFF5E35B1), "HANDWRITING", Screen.AssignmentOcrStudio),
     UtilityTool("img2pdf", "Image to PDF", "Compile images into single PDF file", "Documents", Icons.Default.PictureAsPdf, Color(0xFFE53935), "PDF CONV", Screen.ImageToPdf),
     UtilityTool("img2xls", "Image to Excel", "Convert tables to spreadsheet via OCR", "Documents", Icons.Default.TableChart, Color(0xFF2E7D32), "OCR AI", Screen.ImageToXls),
     UtilityTool("img2word", "Image to Word", "Convert images to DOCX files via OCR", "Documents", Icons.Default.Description, Color(0xFF1565C0), "DOCX CONV", Screen.ImageToWord),
     UtilityTool("scanner", "Edge Scanner", "Scan physical doc pages via camera", "Documents", Icons.Default.DocumentScanner, Color(0xFF673AB7), "HD SCAN", Screen.DocumentScanner),
-    UtilityTool("pdftools", "PDF Handlers", "Compress, merge, split or lock PDFs", "Documents", Icons.Default.Compress, Color(0xFFEF6C00), "EDIT", Screen.PdfTools),
+    UtilityTool("pdftools", "PDF Handlers Suite", "13-in-1: Merge, split, numbers, grayscale, booklet, crop", "Documents", Icons.Default.PictureAsPdf, Color(0xFFEF6C00), "13-IN-1", Screen.PdfTools),
     UtilityTool("invoice", "Invoice Maker", "Create professional PDF invoices", "Documents", Icons.Default.Receipt, Color(0xFF00838F), "INVOICES", Screen.InvoiceGenerator),
     UtilityTool("stamp_sign", "Stamp & Sign", "Freehand draw signature & stamp docs", "Documents", Icons.Default.Gesture, Color(0xFF1976D2), "STAMP", Screen.SignaturePad),
 
@@ -349,10 +351,10 @@ fun IslamicLibraryHeroButton(
 }
 
 @Composable
-fun Nursing12kMcqHeroButton(
+fun QrGeneratorHeroButton(
     onClick: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "nursing_pulse")
+    val infiniteTransition = rememberInfiniteTransition(label = "qr_pulse")
     
     val scale by infiniteTransition.animateFloat(
         initialValue = 0.98f,
@@ -382,10 +384,10 @@ fun Nursing12kMcqHeroButton(
                 scaleY = scale
             }
             .clickable(onClick = onClick)
-            .testTag("nursing_12k_hero_button"),
+            .testTag("qr_generator_hero_button"),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF004D40)),
-        border = BorderStroke(1.5.dp, Color(0xFF00E5FF)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A237E)),
+        border = BorderStroke(1.5.dp, Color(0xFF82B1FF)),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Box(
@@ -394,155 +396,9 @@ fun Nursing12kMcqHeroButton(
                 .background(
                     Brush.horizontalGradient(
                         colors = listOf(
-                            Color(0xFF00363A),
-                            Color(0xFF006064),
-                            Color(0xFF004D40)
-                        )
-                    )
-                )
-                .padding(horizontal = 14.dp, vertical = 14.dp)
-        ) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0f),
-                        Color.White.copy(alpha = 0.12f),
-                        Color.White.copy(alpha = 0f)
-                    ),
-                    start = Offset(shimmerTranslate - 300f, 0f),
-                    end = Offset(shimmerTranslate, size.height)
-                )
-                drawRect(brush = brush)
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .background(Color(0xFF00E5FF).copy(alpha = 0.15f), CircleShape)
-                            .border(1.5.dp, Color(0xFF00E5FF), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MedicalServices,
-                            contentDescription = "Nursing MCQs",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.width(12.dp))
-                    
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Start
-                        ) {
-                            Text(
-                                text = "Nursing 12,000+ MCQs",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                color = Color(0xFF00E5FF),
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text(
-                                    text = "NCLEX & DHA",
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF00363A),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "DHA, Saudi Prometric, NCLEX-RN & PNC Master",
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = Color.White.copy(alpha = 0.85f)
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.Default.ArrowForwardIos,
-                    contentDescription = "Open Nursing Exam Kit",
-                    tint = Color(0xFF00E5FF),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun MoavineenHujjajHeroButton(
-    onClick: () -> Unit
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "moavineen_pulse")
-    
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 0.98f,
-        targetValue = 1.02f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
-    )
-    
-    val shimmerTranslate by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1200f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmer"
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clickable(onClick = onClick)
-            .testTag("moavineen_hujjaj_hero_button"),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0D5C3A)),
-        border = BorderStroke(1.5.dp, Color(0xFFDAA520)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color(0xFF073822),
-                            Color(0xFF0D5C3A),
-                            Color(0xFF073822)
+                            Color(0xFF0D1B4C),
+                            Color(0xFF1E2F79),
+                            Color(0xFF0D1B4C)
                         )
                     )
                 )
@@ -573,14 +429,14 @@ fun MoavineenHujjajHeroButton(
                     Box(
                         modifier = Modifier
                             .size(46.dp)
-                            .background(Color(0xFFDAA520).copy(alpha = 0.2f), CircleShape)
-                            .border(1.5.dp, Color(0xFFDAA520), CircleShape),
+                            .background(Color(0xFF82B1FF).copy(alpha = 0.2f), CircleShape)
+                            .border(1.5.dp, Color(0xFF82B1FF), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Mosque,
-                            contentDescription = "Moavineen Hujjaj",
-                            tint = Color(0xFFDAA520),
+                            imageVector = Icons.Default.QrCode2,
+                            contentDescription = "QR Code Generator",
+                            tint = Color(0xFF82B1FF),
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -593,7 +449,7 @@ fun MoavineenHujjajHeroButton(
                             horizontalArrangement = Arrangement.Start
                         ) {
                             Text(
-                                text = "Moavineen-e-Hujjaj Prep",
+                                text = "Smart QR & Barcode Studio",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
@@ -603,14 +459,14 @@ fun MoavineenHujjajHeroButton(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
-                                color = Color(0xFFDAA520),
+                                color = Color(0xFF448AFF),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = "MORA NTS",
+                                    text = "HD VECTOR",
                                     fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF073822),
+                                    color = Color.White,
                                     maxLines = 1,
                                     softWrap = false,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -619,11 +475,11 @@ fun MoavineenHujjajHeroButton(
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "1000+ Quizzes • Supervisor & Supporting Staff",
+                            text = "Custom Colors, Logos, WiFi Instant Connect & Business vCards",
                             fontSize = 11.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            color = Color.White.copy(alpha = 0.85f)
+                            color = Color.White.copy(alpha = 0.88f)
                         )
                     }
                 }
@@ -631,8 +487,154 @@ fun MoavineenHujjajHeroButton(
                 Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Default.ArrowForwardIos,
-                    contentDescription = "Open Moavineen Prep",
-                    tint = Color(0xFFDAA520),
+                    contentDescription = "Open QR Generator",
+                    tint = Color(0xFF82B1FF),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PdfHandlersHeroButton(
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pdf_pulse")
+    
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    
+    val shimmerTranslate by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(onClick = onClick)
+            .testTag("pdf_handlers_hero_button"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF8B1515)),
+        border = BorderStroke(1.5.dp, Color(0xFFFF6B6B)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF5A0B0B),
+                            Color(0xFF9E1B1B),
+                            Color(0xFF5A0B0B)
+                        )
+                    )
+                )
+                .padding(horizontal = 14.dp, vertical = 14.dp)
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0f),
+                        Color.White.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    start = Offset(shimmerTranslate - 300f, 0f),
+                    end = Offset(shimmerTranslate, size.height)
+                )
+                drawRect(brush = brush)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(Color(0xFFFF5252).copy(alpha = 0.2f), CircleShape)
+                            .border(1.5.dp, Color(0xFFFF5252), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "PDF Handlers Suite",
+                            tint = Color(0xFFFF7B7B),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(12.dp))
+                    
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            Text(
+                                text = "13-in-1 Master PDF Suite",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                color = Color(0xFFFF5252),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "100% OFFLINE",
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Merge, Split, Number Pages, Grayscale, Dark Mode & Encrypt",
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = Color.White.copy(alpha = 0.88f)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Default.ArrowForwardIos,
+                    contentDescription = "Open PDF Suite",
+                    tint = Color(0xFFFF7B7B),
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -1246,35 +1248,13 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            // Avatar container with subtle ring
-                            Box(
-                                modifier = Modifier
-                                    .size(50.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White.copy(alpha = 0.20f))
-                                    .border(
-                                        width = 1.dp,
-                                        color = Color.White.copy(alpha = 0.40f),
-                                        shape = RoundedCornerShape(16.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (userName.isNotBlank()) {
-                                    Text(
-                                        text = userName.trim().take(1).uppercase(),
-                                        color = Color.White,
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                } else {
-                                    Text(
-                                        text = "N",
-                                        color = Color.White,
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
+                            // Animated Brand Logo Emblem
+                            AnimatedBrandLogo(
+                                size = 48.dp,
+                                showRings = true,
+                                isInteractive = true,
+                                onClick = { viewModel.navigateTo(Screen.Splash) }
+                            )
 
                             Spacer(modifier = Modifier.width(14.dp))
 
@@ -1481,14 +1461,14 @@ fun DashboardScreen(
                 onClick = { viewModel.navigateTo(Screen.IslamicHub) }
             )
 
-            // Beautiful Animated Nursing 12000+ MCQs Hero CTA
-            Nursing12kMcqHeroButton(
-                onClick = { viewModel.navigateTo(Screen.NursingExam) }
+            // Beautiful Animated Smart QR & Barcode Studio Hero CTA
+            QrGeneratorHeroButton(
+                onClick = { viewModel.navigateTo(Screen.QrGenerator) }
             )
 
-            // Beautiful Animated Moavineen-e-Hujjaj Prep Hero CTA
-            MoavineenHujjajHeroButton(
-                onClick = { viewModel.navigateTo(Screen.MoavineenHujjajPrep) }
+            // Beautiful Animated 13-in-1 Master PDF Suite Hero CTA
+            PdfHandlersHeroButton(
+                onClick = { viewModel.navigateTo(Screen.PdfTools) }
             )
 
             // Beautiful Animated OmniPOS Enterprise Suite Hero CTA

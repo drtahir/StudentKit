@@ -174,7 +174,8 @@ data class PinVaultEntry(
     @ColumnInfo(name = "pin_encrypted") val pinEncrypted: String,
     val category: String, // "ATM", "WiFi", "Social Media", "Locker", "Custom"
     val note: String?,
-    @ColumnInfo(name = "created_at") val createdAt: String
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "is_decoy") val isDecoy: Int = 0
 )
 
 @Entity(tableName = "photo_vault")
@@ -185,7 +186,8 @@ data class PhotoVaultEntry(
     @ColumnInfo(name = "original_file_path") val originalFilePath: String,
     @ColumnInfo(name = "mime_type") val mimeType: String,
     @ColumnInfo(name = "created_at") val createdAt: Long,
-    @ColumnInfo(name = "is_video") val isVideo: Int = 0
+    @ColumnInfo(name = "is_video") val isVideo: Int = 0,
+    @ColumnInfo(name = "is_decoy") val isDecoy: Int = 0
 )
 
 @Entity(tableName = "private_notes")
@@ -292,3 +294,51 @@ data class PosOrderItem(
     val quantity: Int,
     val price: Double
 )
+
+// --- POS EMPLOYEES & STAFF MANAGEMENT ---
+@Entity(tableName = "pos_employees")
+data class PosEmployee(
+    @PrimaryKey val id: String,
+    val fullName: String,
+    val role: String, // "Store Manager", "Cashier", "Sales Associate", "Stock / Inventory Clerk", "Accountant", "Barista / Chef", "Delivery Staff"
+    val pinCode: String, // 4-digit numeric PIN for terminal fast login & auth
+    val phone: String,
+    val email: String,
+    val nationalIdOrCnic: String = "",
+    val hourlyOrBaseSalary: Double = 0.0,
+    val salaryType: String = "Monthly Fixed", // "Monthly Fixed", "Hourly", "Commission Only", "Base + Commission"
+    val commissionPercent: Double = 0.0, // Commission % on sales
+    val isActive: Boolean = true,
+    val joinedDate: String = "",
+    val permissionsJoined: String = "TERMINAL,DISCOUNT,VOID,INVENTORY_VIEW,CUSTOMERS" // Permissions separated by comma
+)
+
+@Entity(tableName = "pos_employee_shifts")
+data class PosEmployeeShifts(
+    @PrimaryKey val id: String,
+    val employeeId: String,
+    val employeeName: String,
+    val clockInTime: String,
+    val clockOutTime: String? = null,
+    val date: String, // YYYY-MM-DD
+    val totalHoursWorked: Double = 0.0,
+    val startingCash: Double = 0.0,
+    val endingCash: Double = 0.0,
+    val totalSalesVolume: Double = 0.0,
+    val transactionsCount: Int = 0,
+    val shiftNotes: String = "",
+    val status: String = "OPEN" // "OPEN", "CLOSED"
+)
+
+@Entity(tableName = "pos_employee_advances_payouts")
+data class PosEmployeePayout(
+    @PrimaryKey val id: String,
+    val employeeId: String,
+    val employeeName: String,
+    val date: String,
+    val amount: Double,
+    val type: String, // "Salary Payout", "Commission Payout", "Cash Advance / Loan", "Bonus / Incentive", "Overtime"
+    val paymentMethod: String = "Cash", // "Cash", "Bank Transfer", "Mobile Wallet"
+    val note: String = ""
+)
+

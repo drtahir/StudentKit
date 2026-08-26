@@ -444,6 +444,16 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("About Developer & Module Directory")
                     }
+
+                    OutlinedButton(
+                        onClick = { viewModel.navigateTo(Screen.Splash) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.PlayCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Preview Animated Splash & Brand Logo")
+                    }
                 }
             }
 

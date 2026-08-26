@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.max
 import com.drtahir.studentkit.viewmodel.EnhanceUiState
 import com.drtahir.studentkit.viewmodel.EnhanceViewModel
 import com.drtahir.studentkit.viewmodel.StudentKitViewModel
@@ -144,56 +147,77 @@ fun ImageEnhancerScreen(
             }
         }
 
-        // Image Preview & Interaction Card
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(340.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFFF5F5F7))
-                .border(1.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (originalImage == null) {
-                // Empty State Frame
+        // Image Selection & Preview Section
+        if (originalImage == null) {
+            // Empty State Card (Adaptive height, no clipping)
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.padding(24.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.padding(20.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = Color(0xFF00ACC1),
-                        modifier = Modifier.size(56.dp)
-                    )
-                    Text(
-                        text = "Super-Resolution AI Portrait Enhancer",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        text = "Select any low-res or blurry photo to upscale to 4x Ultra HD, smooth skin, and restore sharp facial features offline.",
-                        color = Color.Gray,
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE0F7FA)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFF00ACC1),
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Super-Resolution AI Portrait Enhancer",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Select any low-res, old, or blurry photo to upscale to 4x Ultra HD, smooth skin, and restore sharp facial features offline.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+
+                    // Main Action Buttons
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
                             onClick = { galleryLauncher.launch("image/*") },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00ACC1)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.testTag("pick_gallery_button")
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("pick_gallery_button")
                         ) {
-                            Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Gallery", fontSize = 12.sp)
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Choose Photo from Gallery", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
-                        Button(
+
+                        OutlinedButton(
                             onClick = {
                                 if (cameraPermissionState.status.isGranted) {
                                     try {
@@ -208,40 +232,71 @@ fun ImageEnhancerScreen(
                                     cameraPermissionState.launchPermissionRequest()
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.testTag("pick_camera_button")
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("pick_camera_button")
                         ) {
-                            Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Camera", fontSize = 12.sp)
+                            Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF00ACC1))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Take Photo with Camera", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Or use sample images:", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
+
+                    // Sample Images Section
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_portrait) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Portrait", fontSize = 11.sp)
+                            HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            Text("Or test sample photos", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         }
-                        OutlinedButton(
-                            onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_object) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Object", fontSize = 11.sp)
+                            OutlinedButton(
+                                onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_portrait) },
+                                modifier = Modifier.weight(1f).height(40.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Portrait", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { loadSampleImage(com.drtahir.studentkit.R.drawable.sample_object) },
+                                modifier = Modifier.weight(1f).height(40.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Landscape, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Object", fontSize = 12.sp)
+                            }
                         }
                     }
                 }
-            } else {
-                // Image Display Container
+            }
+        } else {
+            // Image Preview & Interaction Card (When image is loaded)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(340.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1E293B))
+                    .border(1.dp, Color.LightGray.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
                 val original = originalImage!!
                 val enhanced = enhancedImage
 
@@ -264,7 +319,7 @@ fun ImageEnhancerScreen(
                             .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text("Original Low-Res", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("Original Low-Res (${original.width}×${original.height} px)", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 } else {
                     // BEFORE/AFTER SEAMLESS SLIDER UI
@@ -804,13 +859,66 @@ fun MultiPassQualityControlPanel(
 }
 
 private fun loadUriAsBitmap(context: Context, uri: Uri): Bitmap? {
-    var inputStream: InputStream? = null
     return try {
-        inputStream = context.contentResolver.openInputStream(uri)
-        BitmapFactory.decodeStream(inputStream)
+        // 1. Measure dimensions without full decode to avoid OOM
+        val boundsOptions = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, boundsOptions)
+        }
+
+        if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) {
+            return null
+        }
+
+        // 2. Safe downsampling for neural models (Max dimension 2048px)
+        val maxDimension = 2048
+        var sampleSize = 1
+        val maxSrc = max(boundsOptions.outWidth, boundsOptions.outHeight)
+        while (maxSrc / sampleSize > maxDimension) {
+            sampleSize *= 2
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+
+        var bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, decodeOptions)
+        } ?: return null
+
+        // 3. Handle EXIF Rotation (for photos taken in portrait/landscape)
+        try {
+            context.contentResolver.openInputStream(uri)?.use { exifStream ->
+                val exif = ExifInterface(exifStream)
+                val orientation = exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+                val matrix = Matrix()
+                when (orientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                }
+                if (!matrix.isIdentity) {
+                    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                    if (rotated != bitmap) {
+                        bitmap.recycle()
+                        bitmap = rotated
+                    }
+                }
+            }
+        } catch (ignored: Exception) {
+            // Keep decoded bitmap if EXIF reading is not supported for URI
+        }
+
+        bitmap
     } catch (e: Exception) {
         null
-    } finally {
-        inputStream?.close()
     }
 }

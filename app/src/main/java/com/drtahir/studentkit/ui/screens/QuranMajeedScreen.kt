@@ -1084,7 +1084,8 @@ fun QariSelectionDialog(
 suspend fun downloadQuranSurah(surahNum: Int): List<CachedQuranVerse> {
     val versesList = mutableListOf<CachedQuranVerse>()
     try {
-        val urlStr = "https://api.alquran.cloud/v1/surah/$surahNum/editions/quran-uthmani,ur.jalandhry,en.transliteration"
+        // Fetch Arabic Indo-Pak Pakistani Script + Urdu Jalandhry Translation
+        val urlStr = "https://api.alquran.cloud/v1/surah/$surahNum/editions/quran-indopak,ur.jalandhry,en.transliteration"
         val url = URL(urlStr)
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "GET"
@@ -1643,7 +1644,7 @@ fun QuranPageReader(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+                                    text = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ",
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = decorationColor
@@ -2771,8 +2772,8 @@ fun AnimatedQuranDownloadCard(
 suspend fun downloadQuranPage(pageNum: Int): List<CachedQuranVerse> {
     val versesList = mutableListOf<CachedQuranVerse>()
     try {
-        // Fetch Arabic text
-        val urlAr = URL("https://api.alquran.cloud/v1/page/$pageNum/quran-uthmani")
+        // Fetch Arabic Indo-Pak Pakistani Script text
+        val urlAr = URL("https://api.alquran.cloud/v1/page/$pageNum/quran-indopak")
         val connAr = urlAr.openConnection() as HttpURLConnection
         connAr.requestMethod = "GET"
         connAr.connectTimeout = 8000
@@ -2883,141 +2884,141 @@ suspend fun downloadQuranPage(pageNum: Int): List<CachedQuranVerse> {
     return versesList
 }
 
-// Preload standard short Surahs so offline mode works instantly on fresh install
+// Preload standard short Surahs so offline mode works instantly on fresh install in authentic Pakistani Indo-Pak script
 fun savePreloadedSurahs(viewModel: StudentKitViewModel) {
     val verses = listOf(
         CachedQuranVerse(
             id = "1_1", surahNumber = 1, verseNumber = 1, juz = 1, page = 1,
-            textArabic = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+            textArabic = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ",
             textUrdu = "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے۔",
             textEnglish = "In the name of Allah, the Entirely Merciful, the Especially Merciful."
         ),
         CachedQuranVerse(
             id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
-            textArabic = "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ",
+            textArabic = "اَلْحَمْدُ لِلّٰهِ رَبِّ الْعٰلَمِیْنَۙ",
             textUrdu = "سب تعریفیں اللہ ہی کے لیے ہیں جو تمام جہانوں کا پالنے والا ہے۔",
             textEnglish = "[All] praise is [due] to Allah, Lord of the worlds -"
         ),
         CachedQuranVerse(
             id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
-            textArabic = "الرَّحْمَٰنِ الرَّحِيمِ",
+            textArabic = "الرَّحْمٰنِ الرَّحِیْمِۙ",
             textUrdu = "بڑا مہربان نہایت رحم والا ہے۔",
             textEnglish = "The Entirely Merciful, the Especially Merciful,"
         ),
         CachedQuranVerse(
             id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
-            textArabic = "مَالِكِ يَوْمِ الدِّينِ",
+            textArabic = "مٰلِكِ یَوْمِ الدِّیْنِؕ",
             textUrdu = "روزِ جزا کا مالک ہے۔",
             textEnglish = "Sovereign of the Day of Recompense."
         ),
         CachedQuranVerse(
             id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
-            textArabic = "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
+            textArabic = "اِیَّاكَ نَعْبُدُ وَاِیَّاكَ نَسْتَعِیْنُؕ",
             textUrdu = "ہم تیری ہی عبادت کرتے ہیں اور تجھ ہی سے مدد مانگتے ہیں۔",
             textEnglish = "It is You we worship and You we ask for help."
         ),
         CachedQuranVerse(
             id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
-            textArabic = "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ",
+            textArabic = "اِهْدِنَا الصِّرَاطَ الْمُسْتَقِیْمَۙ",
             textUrdu = "ہمیں سیدھے راستے پر چلا۔",
             textEnglish = "Guide us to the straight path -"
         ),
         CachedQuranVerse(
             id = "1_7", surahNumber = 1, verseNumber = 7, juz = 1, page = 1,
-            textArabic = "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ",
+            textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
             textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا، نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
             textEnglish = "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray."
         ),
         // Surah Al-Ikhlas
         CachedQuranVerse(
             id = "112_1", surahNumber = 112, verseNumber = 1, juz = 30, page = 604,
-            textArabic = "قُلْ هُوَ اللَّهُ أَحَدٌ",
-            textUrdu = "آپ کہه دیجئے کہ وه اللہ ایک ہی ہے۔",
+            textArabic = "قُلْ هُوَ اللّٰهُ اَحَدٌۚ",
+            textUrdu = "آپ کہہ دیجئے کہ وہ اللہ ایک ہی ہے۔",
             textEnglish = "Say, \"He is Allah, [who is] One,"
         ),
         CachedQuranVerse(
             id = "112_2", surahNumber = 112, verseNumber = 2, juz = 30, page = 604,
-            textArabic = "اللَّهُ الصَّمَدُ",
+            textArabic = "اَللّٰهُ الصَّمَدُۚ",
             textUrdu = "اللہ بے نیاز ہے۔",
             textEnglish = "Allah, the Eternal Refuge."
         ),
         CachedQuranVerse(
             id = "112_3", surahNumber = 112, verseNumber = 3, juz = 30, page = 604,
-            textArabic = "لَمْ يَلِدْ وَلَمْ يُولَدْ",
-            textUrdu = "نہ اس سے کوئی پیدا ہوا اور نہ وه کسی سے پیدا ہوا ہے۔",
+            textArabic = "لَمْ یَلِدْ ۙ وَلَمْ یُوْلَدْۙ",
+            textUrdu = "نہ اس سے کوئی پیدا ہوا اور نہ وہ کسی سے پیدا ہوا ہے۔",
             textEnglish = "He neither begets nor is born,"
         ),
         CachedQuranVerse(
             id = "112_4", surahNumber = 112, verseNumber = 4, juz = 30, page = 604,
-            textArabic = "وَلَمْ يَكُنْ لَّهُ كُفُوًا أَحَدٌ",
+            textArabic = "وَلَمْ یَكُنْ لَّهٗ كُفُوًا اَحَدٌؒ",
             textUrdu = "اور نہ ہی اس کا کوئی ہمسر ہے۔",
             textEnglish = "Nor is there to Him any equivalent.\""
         ),
         // Surah Al-Falaq
         CachedQuranVerse(
             id = "113_1", surahNumber = 113, verseNumber = 1, juz = 30, page = 604,
-            textArabic = "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ",
+            textArabic = "قُلْ اَعُوْذُ بِرَبِّ الْفَلَقِۙ",
             textUrdu = "کہہ دیجئے! کہ میں صبح کے رب کی پناہ میں آتا ہوں۔",
             textEnglish = "Say, \"I seek refuge in the Lord of daybreak"
         ),
         CachedQuranVerse(
             id = "113_2", surahNumber = 113, verseNumber = 2, juz = 30, page = 604,
-            textArabic = "مِنْ شَرِّ مَا خَلَقَ",
+            textArabic = "مِنْ شَرِّ مَا خَلَقَۙ",
             textUrdu = "ہر اس چیز کے شر سے جو اس نے پیدا کی ہے۔",
             textEnglish = "From the evil of that which He created"
         ),
         CachedQuranVerse(
             id = "113_3", surahNumber = 113, verseNumber = 3, juz = 30, page = 604,
-            textArabic = "وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ",
+            textArabic = "وَمِنْ شَرِّ غَاسِقٍ اِذَا وَقَبَۙ",
             textUrdu = "اور اندھیری رات کے شر سے جب وہ چھا جائے۔",
             textEnglish = "And from the evil of darkness when it settles"
         ),
         CachedQuranVerse(
             id = "113_4", surahNumber = 113, verseNumber = 4, juz = 30, page = 604,
-            textArabic = "وَمِنْ شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ",
+            textArabic = "وَمِنْ شَرِّ النَّفّٰثٰتِ فِی الْعُقَدِۙ",
             textUrdu = "اور گرہوں میں پھونکنے والیوں کے شر سے۔",
             textEnglish = "And from the evil of the blowers in knots"
         ),
         CachedQuranVerse(
             id = "113_5", surahNumber = 113, verseNumber = 5, juz = 30, page = 604,
-            textArabic = "وَمِنْ شَرِّ حَاسِدٍ إِذَا حَسَدَ",
+            textArabic = "وَمِنْ شَرِّ حَاسِدٍ اِذَا حَسَدَؒ",
             textUrdu = "اور حسد کرنے والے کے شر سے جب وہ حسد کرے۔",
             textEnglish = "And from the evil of an envier when he envies.\""
         ),
         // Surah An-Nas
         CachedQuranVerse(
             id = "114_1", surahNumber = 114, verseNumber = 1, juz = 30, page = 604,
-            textArabic = "قُلْ أَعُوذُ بِرَبِّ النَّاسِ",
+            textArabic = "قُلْ اَعُوْذُ بِرَبِّ النَّاسِۙ",
             textUrdu = "کہہ دیجئے! کہ میں انسانوں کے پروردگار کی پناہ میں آتا ہوں۔",
             textEnglish = "Say, \"I seek refuge in the Lord of mankind,"
         ),
         CachedQuranVerse(
             id = "114_2", surahNumber = 114, verseNumber = 2, juz = 30, page = 604,
-            textArabic = "مَلِكِ النَّاسِ",
+            textArabic = "مَلِكِ النَّاسِۙ",
             textUrdu = "انسانوں کے بادشاہ کی (پناہ میں)",
             textEnglish = "The Sovereign of mankind,"
         ),
         CachedQuranVerse(
             id = "114_3", surahNumber = 114, verseNumber = 3, juz = 30, page = 604,
-            textArabic = "إِلَٰهِ النَّاسِ",
+            textArabic = "اِلٰهِ النَّاسِۙ",
             textUrdu = "انسانوں کے معبود کی (پناہ میں)",
             textEnglish = "The God of mankind,"
         ),
         CachedQuranVerse(
             id = "114_4", surahNumber = 114, verseNumber = 4, juz = 30, page = 604,
-            textArabic = "مِنْ شَرِّ الْوَسْوَاسِ الْخَنَّاسِ",
+            textArabic = "مِنْ شَرِّ الْوَسْوَاسِ ەۙ الْخَنَّاسِۙ",
             textUrdu = "وسوسہ ڈالنے والے، پیچھے ہٹ جانے والے کے شر سے۔",
             textEnglish = "From the evil of the retreating whisperer"
         ),
         CachedQuranVerse(
             id = "114_5", surahNumber = 114, verseNumber = 5, juz = 30, page = 604,
-            textArabic = "الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ",
+            textArabic = "الَّذِیْ یُوَسْوِسُ فِیْ صُدُوْرِ النَّاسِۙ",
             textUrdu = "جو لوگوں کے سینوں میں وسوسے ڈالتا ہے۔",
             textEnglish = "Who whispers [evil] into the breasts of mankind"
         ),
         CachedQuranVerse(
             id = "114_6", surahNumber = 114, verseNumber = 6, juz = 30, page = 604,
-            textArabic = "مِنَ الْجِنَّةِ وَالنَّاسِ",
+            textArabic = "مِنَ الْجِنَّةِ وَالنَّاسِؒ",
             textUrdu = "خواہ وہ جنوں میں سے ہو یا انسانوں میں سے۔",
             textEnglish = "From among the jinn and mankind.\""
         )

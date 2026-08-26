@@ -30,6 +30,8 @@ sealed class Screen {
     object DocumentScanner : Screen()
     object IdCardScanner : Screen()
     object PassportScanner : Screen()
+    object PassportPhotoStudio : Screen()
+    object AssignmentOcrStudio : Screen()
     object PdfTools : Screen()
     object InvoiceGenerator : Screen()
     object QrGenerator : Screen()
@@ -81,6 +83,7 @@ sealed class Screen {
     object FinanceReportAndBackup : Screen()
     object About : Screen()
     object Settings : Screen()
+    object Splash : Screen()
 }
 
 class StudentKitViewModel(application: Application) : AndroidViewModel(application) {
@@ -833,6 +836,22 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     val allPosOrders: StateFlow<List<PosOrder>> = repository.allPosOrders.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     fun insertPosOrder(order: PosOrder) = viewModelScope.launch { repository.insertPosOrder(order) }
     fun insertPosOrderItem(item: PosOrderItem) = viewModelScope.launch { repository.insertPosOrderItem(item) }
+
+    // POS Employees & Staff
+    val allPosEmployees: StateFlow<List<PosEmployee>> = repository.allPosEmployees.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun insertPosEmployee(employee: PosEmployee) = viewModelScope.launch { repository.insertPosEmployee(employee) }
+    fun deletePosEmployeeById(id: String) = viewModelScope.launch { repository.deletePosEmployeeById(id) }
+    suspend fun getPosEmployeeById(id: String) = repository.getPosEmployeeById(id)
+    suspend fun getPosEmployeeByPin(pin: String) = repository.getPosEmployeeByPin(pin)
+
+    val allPosEmployeeShifts: StateFlow<List<PosEmployeeShifts>> = repository.allPosEmployeeShifts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun insertPosEmployeeShift(shift: PosEmployeeShifts) = viewModelScope.launch { repository.insertPosEmployeeShift(shift) }
+    fun deletePosEmployeeShiftById(id: String) = viewModelScope.launch { repository.deletePosEmployeeShiftById(id) }
+
+    val allPosEmployeePayouts: StateFlow<List<PosEmployeePayout>> = repository.allPosEmployeePayouts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    fun insertPosEmployeePayout(payout: PosEmployeePayout) = viewModelScope.launch { repository.insertPosEmployeePayout(payout) }
+    fun deletePosEmployeePayoutById(id: String) = viewModelScope.launch { repository.deletePosEmployeePayoutById(id) }
+
 
     fun importFinanceJsonData(jsonString: String, onComplete: (Boolean, String) -> Unit) {
         viewModelScope.launch {

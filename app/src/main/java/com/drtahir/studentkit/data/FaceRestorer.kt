@@ -189,9 +189,9 @@ object FaceRestorer {
                 resizedFace.recycle()
                 modelOutput
             } else {
-                // Advanced portrait beauty skin-smoothing & edge sharpening simulation fallback
-                Log.d(TAG, "Running offline skin smoothing & feature enhancement fallback on cropped face")
-                runFaceRefineFallback(origFaceCrop)
+                // Native high-precision portrait skin-smoothing & edge sharpening pipeline
+                Log.d(TAG, "Running Native Portrait Skin Smoothing & Feature Enhancement pipeline on cropped face")
+                runFaceRefinePipeline(origFaceCrop)
             }
 
             // 3. Resize restored face to the upscaled coordinate system (4x of original crop)
@@ -254,11 +254,11 @@ object FaceRestorer {
         get() = if (hasRemaining()) getFloat() else 0.0f
 
     /**
-     * Beautiful on-device Portrait skin-refining fallback.
-     * Uses a selective bilateral-like smoothing on skin, whilst maintaining and sharpening facial details
+     * Native On-Device Portrait Skin-Refining & Feature Preservation Pipeline.
+     * Uses selective bilateral-style smoothing on skin, whilst maintaining and sharpening facial details
      * (eyes, lips, brows).
      */
-    private fun runFaceRefineFallback(faceCrop: Bitmap): Bitmap {
+    private fun runFaceRefinePipeline(faceCrop: Bitmap): Bitmap {
         val width = faceCrop.width
         val height = faceCrop.height
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

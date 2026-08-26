@@ -146,5 +146,24 @@ class StudentKitRepository(private val dao: StudentKitDao) {
 
     fun getPosOrderItems(orderId: String) = dao.getPosOrderItems(orderId)
     suspend fun insertPosOrderItem(item: PosOrderItem) = dao.insertPosOrderItem(item)
+
+    // --- POS EMPLOYEES & STAFF REPOSITORY ---
+    val allPosEmployees = dao.getAllPosEmployees()
+    suspend fun insertPosEmployee(employee: PosEmployee) = dao.insertPosEmployee(employee)
+    suspend fun deletePosEmployeeById(id: String) = dao.deletePosEmployeeById(id)
+    suspend fun getPosEmployeeById(id: String) = dao.getPosEmployeeById(id)
+    suspend fun getPosEmployeeByPin(pin: String) = dao.getPosEmployeeByPin(pin)
+
+    val allPosEmployeeShifts = dao.getAllPosEmployeeShifts()
+    fun getPosEmployeeShiftsByEmployee(employeeId: String) = dao.getPosEmployeeShiftsByEmployee(employeeId)
+    fun getOpenPosEmployeeShifts() = dao.getOpenPosEmployeeShifts()
+    suspend fun insertPosEmployeeShift(shift: PosEmployeeShifts) = dao.insertPosEmployeeShift(shift)
+    suspend fun deletePosEmployeeShiftById(id: String) = dao.deletePosEmployeeShiftById(id)
+
+    val allPosEmployeePayouts = dao.getAllPosEmployeePayouts()
+    fun getPosEmployeePayoutsByEmployee(employeeId: String) = dao.getPosEmployeePayoutsByEmployee(employeeId)
+    suspend fun insertPosEmployeePayout(payout: PosEmployeePayout) = dao.insertPosEmployeePayout(payout)
+    suspend fun deletePosEmployeePayoutById(id: String) = dao.deletePosEmployeePayoutById(id)
 }
+
 

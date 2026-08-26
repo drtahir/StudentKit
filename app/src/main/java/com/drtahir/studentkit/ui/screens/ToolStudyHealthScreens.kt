@@ -1915,6 +1915,264 @@ fun createPresetTextureBitmap(type: String): android.graphics.Bitmap {
     return bmp
 }
 
+fun drawBrandLogoAndroidCanvas(
+    canvas: android.graphics.Canvas,
+    logoName: String,
+    left: Float,
+    top: Float,
+    width: Float,
+    height: Float,
+    logoScale: Float,
+    logoBlendOpacity: Float
+) {
+    val cx = left + width / 2f
+    val cy = top + height / 2f
+    val r = (width * logoScale.coerceAtLeast(0.75f)) / 2f
+    val alphaInt = (logoBlendOpacity.coerceAtLeast(0.85f) * 255).toInt().coerceIn(0, 255)
+
+    fun createPaint(colorInt: Int, style: android.graphics.Paint.Style = android.graphics.Paint.Style.FILL, strokeW: Float = 0f): android.graphics.Paint {
+        return android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = colorInt
+            this.alpha = alphaInt
+            this.style = style
+            if (strokeW > 0) this.strokeWidth = strokeW
+        }
+    }
+
+    when (logoName) {
+        "Burger King" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#0055A5")))
+            canvas.drawCircle(cx, cy, r * 0.90f, createPaint(android.graphics.Color.parseColor("#F7E2C4")))
+            val arcRectTop = android.graphics.RectF(cx - r * 0.75f, cy - r * 0.75f, cx + r * 0.75f, cy + r * 0.35f)
+            canvas.drawArc(arcRectTop, 190f, 160f, true, createPaint(android.graphics.Color.parseColor("#F2A900")))
+            val bunRect = android.graphics.RectF(cx - r * 0.70f, cy - r * 0.18f, cx + r * 0.70f, cy + r * 0.18f)
+            canvas.drawRoundRect(bunRect, r * 0.10f, r * 0.10f, createPaint(android.graphics.Color.parseColor("#E2231A")))
+            val arcRectBottom = android.graphics.RectF(cx - r * 0.75f, cy - r * 0.35f, cx + r * 0.75f, cy + r * 0.75f)
+            canvas.drawArc(arcRectBottom, 10f, 160f, true, createPaint(android.graphics.Color.parseColor("#F2A900")))
+        }
+        "KFC" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#A3080C")))
+            canvas.drawRect(cx - r * 0.25f, cy + r * 0.15f, cx + r * 0.25f, cy + r * 0.80f, createPaint(android.graphics.Color.WHITE))
+            canvas.drawRect(cx - r * 0.12f, cy + r * 0.18f, cx + r * 0.12f, cy + r * 0.78f, createPaint(android.graphics.Color.parseColor("#A3080C")))
+            canvas.drawCircle(cx, cy - r * 0.20f, r * 0.40f, createPaint(android.graphics.Color.WHITE))
+            canvas.drawCircle(cx, cy - r * 0.20f, r * 0.35f, createPaint(android.graphics.Color.parseColor("#A3080C")))
+        }
+        "BMW" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.BLACK))
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.WHITE, android.graphics.Paint.Style.STROKE, r * 0.04f))
+            val innerR = r * 0.68f
+            val rect = android.graphics.RectF(cx - innerR, cy - innerR, cx + innerR, cy + innerR)
+            val bluePaint = createPaint(android.graphics.Color.parseColor("#0066B1"))
+            val whitePaint = createPaint(android.graphics.Color.WHITE)
+            canvas.drawArc(rect, 180f, 90f, true, bluePaint)
+            canvas.drawArc(rect, 270f, 90f, true, whitePaint)
+            canvas.drawArc(rect, 0f, 90f, true, bluePaint)
+            canvas.drawArc(rect, 90f, 90f, true, whitePaint)
+            canvas.drawCircle(cx, cy, innerR, createPaint(android.graphics.Color.BLACK, android.graphics.Paint.Style.STROKE, r * 0.03f))
+        }
+        "Chrome" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.WHITE))
+            val outerBox = android.graphics.RectF(cx - r, cy - r, cx + r, cy + r)
+            canvas.drawArc(outerBox, 210f, 120f, true, createPaint(android.graphics.Color.parseColor("#EA4335")))
+            canvas.drawArc(outerBox, 330f, 120f, true, createPaint(android.graphics.Color.parseColor("#FBBC05")))
+            canvas.drawArc(outerBox, 90f, 120f, true, createPaint(android.graphics.Color.parseColor("#34A853")))
+            canvas.drawCircle(cx, cy, r * 0.48f, createPaint(android.graphics.Color.WHITE))
+            canvas.drawCircle(cx, cy, r * 0.38f, createPaint(android.graphics.Color.parseColor("#4285F4")))
+        }
+        "Starbucks" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#00704A")))
+            canvas.drawCircle(cx, cy, r * 0.88f, createPaint(android.graphics.Color.WHITE, android.graphics.Paint.Style.STROKE, r * 0.05f))
+            canvas.drawCircle(cx, cy - r * 0.05f, r * 0.42f, createPaint(android.graphics.Color.WHITE))
+            canvas.drawCircle(cx, cy - r * 0.05f, r * 0.36f, createPaint(android.graphics.Color.parseColor("#00704A")))
+        }
+        "Pepsi" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.WHITE))
+            val p1 = android.graphics.Path().apply {
+                moveTo(cx - r, cy)
+                cubicTo(cx - r * 0.4f, cy - r * 0.7f, cx + r * 0.4f, cy + r * 0.2f, cx + r, cy - r * 0.2f)
+                arcTo(android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), -10f, -160f, false)
+                close()
+            }
+            canvas.drawPath(p1, createPaint(android.graphics.Color.parseColor("#E32219")))
+            val p2 = android.graphics.Path().apply {
+                moveTo(cx - r, cy + r * 0.25f)
+                cubicTo(cx - r * 0.4f, cy - r * 0.4f, cx + r * 0.4f, cy + r * 0.5f, cx + r, cy + r * 0.05f)
+                arcTo(android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), 5f, 170f, false)
+                close()
+            }
+            canvas.drawPath(p2, createPaint(android.graphics.Color.parseColor("#0051A2")))
+        }
+        "Facebook" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#1877F2")))
+            val fPaint = createPaint(android.graphics.Color.WHITE).apply {
+                textSize = r * 1.3f
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            canvas.drawText("f", cx + r * 0.1f, cy + r * 0.45f, fPaint)
+        }
+        "Instagram" -> {
+            val grad = android.graphics.RadialGradient(
+                cx - r, cy + r, r * 2.5f,
+                intArrayOf(android.graphics.Color.parseColor("#FEC260"), android.graphics.Color.parseColor("#E100FF"), android.graphics.Color.parseColor("#7000FF")),
+                null, android.graphics.Shader.TileMode.CLAMP
+            )
+            val bgP = createPaint(android.graphics.Color.MAGENTA).apply { shader = grad }
+            canvas.drawRoundRect(android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), r * 0.5f, r * 0.5f, bgP)
+            val sw = r * 0.16f
+            val whiteStroke = createPaint(android.graphics.Color.WHITE, android.graphics.Paint.Style.STROKE, sw)
+            canvas.drawRoundRect(android.graphics.RectF(cx - r * 0.6f, cy - r * 0.6f, cx + r * 0.6f, cy + r * 0.6f), r * 0.35f, r * 0.35f, whiteStroke)
+            canvas.drawCircle(cx, cy, r * 0.3f, whiteStroke)
+            canvas.drawCircle(cx + r * 0.38f, cy - r * 0.38f, r * 0.08f, createPaint(android.graphics.Color.WHITE))
+        }
+        "YouTube" -> {
+            canvas.drawRoundRect(android.graphics.RectF(cx - r, cy - r * 0.7f, cx + r, cy + r * 0.7f), r * 0.3f, r * 0.3f, createPaint(android.graphics.Color.RED))
+            val path = android.graphics.Path().apply {
+                moveTo(cx - r * 0.25f, cy - r * 0.35f)
+                lineTo(cx + r * 0.40f, cy)
+                lineTo(cx - r * 0.25f, cy + r * 0.35f)
+                close()
+            }
+            canvas.drawPath(path, createPaint(android.graphics.Color.WHITE))
+        }
+        "WhatsApp" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#25D366")))
+            val p = android.graphics.Path().apply {
+                moveTo(cx - r * 0.3f, cy - r * 0.15f)
+                quadTo(cx - r * 0.4f, cy + r * 0.3f, cx, cy + r * 0.4f)
+                lineTo(cx - r * 0.15f, cy + r * 0.5f)
+                lineTo(cx + r * 0.15f, cy + r * 0.4f)
+                close()
+            }
+            canvas.drawPath(p, createPaint(android.graphics.Color.WHITE))
+        }
+        "TikTok" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#121212")))
+            canvas.drawCircle(cx - r * 0.15f, cy + r * 0.28f, r * 0.22f, createPaint(android.graphics.Color.parseColor("#00F2FE")))
+            canvas.drawCircle(cx - r * 0.05f, cy + r * 0.35f, r * 0.22f, createPaint(android.graphics.Color.parseColor("#FF0050")))
+            canvas.drawCircle(cx - r * 0.10f, cy + r * 0.30f, r * 0.22f, createPaint(android.graphics.Color.WHITE))
+        }
+        "LinkedIn" -> {
+            canvas.drawRoundRect(android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), r * 0.3f, r * 0.3f, createPaint(android.graphics.Color.parseColor("#0077B5")))
+            val inPaint = createPaint(android.graphics.Color.WHITE).apply {
+                textSize = r * 1.1f
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            canvas.drawText("in", cx, cy + r * 0.38f, inPaint)
+        }
+        "Twitter/X" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#111111")))
+            val sw = r * 0.22f
+            val lineP = createPaint(android.graphics.Color.WHITE, android.graphics.Paint.Style.STROKE, sw).apply { strokeCap = android.graphics.Paint.Cap.ROUND }
+            canvas.drawLine(cx - r * 0.55f, cy - r * 0.55f, cx + r * 0.55f, cy + r * 0.55f, lineP)
+            val lineP2 = createPaint(android.graphics.Color.WHITE, android.graphics.Paint.Style.STROKE, sw * 0.7f).apply { strokeCap = android.graphics.Paint.Cap.ROUND }
+            canvas.drawLine(cx + r * 0.55f, cy - r * 0.55f, cx - r * 0.55f, cy + r * 0.55f, lineP2)
+        }
+        "Snapchat" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#FFFC00")))
+            val w = r * 1.3f
+            val h = r * 1.3f
+            val ox = cx - w / 2f
+            val oy = cy - h / 2f
+            val ghostPath = android.graphics.Path().apply {
+                moveTo(ox + w * 0.50f, oy + h * 0.12f)
+                cubicTo(ox + w * 0.28f, oy + h * 0.12f, ox + w * 0.22f, oy + h * 0.38f, ox + w * 0.22f, oy + h * 0.52f)
+                cubicTo(ox + w * 0.15f, oy + h * 0.58f, ox + w * 0.08f, oy + h * 0.68f, ox + w * 0.18f, oy + h * 0.75f)
+                cubicTo(ox + w * 0.28f, oy + h * 0.72f, ox + w * 0.35f, oy + h * 0.68f, ox + w * 0.50f, oy + h * 0.68f)
+                cubicTo(ox + w * 0.65f, oy + h * 0.68f, ox + w * 0.72f, oy + h * 0.72f, ox + w * 0.82f, oy + h * 0.75f)
+                cubicTo(ox + w * 0.92f, oy + h * 0.68f, ox + w * 0.85f, oy + h * 0.58f, ox + w * 0.78f, oy + h * 0.52f)
+                cubicTo(ox + w * 0.78f, oy + h * 0.38f, ox + w * 0.72f, oy + h * 0.12f, ox + w * 0.50f, oy + h * 0.12f)
+                close()
+            }
+            canvas.drawPath(ghostPath, createPaint(android.graphics.Color.WHITE))
+            canvas.drawPath(ghostPath, createPaint(android.graphics.Color.BLACK, android.graphics.Paint.Style.STROKE, r * 0.08f))
+        }
+        "Telegram" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#24A1DE")))
+            val w = r * 1.2f
+            val h = r * 1.2f
+            val ox = cx - w / 2f
+            val oy = cy - h / 2f
+            val planePath = android.graphics.Path().apply {
+                moveTo(ox + w * 0.12f, oy + h * 0.50f)
+                lineTo(ox + w * 0.88f, oy + h * 0.18f)
+                lineTo(ox + w * 0.70f, oy + h * 0.82f)
+                lineTo(ox + w * 0.48f, oy + h * 0.62f)
+                lineTo(ox + w * 0.38f, oy + h * 0.72f)
+                lineTo(ox + w * 0.38f, oy + h * 0.55f)
+                lineTo(ox + w * 0.68f, oy + h * 0.32f)
+                lineTo(ox + w * 0.32f, oy + h * 0.52f)
+                close()
+            }
+            canvas.drawPath(planePath, createPaint(android.graphics.Color.WHITE))
+        }
+        "Pinterest" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#E60023")))
+            val pPaint = createPaint(android.graphics.Color.WHITE).apply {
+                textSize = r * 1.2f
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            canvas.drawText("P", cx, cy + r * 0.42f, pPaint)
+        }
+        "Spotify" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#1DB954")))
+            val w = r * 1.3f
+            val h = r * 1.3f
+            val ox = cx - w / 2f
+            val oy = cy - h / 2f
+            val sw = w * 0.12f
+            val blackStroke = createPaint(android.graphics.Color.BLACK, android.graphics.Paint.Style.STROKE, sw).apply { strokeCap = android.graphics.Paint.Cap.ROUND }
+            canvas.drawArc(android.graphics.RectF(ox, oy + h * 0.05f, ox + w, oy + h * 0.85f), 210f, 120f, false, blackStroke)
+            canvas.drawArc(android.graphics.RectF(ox + w * 0.08f, oy + h * 0.22f, ox + w * 0.92f, oy + h * 0.90f), 212f, 116f, false, blackStroke)
+            canvas.drawArc(android.graphics.RectF(ox + w * 0.16f, oy + h * 0.38f, ox + w * 0.84f, oy + h * 0.93f), 215f, 110f, false, blackStroke)
+        }
+        "Gmail" -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.WHITE))
+            val w = r * 1.2f
+            val h = r * 0.85f
+            val ox = cx - w / 2f
+            val oy = cy - h / 2f
+            canvas.drawRoundRect(android.graphics.RectF(ox, oy, ox + w * 0.24f, oy + h), w * 0.08f, w * 0.08f, createPaint(android.graphics.Color.parseColor("#EA4335")))
+            canvas.drawRoundRect(android.graphics.RectF(ox + w * 0.76f, oy, ox + w, oy + h), w * 0.08f, w * 0.08f, createPaint(android.graphics.Color.parseColor("#4285F4")))
+            val pRed = android.graphics.Path().apply {
+                moveTo(ox, oy)
+                lineTo(cx, oy + h * 0.52f)
+                lineTo(ox + w * 0.24f, oy)
+                close()
+            }
+            canvas.drawPath(pRed, createPaint(android.graphics.Color.parseColor("#EA4335")))
+            val pBlue = android.graphics.Path().apply {
+                moveTo(ox + w, oy)
+                lineTo(cx, oy + h * 0.52f)
+                lineTo(ox + w * 0.76f, oy)
+                close()
+            }
+            canvas.drawPath(pBlue, createPaint(android.graphics.Color.parseColor("#4285F4")))
+            val pGreen = android.graphics.Path().apply {
+                moveTo(ox + w * 0.76f, oy + h * 0.35f)
+                lineTo(ox + w, oy + h * 0.15f)
+                lineTo(ox + w, oy + h)
+                lineTo(ox + w * 0.76f, oy + h)
+                close()
+            }
+            canvas.drawPath(pGreen, createPaint(android.graphics.Color.parseColor("#34A853")))
+            val pYellow = android.graphics.Path().apply {
+                moveTo(ox, oy + h * 0.15f)
+                lineTo(ox + w * 0.24f, oy + h * 0.35f)
+                lineTo(ox + w * 0.24f, oy + h)
+                lineTo(ox, oy + h)
+                close()
+            }
+            canvas.drawPath(pYellow, createPaint(android.graphics.Color.parseColor("#FBBC05")))
+        }
+        else -> {
+            canvas.drawCircle(cx, cy, r, createPaint(android.graphics.Color.parseColor("#1565C0")))
+        }
+    }
+}
+
 fun generateQrCodeBitmap(
     qrContentText: String,
     selectedPalette: QrPalette,
@@ -1930,7 +2188,13 @@ fun generateQrCodeBitmap(
     includeQuietZone: Boolean = true,
     imageBitmap: ImageBitmap? = null,
     resolutionPx: Int = 1024,
-    customQrDensity: Int = 29
+    customQrDensity: Int = 29,
+    logoScale: Float = 0.90f,
+    logoAlphaThreshold: Float = 0.35f,
+    logoBlendOpacity: Float = 1.0f,
+    qrFusionMode: String = "Custom Brand Canvas",
+    contrastBoost: Boolean = true,
+    useImageAsTexture: Boolean = true
 ): android.graphics.Bitmap {
     val size = resolutionPx.coerceIn(256, 4096)
     val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
@@ -1954,10 +2218,19 @@ fun generateQrCodeBitmap(
     val matrixWidth = bitMatrix?.width ?: customQrDensity
     val matrixHeight = bitMatrix?.height ?: customQrDensity
     
-    val hasFrame = qrFrameStyle != "None" && qrFrameStyle != "Classic Clear"
-    val frameTopPadding = if (hasFrame && qrFrameStyle == "Top Banner Tag") size * 0.12f else 0f
-    val frameBottomPadding = if (hasFrame && qrFrameStyle == "Bottom Badge Frame") size * 0.12f else 0f
-    val qrAreaSize = size - frameTopPadding - frameBottomPadding
+    val normalizedFrameStyle = qrFrameStyle.replace(Regex("^[📐🧊🌌]\\s*"), "")
+    val hasTopBanner = normalizedFrameStyle == "Top Banner Tag" || normalizedFrameStyle == "Speech Bubble Top" || normalizedFrameStyle == "Pill Badge Top" || normalizedFrameStyle == "Resto Menu Tag Top" || normalizedFrameStyle == "Storefront Sign Header"
+    val hasBottomBanner = normalizedFrameStyle == "Bottom Banner Bar" || normalizedFrameStyle == "Bottom Badge Frame" || normalizedFrameStyle == "Speech Bubble Bottom" || normalizedFrameStyle == "Pill Badge Bottom" || normalizedFrameStyle == "Discount Callout Banner" || normalizedFrameStyle == "VIP Club Crown Banner"
+    
+    val frameTopPadding = if (hasTopBanner) size * 0.14f else if (normalizedFrameStyle != "None" && normalizedFrameStyle != "Minimalist Borderless" && normalizedFrameStyle != "Classic Clear") size * 0.05f else 0f
+    val frameBottomPadding = if (hasBottomBanner) size * 0.14f else if (normalizedFrameStyle != "None" && normalizedFrameStyle != "Minimalist Borderless" && normalizedFrameStyle != "Classic Clear") size * 0.05f else 0f
+    val frameSidePadding = if (normalizedFrameStyle != "None" && normalizedFrameStyle != "Minimalist Borderless" && normalizedFrameStyle != "Classic Clear") size * 0.05f else 0f
+
+    val qrAreaWidth = size - (frameSidePadding * 2f)
+    val qrAreaHeight = size - frameTopPadding - frameBottomPadding
+    val qrAreaSize = minOf(qrAreaWidth, qrAreaHeight)
+    val qrLeft = (size - qrAreaSize) / 2f
+    val qrTop = frameTopPadding + ((size - frameTopPadding - frameBottomPadding) - qrAreaSize) / 2f
     
     val cellSize = qrAreaSize / matrixWidth.toFloat()
     
@@ -1967,7 +2240,7 @@ fun generateQrCodeBitmap(
     val qrPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         if (selectedPalette.isGradient) {
             shader = android.graphics.LinearGradient(
-                0f, frameTopPadding, size.toFloat(), frameTopPadding + qrAreaSize,
+                qrLeft, qrTop, qrLeft + qrAreaSize, qrTop + qrAreaSize,
                 primaryColorInt, endColorInt, android.graphics.Shader.TileMode.CLAMP
             )
         } else {
@@ -1981,73 +2254,229 @@ fun generateQrCodeBitmap(
     val eyePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         if (selectedEyePalette.isGradient && selectedEyePalette.name != "Match Theme") {
             shader = android.graphics.LinearGradient(
-                0f, frameTopPadding, size.toFloat(), frameTopPadding + qrAreaSize,
+                qrLeft, qrTop, qrLeft + qrAreaSize, qrTop + qrAreaSize,
                 eyeColorInt, eyeEndColorInt, android.graphics.Shader.TileMode.CLAMP
             )
         } else {
             color = eyeColorInt
         }
     }
-    
-    val isEyeZone = { x: Int, y: Int ->
-        (x < 7 && y < 7) || (x >= matrixWidth - 7 && y < 7) || (x < 7 && y >= matrixHeight - 7)
+
+    val androidBitmap: android.graphics.Bitmap? = imageBitmap?.let {
+        try {
+            val bmp = it.asAndroidBitmap()
+            if (bmp.config == android.graphics.Bitmap.Config.HARDWARE) {
+                bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+            } else bmp
+        } catch (e: Exception) { null }
     }
-    
-    // Draw matrix cells
-    if (bitMatrix != null) {
-        for (y in 0 until matrixHeight) {
-            for (x in 0 until matrixWidth) {
-                if (isEyeZone(x, y)) continue
-                
-                if (bitMatrix.get(x, y)) {
-                    val left = x * cellSize
-                    val top = frameTopPadding + y * cellSize
-                    val right = left + cellSize
-                    val bottom = top + cellSize
-                    val cx = left + cellSize / 2f
-                    val cy = top + cellSize / 2f
-                    
-                    when (qrDotStyle) {
-                        "Dots / Circle", "Classy Dots" -> {
-                            canvas.drawCircle(cx, cy, (cellSize / 2f) * 0.9f, qrPaint)
-                        }
-                        "Rounded Retro", "Fluid Curves" -> {
-                            val rect = android.graphics.RectF(left + cellSize * 0.05f, top + cellSize * 0.05f, right - cellSize * 0.05f, bottom - cellSize * 0.05f)
-                            canvas.drawRoundRect(rect, cellSize * 0.4f, cellSize * 0.4f, qrPaint)
-                        }
-                        else -> { // Classic Square
-                            val rect = android.graphics.RectF(left, top, right, bottom)
-                            canvas.drawRect(rect, qrPaint)
-                        }
-                    }
+
+    // 1. Draw Background Frame Canvas or Borders if requested
+    fun createFramePaint(defaultColor: Int = primaryColorInt): android.graphics.Paint {
+        return android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            when (frameBgColorHex) {
+                "GRADIENT_RAINBOW" -> shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), intArrayOf(android.graphics.Color.parseColor("#FF1744"), android.graphics.Color.parseColor("#FF9100"), android.graphics.Color.parseColor("#FFEA00"), android.graphics.Color.parseColor("#00E676"), android.graphics.Color.parseColor("#2979FF"), android.graphics.Color.parseColor("#D500F9")), null, android.graphics.Shader.TileMode.CLAMP)
+                "GRADIENT_SUNSET" -> shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), intArrayOf(android.graphics.Color.parseColor("#FF416C"), android.graphics.Color.parseColor("#FF4B2B")), null, android.graphics.Shader.TileMode.CLAMP)
+                "GRADIENT_CYBER" -> shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), intArrayOf(android.graphics.Color.parseColor("#00F2FE"), android.graphics.Color.parseColor("#4FACFE")), null, android.graphics.Shader.TileMode.CLAMP)
+                "GRADIENT_FLAME" -> shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), intArrayOf(android.graphics.Color.parseColor("#F12711"), android.graphics.Color.parseColor("#F5AF19")), null, android.graphics.Shader.TileMode.CLAMP)
+                "GRADIENT_HOLOGRAM" -> shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), intArrayOf(android.graphics.Color.parseColor("#A1C4FD"), android.graphics.Color.parseColor("#C2E9FB"), android.graphics.Color.parseColor("#E0C3FC")), null, android.graphics.Shader.TileMode.CLAMP)
+                "GRADIENT_AURORA" -> shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), intArrayOf(android.graphics.Color.parseColor("#7F00FF"), android.graphics.Color.parseColor("#E100FF")), null, android.graphics.Shader.TileMode.CLAMP)
+                "GRADIENT_GOLD" -> shader = android.graphics.LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), intArrayOf(android.graphics.Color.parseColor("#FFD700"), android.graphics.Color.parseColor("#FFA000"), android.graphics.Color.parseColor("#FF8F00")), null, android.graphics.Shader.TileMode.CLAMP)
+                else -> color = try { android.graphics.Color.parseColor(frameBgColorHex) } catch (e: Exception) { defaultColor }
+            }
+        }
+    }
+
+    if (hasTopBanner || hasBottomBanner) {
+        val bgFramePaint = createFramePaint()
+        canvas.drawRoundRect(android.graphics.RectF(0f, 0f, size.toFloat(), size.toFloat()), size * 0.04f, size * 0.04f, bgFramePaint)
+        // White inner card for QR code
+        val innerCardPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+        canvas.drawRoundRect(android.graphics.RectF(qrLeft - size * 0.02f, qrTop - size * 0.02f, qrLeft + qrAreaSize + size * 0.02f, qrTop + qrAreaSize + size * 0.02f), size * 0.03f, size * 0.03f, innerCardPaint)
+    } else if (normalizedFrameStyle != "None" && normalizedFrameStyle != "Minimalist Borderless") {
+        val borderPaint = createFramePaint().apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = size * 0.015f
+        }
+        when (normalizedFrameStyle) {
+            "Vintage Ticket Border", "Vintage Stamp Frame" -> {
+                borderPaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(size * 0.02f, size * 0.02f), 0f)
+                canvas.drawRoundRect(android.graphics.RectF(size * 0.03f, size * 0.03f, size * 0.97f, size * 0.97f), size * 0.03f, size * 0.03f, borderPaint)
+            }
+            "Neon Scanner Brackets" -> {
+                val bracketLen = size * 0.12f
+                val bracketW = size * 0.02f
+                val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = primaryColorInt
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = bracketW
+                }
+                // Top-Left
+                canvas.drawLine(size * 0.04f, size * 0.04f, size * 0.04f + bracketLen, size * 0.04f, p)
+                canvas.drawLine(size * 0.04f, size * 0.04f, size * 0.04f, size * 0.04f + bracketLen, p)
+                // Top-Right
+                canvas.drawLine(size * 0.96f - bracketLen, size * 0.04f, size * 0.96f, size * 0.04f, p)
+                canvas.drawLine(size * 0.96f, size * 0.04f, size * 0.96f, size * 0.04f + bracketLen, p)
+                // Bottom-Left
+                canvas.drawLine(size * 0.04f, size * 0.96f - bracketLen, size * 0.04f, size * 0.96f, p)
+                canvas.drawLine(size * 0.04f, size * 0.96f, size * 0.04f + bracketLen, size * 0.96f, p)
+                // Bottom-Right
+                canvas.drawLine(size * 0.96f - bracketLen, size * 0.96f, size * 0.96f, size * 0.96f, p)
+                canvas.drawLine(size * 0.96f, size * 0.96f - bracketLen, size * 0.96f, size * 0.96f, p)
+            }
+            "Artistic Double Frame" -> {
+                canvas.drawRoundRect(android.graphics.RectF(size * 0.03f, size * 0.03f, size * 0.97f, size * 0.97f), size * 0.03f, size * 0.03f, borderPaint)
+                val innerBorderPaint = createFramePaint().apply {
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = size * 0.008f
+                    alpha = 100
+                }
+                canvas.drawRoundRect(android.graphics.RectF(size * 0.05f, size * 0.05f, size * 0.95f, size * 0.95f), size * 0.02f, size * 0.02f, innerBorderPaint)
+            }
+            else -> {
+                canvas.drawRoundRect(android.graphics.RectF(size * 0.03f, size * 0.03f, size * 0.97f, size * 0.97f), size * 0.03f, size * 0.03f, borderPaint)
+            }
+        }
+    }
+
+    // 2. Draw Logo Watermark / Canvas Background in QR Area
+    if (androidBitmap != null && qrFusionMode != "Centered Badge") {
+        val margin = ((1f - logoScale) / 2f).coerceAtLeast(0f)
+        val logoSizeX = qrAreaSize * logoScale
+        val logoSizeY = qrAreaSize * logoScale
+        val logoOffsetX = qrLeft + qrAreaSize * margin
+        val logoOffsetY = qrTop + qrAreaSize * margin
+        
+        if (qrFusionMode == "Custom Brand Canvas") {
+            val haloPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+            canvas.drawCircle(qrLeft + qrAreaSize / 2f, qrTop + qrAreaSize / 2f, (logoSizeX / 2f) + size * 0.015f, haloPaint)
+            
+            val clipPath = android.graphics.Path().apply {
+                addOval(android.graphics.RectF(logoOffsetX, logoOffsetY, logoOffsetX + logoSizeX, logoOffsetY + logoSizeY), android.graphics.Path.Direction.CW)
+            }
+            canvas.save()
+            canvas.clipPath(clipPath)
+            val dstRect = android.graphics.RectF(logoOffsetX, logoOffsetY, logoOffsetX + logoSizeX, logoOffsetY + logoSizeY)
+            val srcRect = android.graphics.Rect(0, 0, androidBitmap.width, androidBitmap.height)
+            val imgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
+                alpha = (logoBlendOpacity.coerceAtLeast(0.85f) * 255).toInt().coerceIn(0, 255)
+            }
+            canvas.drawBitmap(androidBitmap, srcRect, dstRect, imgPaint)
+            canvas.restore()
+        } else {
+            val dstRect = android.graphics.RectF(logoOffsetX, logoOffsetY, logoOffsetX + logoSizeX, logoOffsetY + logoSizeY)
+            val srcRect = android.graphics.Rect(0, 0, androidBitmap.width, androidBitmap.height)
+            val imgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
+                alpha = (logoBlendOpacity * 255).toInt().coerceIn(0, 255)
+            }
+            canvas.drawBitmap(androidBitmap, srcRect, dstRect, imgPaint)
+        }
+    } else if (androidBitmap == null && selectedLogo in ALL_BRAND_LOGOS && selectedLogo != "None" && qrFusionMode != "Centered Badge") {
+        drawBrandLogoAndroidCanvas(canvas, selectedLogo, qrLeft, qrTop, qrAreaSize, qrAreaSize, logoScale, logoBlendOpacity)
+    }
+
+    // Sample color for texture mapping
+    val getSampledColor: (Float, Float) -> Int = { cx, cy ->
+        if (androidBitmap == null) {
+            primaryColorInt
+        } else {
+            val relX = ((cx - qrLeft) / qrAreaSize).coerceIn(0f, 1f)
+            val relY = ((cy - qrTop) / qrAreaSize).coerceIn(0f, 1f)
+            val px = (relX * androidBitmap.width).toInt().coerceIn(0, androidBitmap.width - 1)
+            val py = (relY * androidBitmap.height).toInt().coerceIn(0, androidBitmap.height - 1)
+            val colorVal = androidBitmap.getPixel(px, py)
+            val alpha = (colorVal ushr 24) and 0xff
+            if (alpha < (logoAlphaThreshold * 255).toInt()) {
+                if (contrastBoost) android.graphics.Color.BLACK else android.graphics.Color.argb(40, android.graphics.Color.red(primaryColorInt), android.graphics.Color.green(primaryColorInt), android.graphics.Color.blue(primaryColorInt))
+            } else {
+                if (contrastBoost) {
+                    val r = (android.graphics.Color.red(colorVal) * 0.55f).toInt().coerceIn(0, 255)
+                    val g = (android.graphics.Color.green(colorVal) * 0.55f).toInt().coerceIn(0, 255)
+                    val b = (android.graphics.Color.blue(colorVal) * 0.55f).toInt().coerceIn(0, 255)
+                    android.graphics.Color.argb(255, r, g, b)
+                } else {
+                    colorVal
                 }
             }
         }
     }
-    
-    // Draw Finder Eye
+
+    val isLogoPixelVisible: (Int, Int) -> Boolean = { x, y ->
+        if (androidBitmap == null) {
+            true
+        } else {
+            val relX = x.toFloat() / matrixWidth
+            val relY = y.toFloat() / matrixHeight
+            val px = (relX * androidBitmap.width).toInt().coerceIn(0, androidBitmap.width - 1)
+            val py = (relY * androidBitmap.height).toInt().coerceIn(0, androidBitmap.height - 1)
+            val colorVal = androidBitmap.getPixel(px, py)
+            val alpha = (colorVal ushr 24) and 0xff
+            alpha / 255f >= logoAlphaThreshold
+        }
+    }
+
+    // 3. Draw Finder Eyes
     fun drawFinderEye(startX: Int, startY: Int) {
-        val left = startX * cellSize
-        val top = frameTopPadding + startY * cellSize
+        val left = qrLeft + startX * cellSize
+        val top = qrTop + startY * cellSize
         val eyeSize = 7 * cellSize
         val outerRect = android.graphics.RectF(left, top, left + eyeSize, top + eyeSize)
         val innerWhiteRect = android.graphics.RectF(left + cellSize, top + cellSize, left + eyeSize - cellSize, top + eyeSize - cellSize)
         val pupilRect = android.graphics.RectF(left + 2 * cellSize, top + 2 * cellSize, left + eyeSize - 2 * cellSize, top + eyeSize - 2 * cellSize)
+        val cenX = left + eyeSize / 2f
+        val cenY = top + eyeSize / 2f
         
         val whitePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.WHITE
         }
+
+        // White protective halo behind eye
+        if (qrFusionMode == "Custom Brand Canvas" || selectedLogo != "None" || androidBitmap != null) {
+            canvas.drawCircle(cenX, cenY, cellSize * 4.0f, whitePaint)
+        }
         
         when (qrEyeStyle) {
+            "Brand Target Rings", "Concentric Bullseye" -> {
+                val blackPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.BLACK }
+                canvas.drawCircle(cenX, cenY, cellSize * 3.4f, blackPaint)
+                canvas.drawCircle(cenX, cenY, cellSize * 2.4f, whitePaint)
+                val centerColor = if (selectedEyePalette.name != "Match Theme") {
+                    eyeColorInt
+                } else {
+                    when (selectedLogo) {
+                        "Burger King", "KFC" -> android.graphics.Color.parseColor("#E2231A")
+                        "BMW", "Chrome" -> android.graphics.Color.parseColor("#0066B1")
+                        "Starbucks" -> android.graphics.Color.parseColor("#00704A")
+                        "Pepsi" -> android.graphics.Color.parseColor("#0051A2")
+                        "Facebook" -> android.graphics.Color.parseColor("#1877F2")
+                        "YouTube" -> android.graphics.Color.RED
+                        "WhatsApp" -> android.graphics.Color.parseColor("#25D366")
+                        else -> primaryColorInt
+                    }
+                }
+                val pupilP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = centerColor }
+                canvas.drawCircle(cenX, cenY, cellSize * 1.4f, pupilP)
+            }
             "Rounded Retro", "Soft Cushion" -> {
                 canvas.drawRoundRect(outerRect, eyeSize * 0.25f, eyeSize * 0.25f, eyePaint)
                 canvas.drawRoundRect(innerWhiteRect, eyeSize * 0.20f, eyeSize * 0.20f, whitePaint)
                 canvas.drawRoundRect(pupilRect, eyeSize * 0.15f, eyeSize * 0.15f, eyePaint)
             }
-            "Brand Target Rings", "Cyan Target" -> {
-                canvas.drawOval(outerRect, eyePaint)
-                canvas.drawOval(innerWhiteRect, whitePaint)
-                canvas.drawOval(pupilRect, eyePaint)
+            "Circular Orbit" -> {
+                canvas.drawCircle(cenX, cenY, cellSize * 3.5f, eyePaint)
+                canvas.drawCircle(cenX, cenY, cellSize * 2.5f, whitePaint)
+                canvas.drawCircle(cenX, cenY, cellSize * 1.5f, eyePaint)
+            }
+            "Modern Diamond" -> {
+                canvas.save()
+                canvas.rotate(45f, cenX, cenY)
+                val outerD = android.graphics.RectF(cenX - cellSize * 3f, cenY - cellSize * 3f, cenX + cellSize * 3f, cenY + cellSize * 3f)
+                val innerWD = android.graphics.RectF(cenX - cellSize * 2f, cenY - cellSize * 2f, cenX + cellSize * 2f, cenY + cellSize * 2f)
+                val pupilD = android.graphics.RectF(cenX - cellSize * 1f, cenY - cellSize * 1f, cenX + cellSize * 1f, cenY + cellSize * 1f)
+                canvas.drawRoundRect(outerD, cellSize * 1.2f, cellSize * 1.2f, eyePaint)
+                canvas.drawRoundRect(innerWD, cellSize * 0.8f, cellSize * 0.8f, whitePaint)
+                canvas.drawRoundRect(pupilD, cellSize * 0.4f, cellSize * 0.4f, eyePaint)
+                canvas.restore()
             }
             else -> { // Classic Edge
                 canvas.drawRect(outerRect, eyePaint)
@@ -2061,47 +2490,199 @@ fun generateQrCodeBitmap(
     drawFinderEye(0, 0)
     drawFinderEye(matrixWidth - 7, 0)
     drawFinderEye(0, matrixHeight - 7)
-    
-    // Draw Logo if present
-    val logoBmp = imageBitmap?.asAndroidBitmap()
-    if (logoBmp != null) {
-        val logoSize = qrAreaSize * 0.22f
-        val logoLeft = (size - logoSize) / 2f
-        val logoTop = frameTopPadding + (qrAreaSize - logoSize) / 2f
-        
-        val bgRadius = (logoSize / 2f) + (size * 0.015f)
-        val whitePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
-        canvas.drawCircle(size / 2f, frameTopPadding + qrAreaSize / 2f, bgRadius, whitePaint)
-        
-        val srcRect = android.graphics.Rect(0, 0, logoBmp.width, logoBmp.height)
-        val dstRect = android.graphics.RectF(logoLeft, logoTop, logoLeft + logoSize, logoTop + logoSize)
-        canvas.drawBitmap(logoBmp, srcRect, dstRect, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG))
+
+    // Finder eye collision checker
+    val isInsideFinder = { x: Int, y: Int ->
+        (x in 0..6 && y in 0..6) ||
+        (x in (matrixWidth - 7)..<matrixWidth && y in 0..6) ||
+        (x in 0..6 && y in (matrixHeight - 7)..<matrixHeight)
     }
-    
-    // Draw Frame Banners if configured
-    if (hasFrame) {
-        val frameBgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = try { android.graphics.Color.parseColor(frameBgColorHex) } catch (e: Exception) { primaryColorInt }
+
+    val hasLogo = selectedLogo != "None" || androidBitmap != null
+    val centerStart = (matrixWidth * 0.38f).toInt()
+    val centerEnd = (matrixWidth * 0.62f).toInt()
+    val isInsideCenter = { x: Int, y: Int ->
+        hasLogo && qrFusionMode == "Centered Badge" && x in centerStart..centerEnd && y in centerStart..centerEnd
+    }
+
+    // 4. Draw Matrix Cells
+    if (bitMatrix != null) {
+        for (y in 0 until matrixHeight) {
+            for (x in 0 until matrixWidth) {
+                if (isInsideFinder(x, y)) continue
+                if (isInsideCenter(x, y)) continue
+                
+                if (qrFusionMode == "Silhouette Shaping" && androidBitmap != null && !isLogoPixelVisible(x, y)) {
+                    continue
+                }
+                
+                if (bitMatrix.get(x, y)) {
+                    val left = qrLeft + x * cellSize
+                    val top = qrTop + y * cellSize
+                    val right = left + cellSize
+                    val bottom = top + cellSize
+                    val cx = left + cellSize / 2f
+                    val cy = top + cellSize / 2f
+                    
+                    val cellPaint = if ((useImageAsTexture || qrDotStyle == "Logo Image Texture") && androidBitmap != null) {
+                        val sampledColor = getSampledColor(cx, cy)
+                        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = sampledColor }
+                    } else if ((useImageAsTexture || qrDotStyle == "Logo Image Texture") && selectedLogo != "None") {
+                        val brandColor = when (selectedLogo) {
+                            "Burger King", "KFC" -> android.graphics.Color.parseColor("#E2231A")
+                            "BMW", "Chrome" -> android.graphics.Color.parseColor("#0066B1")
+                            "Starbucks" -> android.graphics.Color.parseColor("#00704A")
+                            "Pepsi" -> android.graphics.Color.parseColor("#0051A2")
+                            "Facebook" -> android.graphics.Color.parseColor("#1877F2")
+                            "YouTube" -> android.graphics.Color.RED
+                            "WhatsApp" -> android.graphics.Color.parseColor("#25D366")
+                            else -> primaryColorInt
+                        }
+                        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = brandColor }
+                    } else {
+                        qrPaint
+                    }
+
+                    when (qrDotStyle) {
+                        "Logo Image Texture", "Micro-Dot Stencil", "Logo Halftone Fusion", "My Logo as QR Matrix" -> {
+                            val dotRadius = cellSize * 0.40f
+                            if (qrFusionMode == "Custom Brand Canvas" && androidBitmap == null) {
+                                val darkP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#111111") }
+                                canvas.drawCircle(cx, cy, dotRadius, darkP)
+                            } else {
+                                val sampledColor = getSampledColor(cx, cy)
+                                val dotP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = sampledColor }
+                                canvas.drawCircle(cx, cy, dotRadius, dotP)
+                            }
+                        }
+                        "Dots / Circle", "Classy Dots", "Spherical Dot" -> {
+                            canvas.drawCircle(cx, cy, (cellSize / 2f) * 0.88f, cellPaint)
+                        }
+                        "Rounded Retro", "Fluid Curves", "Fluid Rounded" -> {
+                            val rect = android.graphics.RectF(left + cellSize * 0.08f, top + cellSize * 0.08f, right - cellSize * 0.08f, bottom - cellSize * 0.08f)
+                            canvas.drawRoundRect(rect, cellSize * 0.35f, cellSize * 0.35f, cellPaint)
+                        }
+                        "Cyber Cross" -> {
+                            val crossSize = cellSize * 0.3f
+                            canvas.drawRect(left + crossSize, top, right - crossSize, bottom, cellPaint)
+                            canvas.drawRect(left, top + crossSize, right, bottom - crossSize, cellPaint)
+                        }
+                        "Ring Wave" -> {
+                            val ringStroke = android.graphics.Paint(cellPaint).apply {
+                                style = android.graphics.Paint.Style.STROKE
+                                strokeWidth = cellSize * 0.18f
+                            }
+                            canvas.drawCircle(cx, cy, cellSize * 0.42f, ringStroke)
+                            canvas.drawCircle(cx, cy, cellSize * 0.15f, cellPaint)
+                        }
+                        "Stellar Star" -> {
+                            val starPath = android.graphics.Path().apply {
+                                moveTo(cx, top + cellSize * 0.05f)
+                                quadTo(cx, cy, right - cellSize * 0.05f, cy)
+                                quadTo(cx, cy, cx, bottom - cellSize * 0.05f)
+                                quadTo(cx, cy, left + cellSize * 0.05f, cy)
+                                close()
+                            }
+                            canvas.drawPath(starPath, cellPaint)
+                        }
+                        "Curved Leaf" -> {
+                            val leafPath = android.graphics.Path().apply {
+                                moveTo(left, bottom)
+                                cubicTo(left, top, right, top, right, top)
+                                cubicTo(right, bottom, left, bottom, left, bottom)
+                                close()
+                            }
+                            canvas.drawPath(leafPath, cellPaint)
+                        }
+                        "Heart Shape" -> {
+                            val hp = android.graphics.Path().apply {
+                                moveTo(cx, cy + cellSize * 0.35f)
+                                cubicTo(cx - cellSize * 0.5f, cy - cellSize * 0.1f, cx - cellSize * 0.3f, cy - cellSize * 0.5f, cx, cy - cellSize * 0.25f)
+                                cubicTo(cx + cellSize * 0.3f, cy - cellSize * 0.5f, cx + cellSize * 0.5f, cy - cellSize * 0.1f, cx, cy + cellSize * 0.35f)
+                                close()
+                            }
+                            canvas.drawPath(hp, cellPaint)
+                        }
+                        else -> { // Classic Square
+                            val rect = android.graphics.RectF(left, top, right, bottom)
+                            canvas.drawRect(rect, cellPaint)
+                        }
+                    }
+                }
+            }
         }
-        val frameTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+    }
+
+    // 5. Draw Centered Badge if in "Centered Badge" Mode
+    if (hasLogo && qrFusionMode == "Centered Badge") {
+        val badgeSize = qrAreaSize * (logoScale.coerceIn(0.20f, 0.35f))
+        val badgeLeft = qrLeft + (qrAreaSize - badgeSize) / 2f
+        val badgeTop = qrTop + (qrAreaSize - badgeSize) / 2f
+        val badgeCenX = qrLeft + qrAreaSize / 2f
+        val badgeCenY = qrTop + qrAreaSize / 2f
+        
+        val whiteBadgePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+        canvas.drawCircle(badgeCenX, badgeCenY, (badgeSize / 2f) + size * 0.01f, whiteBadgePaint)
+        
+        if (androidBitmap != null) {
+            val clipP = android.graphics.Path().apply {
+                addCircle(badgeCenX, badgeCenY, badgeSize / 2f, android.graphics.Path.Direction.CW)
+            }
+            canvas.save()
+            canvas.clipPath(clipP)
+            val srcR = android.graphics.Rect(0, 0, androidBitmap.width, androidBitmap.height)
+            val dstR = android.graphics.RectF(badgeLeft, badgeTop, badgeLeft + badgeSize, badgeTop + badgeSize)
+            canvas.drawBitmap(androidBitmap, srcR, dstR, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG))
+            canvas.restore()
+        } else if (selectedLogo in ALL_BRAND_LOGOS) {
+            drawBrandLogoAndroidCanvas(canvas, selectedLogo, badgeLeft, badgeTop, badgeSize, badgeSize, 1.0f, 1.0f)
+        } else {
+            val emblemColor = if (selectedEmblemPalette.name == "Match Theme") primaryColorInt else try { android.graphics.Color.parseColor(selectedEmblemPalette.startColor) } catch (e: Exception) { primaryColorInt }
+            val borderP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = emblemColor
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = size * 0.006f
+            }
+            canvas.drawCircle(badgeCenX, badgeCenY, badgeSize / 2f, borderP)
+            val iconP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = emblemColor
+                textSize = badgeSize * 0.45f
+                textAlign = android.graphics.Paint.Align.CENTER
+                isFakeBoldText = true
+            }
+            val shortLetter = when (selectedLogo) {
+                "Academy Crest" -> "🎓"
+                "Web Link" -> "🔗"
+                "Safe Shield" -> "🛡️"
+                "Star Score" -> "⭐"
+                "Love Heart" -> "❤️"
+                "Fast WiFi" -> "📶"
+                "Home Hub" -> "🏠"
+                else -> "QR"
+            }
+            val fm = iconP.fontMetrics
+            val base = badgeCenY - (fm.ascent + fm.descent) / 2f
+            canvas.drawText(shortLetter, badgeCenX, base, iconP)
+        }
+    }
+
+    // 6. Draw Frame Banner CTA Text
+    if (hasTopBanner || hasBottomBanner) {
+        val bannerTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color = try { android.graphics.Color.parseColor(frameTextColorHex) } catch (e: Exception) { android.graphics.Color.WHITE }
-            textSize = size * 0.045f
+            textSize = size * 0.042f
             textAlign = android.graphics.Paint.Align.CENTER
             isFakeBoldText = true
         }
+        val cleanBanner = customBannerText.ifEmpty { "SCAN ME" }.uppercase()
+        val fm = bannerTextPaint.fontMetrics
         
-        if (qrFrameStyle == "Top Banner Tag") {
-            val bannerRect = android.graphics.RectF(0f, 0f, size.toFloat(), frameTopPadding)
-            canvas.drawRect(bannerRect, frameBgPaint)
-            val fontMetrics = frameTextPaint.fontMetrics
-            val baseline = (frameTopPadding / 2f) - (fontMetrics.ascent + fontMetrics.descent) / 2f
-            canvas.drawText(customBannerText.ifEmpty { "SCAN ME" }, size / 2f, baseline, frameTextPaint)
-        } else if (qrFrameStyle == "Bottom Badge Frame") {
-            val bannerRect = android.graphics.RectF(0f, size - frameBottomPadding, size.toFloat(), size.toFloat())
-            canvas.drawRect(bannerRect, frameBgPaint)
-            val fontMetrics = frameTextPaint.fontMetrics
-            val baseline = (size - frameBottomPadding / 2f) - (fontMetrics.ascent + fontMetrics.descent) / 2f
-            canvas.drawText(customBannerText.ifEmpty { "SCAN ME" }, size / 2f, baseline, frameTextPaint)
+        if (hasTopBanner) {
+            val textY = (frameTopPadding / 2f) - (fm.ascent + fm.descent) / 2f
+            canvas.drawText(cleanBanner, size / 2f, textY, bannerTextPaint)
+        } else {
+            val textY = (size - frameBottomPadding / 2f) - (fm.ascent + fm.descent) / 2f
+            canvas.drawText(cleanBanner, size / 2f, textY, bannerTextPaint)
         }
     }
     
@@ -2859,7 +3440,13 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                 includeQuietZone = includeQuietZone,
                 imageBitmap = imageBitmapState.value,
                 resolutionPx = resPx,
-                customQrDensity = customQrDensity
+                customQrDensity = customQrDensity,
+                logoScale = logoScale,
+                logoAlphaThreshold = logoAlphaThreshold,
+                logoBlendOpacity = logoBlendOpacity,
+                qrFusionMode = qrFusionMode,
+                contrastBoost = contrastBoost,
+                useImageAsTexture = useImageAsTexture
             )
             val path = saveBitmapToDeviceGallery(context, generatedBitmap, "QR_${selectedType.replace(" ", "_")}", downloadFormat)
             savedGalleryPath = path
@@ -4601,7 +5188,14 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                             selectedEmblemPalette = selectedEmblemPalette,
                             includeQuietZone = includeQuietZone,
                             imageBitmap = imageBitmapState.value,
-                            sizeDp = 130
+                            sizeDp = 130,
+                            logoScale = logoScale,
+                            logoAlphaThreshold = logoAlphaThreshold,
+                            logoBlendOpacity = logoBlendOpacity,
+                            qrFusionMode = qrFusionMode,
+                            contrastBoost = contrastBoost,
+                            customQrDensity = customQrDensity,
+                            useImageAsTexture = useImageAsTexture
                         )
                     }
 
