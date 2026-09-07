@@ -342,3 +342,62 @@ data class PosEmployeePayout(
     val note: String = ""
 )
 
+// Business Profile for POS & Reports
+data class PosBusinessProfile(
+    val businessName: String = "AL-TAHIR HEALTHCARE & ENTERPRISE",
+    val tagline: String = "Pharmacy, Clinical Diagnostics & Surgical Supplies",
+    val address: String = "Main Hospital Road, Daggar Bazar",
+    val cityCountry: String = "Buner, KP, Pakistan",
+    val phone: String = "+92 300 1234567",
+    val email: String = "info@altahir-omnipos.pk",
+    val ntnNumber: String = "7864521-9",
+    val strnNumber: String = "327787654321",
+    val fbrPosId: String = "POS-BNR-0042",
+    val currency: String = "PKR",
+    val logoUri: String = "",
+    val showLogoOnInvoice: Boolean = true,
+    val showLogoOnThermal: Boolean = true,
+    val thermalDitherThreshold: Int = 128
+)
+
+fun getSavedBusinessProfile(context: android.content.Context): PosBusinessProfile {
+    val prefs = context.getSharedPreferences("omni_pos_business_prefs", android.content.Context.MODE_PRIVATE)
+    return PosBusinessProfile(
+        businessName = prefs.getString("biz_name", "AL-TAHIR HEALTHCARE & ENTERPRISE") ?: "AL-TAHIR HEALTHCARE & ENTERPRISE",
+        tagline = prefs.getString("biz_tagline", "Pharmacy, Clinical Diagnostics & Surgical Supplies") ?: "Pharmacy, Clinical Diagnostics & Surgical Supplies",
+        address = prefs.getString("biz_addr", "Main Hospital Road, Daggar Bazar") ?: "Main Hospital Road, Daggar Bazar",
+        cityCountry = prefs.getString("biz_city", "Buner, KP, Pakistan") ?: "Buner, KP, Pakistan",
+        phone = prefs.getString("biz_phone", "+92 300 1234567") ?: "+92 300 1234567",
+        email = prefs.getString("biz_email", "info@altahir-omnipos.pk") ?: "info@altahir-omnipos.pk",
+        ntnNumber = prefs.getString("biz_ntn", "7864521-9") ?: "7864521-9",
+        strnNumber = prefs.getString("biz_strn", "327787654321") ?: "327787654321",
+        fbrPosId = prefs.getString("biz_fbr", "POS-BNR-0042") ?: "POS-BNR-0042",
+        currency = prefs.getString("biz_currency", "PKR") ?: "PKR",
+        logoUri = prefs.getString("biz_logo_uri", "") ?: "",
+        showLogoOnInvoice = prefs.getBoolean("biz_show_logo_invoice", true),
+        showLogoOnThermal = prefs.getBoolean("biz_show_logo_thermal", true),
+        thermalDitherThreshold = prefs.getInt("biz_thermal_threshold", 128)
+    )
+}
+
+fun saveBusinessProfile(context: android.content.Context, profile: PosBusinessProfile) {
+    val prefs = context.getSharedPreferences("omni_pos_business_prefs", android.content.Context.MODE_PRIVATE)
+    prefs.edit()
+        .putString("biz_name", profile.businessName)
+        .putString("biz_tagline", profile.tagline)
+        .putString("biz_addr", profile.address)
+        .putString("biz_city", profile.cityCountry)
+        .putString("biz_phone", profile.phone)
+        .putString("biz_email", profile.email)
+        .putString("biz_ntn", profile.ntnNumber)
+        .putString("biz_strn", profile.strnNumber)
+        .putString("biz_fbr", profile.fbrPosId)
+        .putString("biz_currency", profile.currency)
+        .putString("biz_logo_uri", profile.logoUri)
+        .putBoolean("biz_show_logo_invoice", profile.showLogoOnInvoice)
+        .putBoolean("biz_show_logo_thermal", profile.showLogoOnThermal)
+        .putInt("biz_thermal_threshold", profile.thermalDitherThreshold)
+        .apply()
+}
+
+

@@ -1,5 +1,6 @@
 package com.drtahir.studentkit
 
+import com.drtahir.studentkit.ui.screens.NursingQuestionBank
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -12,5 +13,12 @@ class ExampleUnitTest {
   @Test
   fun addition_isCorrect() {
     assertEquals(4, 2 + 2)
+  }
+
+  @Test
+  fun testNursingQuestionBank() {
+    val questions = NursingQuestionBank.getAllQuestions()
+    println("NursingQuestionBank questions count: ${questions.size}")
+    assertTrue("Questions should not be empty", questions.isNotEmpty())
   }
 }

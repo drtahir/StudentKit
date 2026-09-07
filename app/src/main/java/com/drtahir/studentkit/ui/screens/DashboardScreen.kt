@@ -74,12 +74,14 @@ val allToolsList = listOf(
     UtilityTool("scanner", "Edge Scanner", "Scan physical doc pages via camera", "Documents", Icons.Default.DocumentScanner, Color(0xFF673AB7), "HD SCAN", Screen.DocumentScanner),
     UtilityTool("pdftools", "PDF Handlers Suite", "13-in-1: Merge, split, numbers, grayscale, booklet, crop", "Documents", Icons.Default.PictureAsPdf, Color(0xFFEF6C00), "13-IN-1", Screen.PdfTools),
     UtilityTool("invoice", "Invoice Maker", "Create professional PDF invoices", "Documents", Icons.Default.Receipt, Color(0xFF00838F), "INVOICES", Screen.InvoiceGenerator),
+    UtilityTool("hospital_clerk", "Hospital Clerk & MS Kit", "Official orders, rosters, show causes & letters", "Documents", Icons.Default.LocalHospital, Color(0xFF00796B), "GOVT KP", Screen.HospitalClerkAdmin),
     UtilityTool("stamp_sign", "Stamp & Sign", "Freehand draw signature & stamp docs", "Documents", Icons.Default.Gesture, Color(0xFF1976D2), "STAMP", Screen.SignaturePad),
 
     // ⚙️ Utilities
     UtilityTool("calc", "Scientific Calc", "Advance mathematical formula solver", "Utilities", Icons.Default.Calculate, Color(0xFFE91E63), "MATH ENGINE", Screen.Calculator),
     UtilityTool("converter", "Unit Converter", "Convert data, length, weight, speeds", "Utilities", Icons.Default.SwapVert, Color(0xFF00ACC1), "CONVERT", Screen.UnitConverter),
     UtilityTool("qr_gen", "QR Generator", "Generate secure colored QR codes", "Utilities", Icons.Default.QrCode, Color(0xFF3949AB), "VECTOR", Screen.QrGenerator),
+    UtilityTool("barcode_gen", "Barcode Generator", "Generate all types of high-quality barcodes", "Utilities", Icons.Default.QrCodeScanner, Color(0xFF1E88E5), "VECTOR", Screen.BarcodeGenerator),
     UtilityTool("qr_scan", "QR Scanner", "Scan bar codes & check web links", "Utilities", Icons.Default.QrCodeScanner, Color(0xFF00897B), "CAMERA", Screen.QrScanner),
     UtilityTool("passwords", "Password Vault", "Local encrypted credentials keeper", "Utilities", Icons.Default.Lock, Color(0xFF2E7D32), "CRYPT", Screen.PasswordManager),
     UtilityTool("img_tools", "Image Compress", "Compress, resize & optimize images", "Utilities", Icons.Default.AddPhotoAlternate, Color(0xFFC2185B), "BATCH", Screen.ImageTools),

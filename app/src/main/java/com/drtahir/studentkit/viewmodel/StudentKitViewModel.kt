@@ -34,7 +34,9 @@ sealed class Screen {
     object AssignmentOcrStudio : Screen()
     object PdfTools : Screen()
     object InvoiceGenerator : Screen()
+    object HospitalClerkAdmin : Screen()
     object QrGenerator : Screen()
+    object BarcodeGenerator : Screen()
     object QrScanner : Screen()
     object WifiQrGenerator : Screen()
     object Calculator : Screen()
@@ -836,6 +838,8 @@ class StudentKitViewModel(application: Application) : AndroidViewModel(applicati
     val allPosOrders: StateFlow<List<PosOrder>> = repository.allPosOrders.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     fun insertPosOrder(order: PosOrder) = viewModelScope.launch { repository.insertPosOrder(order) }
     fun insertPosOrderItem(item: PosOrderItem) = viewModelScope.launch { repository.insertPosOrderItem(item) }
+    fun getPosOrderItems(orderId: String): Flow<List<PosOrderItem>> = repository.getPosOrderItems(orderId)
+    fun deletePosOrderById(id: String) = viewModelScope.launch { repository.deletePosOrderById(id) }
 
     // POS Employees & Staff
     val allPosEmployees: StateFlow<List<PosEmployee>> = repository.allPosEmployees.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())

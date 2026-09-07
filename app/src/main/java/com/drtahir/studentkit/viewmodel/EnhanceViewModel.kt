@@ -26,7 +26,7 @@ import java.io.OutputStream
 enum class EnhancePassProfile(val displayName: String, val description: String, val totalPasses: Int) {
     FAST("Fast (1 Pass)", "Standard 4x Super Resolution + Face restore", 1),
     BALANCED("Balanced (2 Pass)", "Pre-Denoise + 4x Super-Res + Micro-Detail Edge Refine", 2),
-    ULTRA_STUDIO("Ultra Studio (3 Pass)", "Full Multi-Pass: Denoise, 4x TFLite, Sharpening, GFPGAN & Vibrance", 3)
+    ULTRA_STUDIO("Ultra Studio (3 Pass)", "Full Multi-Pass: Denoise, 4x Super-Res, Sharpening, Face Refine & Vibrance", 3)
 }
 
 sealed class EnhanceUiState {
@@ -191,10 +191,10 @@ class EnhanceViewModel(application: Application) : AndroidViewModel(application)
                     val facePassExtra = if (facesCount > 0) 1 else 0
                     val finalTotalPasses = totalPassesCount + facePassExtra
 
-                    // PASS NEXT: TFLite 4x Super-Resolution Upscaling (Real-ESRGAN)
+                    // PASS NEXT: 4x Super-Resolution Upscaling
                     _uiState.value = EnhanceUiState.Processing(
                         progress = 0.20f,
-                        message = "Pass $currentPassNumber/$finalTotalPasses: Neural 4x Super-Resolution Tiling...",
+                        message = "Pass $currentPassNumber/$finalTotalPasses: Neural 4x Super-Resolution Upscaling...",
                         currentPass = currentPassNumber,
                         totalPasses = finalTotalPasses
                     )
@@ -204,7 +204,7 @@ class EnhanceViewModel(application: Application) : AndroidViewModel(application)
                         val pct = (progress * 100).toInt()
                         _uiState.value = EnhanceUiState.Processing(
                             progress = baseProgress,
-                            message = "Pass $currentPassNumber/$finalTotalPasses: TFLite 4x Super-Res ($pct%)...",
+                            message = "Pass $currentPassNumber/$finalTotalPasses: 4x Super-Resolution ($pct%)...",
                             currentPass = currentPassNumber,
                             totalPasses = finalTotalPasses
                         )
@@ -223,11 +223,11 @@ class EnhanceViewModel(application: Application) : AndroidViewModel(application)
                         currentPassNumber++
                     }
 
-                    // PASS NEXT: GFPGAN Portrait & Skin Restoration
+                    // PASS NEXT: Portrait Face & Skin Restoration
                     val faceRestoredResult = if (facesCount > 0) {
                         _uiState.value = EnhanceUiState.Processing(
                             progress = 0.78f,
-                            message = "Pass $currentPassNumber/$finalTotalPasses: GFPGAN face restoration & skin blend...",
+                            message = "Pass $currentPassNumber/$finalTotalPasses: Portrait face restoration & skin blend...",
                             currentPass = currentPassNumber,
                             totalPasses = finalTotalPasses
                         )

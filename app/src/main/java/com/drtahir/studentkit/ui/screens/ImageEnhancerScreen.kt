@@ -489,7 +489,7 @@ fun ImageEnhancerScreen(
                             Box(modifier = Modifier.height(24.dp).width(1.dp).background(Color.LightGray))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("Engine", fontSize = 10.sp, color = Color.Gray)
-                                Text(if (state.isModelMode) "TFLite" else "Pixel Refine", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("AI Super-Res", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
                             }
                         }
                     }

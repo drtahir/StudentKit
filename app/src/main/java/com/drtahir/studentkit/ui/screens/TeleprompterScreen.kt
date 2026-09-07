@@ -56,6 +56,11 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 // =============================================================
 // TELEPROMPTER DATA MODELS & REPOSITORY
@@ -1908,6 +1913,11 @@ fun AiScriptGeneratorDialog(
     onScriptGenerated: (TeleprompterScript) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("teleprompter_settings", Context.MODE_PRIVATE) }
+    var savedApiKey by remember { mutableStateOf(prefs.getString("gemini_api_key", "") ?: "") }
+    var showApiKeyField by remember { mutableStateOf(false) }
+
     var topic by remember { mutableStateOf("") }
     var selectedFormat by remember { mutableStateOf("YouTube Video Hook (60s)") }
     var selectedTone by remember { mutableStateOf("Energetic & Engaging") }
@@ -1918,13 +1928,25 @@ fun AiScriptGeneratorDialog(
 
     val coroutineScope = rememberCoroutineScope()
 
+    val hasKey = BuildConfig.GEMINI_API_KEY.isNotBlank() && BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY" || savedApiKey.isNotBlank()
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF10B981))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("AI Teleprompter Writer", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("AI Teleprompter Writer", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                IconButton(
+                    onClick = { showApiKeyField = !showApiKeyField },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Key,
+                        contentDescription = "Configure Gemini API Key",
+                        tint = if (hasKey) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         text = {
@@ -1939,6 +1961,38 @@ fun AiScriptGeneratorDialog(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (showApiKeyField || !hasKey) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF10B981))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Gemini API Key (Optional)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text(
+                                "Enter a Google Gemini API Key for online cloud AI, or leave blank to use the smart offline script synthesizer.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = savedApiKey,
+                                onValueChange = {
+                                    savedApiKey = it
+                                    prefs.edit().putString("gemini_api_key", it.trim()).apply()
+                                },
+                                placeholder = { Text("AIzaSy...", fontSize = 12.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
 
                 OutlinedTextField(
                     value = topic,
@@ -1999,7 +2053,15 @@ fun AiScriptGeneratorDialog(
                 onClick = {
                     isGenerating = true
                     coroutineScope.launch {
-                        val generatedContent = generateAiScriptContent(topic, selectedFormat, selectedTone)
+                        val effectiveKey = if (savedApiKey.isNotBlank()) {
+                            savedApiKey.trim()
+                        } else if (BuildConfig.GEMINI_API_KEY.isNotBlank() && BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY") {
+                            BuildConfig.GEMINI_API_KEY.trim()
+                        } else {
+                            ""
+                        }
+
+                        val (generatedContent, source) = generateAiScriptContentWithSource(topic, selectedFormat, selectedTone, effectiveKey)
                         val newScript = TeleprompterScript(
                             title = "AI: $topic",
                             content = generatedContent,
@@ -2007,6 +2069,7 @@ fun AiScriptGeneratorDialog(
                             targetWpm = if (selectedFormat.contains("30s")) 160 else 140
                         )
                         isGenerating = false
+                        Toast.makeText(context, "Script generated via $source", Toast.LENGTH_SHORT).show()
                         onScriptGenerated(newScript)
                     }
                 },
@@ -2023,46 +2086,178 @@ fun AiScriptGeneratorDialog(
     )
 }
 
-suspend fun generateAiScriptContent(topic: String, format: String, tone: String): String = withContext(Dispatchers.IO) {
-    try {
-        if (BuildConfig.GEMINI_API_KEY.isNotBlank()) {
+suspend fun generateAiScriptContentWithSource(
+    topic: String,
+    format: String,
+    tone: String,
+    apiKey: String
+): Pair<String, String> = withContext(Dispatchers.IO) {
+    if (apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY") {
+        val prompt = """
+            Write a professional teleprompter script for video recording.
+            Topic: "$topic"
+            Format: "$format"
+            Tone: "$tone"
+            
+            Include visual cues in brackets like [LOOK AT CAMERA], [PAUSE 2 SECONDS], [SMILE], [EMPHASIZE], [SLOW DOWN].
+            Make it engaging, conversational, and direct. Keep formatting clean with short readable paragraphs.
+        """.trimIndent()
+
+        // 1. Try GenerativeModel with gemini-3.5-flash
+        try {
             val generativeModel = GenerativeModel(
-                modelName = "gemini-1.5-flash",
-                apiKey = BuildConfig.GEMINI_API_KEY
+                modelName = "gemini-3.5-flash",
+                apiKey = apiKey
             )
-            val prompt = """
-                Write a professional teleprompter script for video recording.
-                Topic: "$topic"
-                Format: "$format"
-                Tone: "$tone"
-                
-                Include visual cues in brackets like [LOOK AT CAMERA], [PAUSE 2 SECONDS], [SMILE], [EMPHASIZE].
-                Make it engaging, conversational, and direct. Keep formatting clean with short paragraphs.
-            """.trimIndent()
             val response = generativeModel.generateContent(prompt)
             val text = response.text
-            if (!text.isNullOrBlank()) return@withContext text!!
+            if (!text.isNullOrBlank()) {
+                return@withContext Pair(text.trim(), "Gemini Cloud AI")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
+
+        // 2. Try REST API with OkHttp fallback
+        try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(20, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+
+            val jsonBody = JSONObject().apply {
+                val contentsArr = JSONArray().apply {
+                    val contentObj = JSONObject().apply {
+                        val partsArr = JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("text", prompt)
+                            })
+                        }
+                        put("parts", partsArr)
+                    }
+                    put(contentObj)
+                }
+                put("contents", contentsArr)
+            }
+
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val requestBody = jsonBody.toString().toRequestBody(mediaType)
+            val request = Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey")
+                .post(requestBody)
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val respStr = response.body?.string() ?: ""
+                val respJson = JSONObject(respStr)
+                val candidates = respJson.optJSONArray("candidates")
+                if (candidates != null && candidates.length() > 0) {
+                    val firstCandidate = candidates.getJSONObject(0)
+                    val content = firstCandidate.optJSONObject("content")
+                    val parts = content?.optJSONArray("parts")
+                    if (parts != null && parts.length() > 0) {
+                        val text = parts.getJSONObject(0).optString("text", "")
+                        if (text.isNotBlank()) {
+                            return@withContext Pair(text.trim(), "Gemini REST AI")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
-    // Intelligent Offline Template Fallback
-    """[LOOK AT CAMERA & SMILE]
-Welcome everyone! Today we are discussing a crucial topic: $topic.
+    // 3. High-Quality Smart Synthesizer Fallback
+    val synthesized = synthesizeSmartScript(topic, format, tone)
+    Pair(synthesized, "Smart Studio Synthesizer")
+}
 
-[PAUSE 2 SECONDS]
+fun synthesizeSmartScript(topic: String, format: String, tone: String): String {
+    val cleanTopic = topic.trim().capitalize(Locale.ROOT)
+    return when {
+        format.contains("Reel", ignoreCase = true) || format.contains("30s", ignoreCase = true) -> """
+[LOOK AT CAMERA - HIGH ENERGY]
+Stop scrolling right now! ✋
 
-Here are the 3 most important key takeaways you need to know:
+If you care about $cleanTopic, here is the one rule that changes everything.
 
-First, $topic requires consistency and focus.
-Second, applying key principles step-by-step guarantees high performance.
+[PAUSE 1 SECOND - LEAN IN]
+Most people overcomplicate this, but the real secret is consistency and daily focus.
+
+[POINT AT CAMERA & SMILE]
+Double tap if you agree, and save this video for your next session! 🚀
+""".trimIndent()
+
+        format.contains("Keynote", ignoreCase = true) || format.contains("2m", ignoreCase = true) -> """
+[STAND TALL - EYE CONTACT WITH AUDIENCE]
+Good morning distinguished guests, colleagues, and friends.
+
+[PAUSE FOR EFFECT]
+Today, I want to address one of the most transformative topics of our time: $cleanTopic.
+
+[SMILE & WARM TONE]
+When we look at the challenges and opportunities before us, success doesn't happen by accident. It is built on three core pillars:
 
 [EMPHASIZE]
-And third, always track your results and keep improving every single day!
+First, unwavering clarity of purpose.
+Second, relentless execution and attention to detail.
+And third, the resilience to adapt when obstacles arise.
 
-[SMILE & WAVE]
-Thank you for watching, and stay tuned for the next session!""".trimIndent()
+[PAUSE 2 SECONDS - SLOW DOWN]
+As we move forward today, remember that progress begins with the choices we make right now.
+
+Thank you for your time and dedication.
+""".trimIndent()
+
+        format.contains("Academic", ignoreCase = true) -> """
+[FORMAL - DIRECT EYE CONTACT]
+Respected faculty, researchers, and peers.
+
+The objective of today's review is to critically examine the key principles surrounding $cleanTopic.
+
+[PAUSE]
+According to recent evidence and empirical observations, effective mastery of this subject requires systematic analysis and structured methodology.
+
+[EMPHASIZE KEY POINT]
+The primary finding demonstrates that proactive implementation yields significantly higher retention and measurable results.
+
+In conclusion, continuous exploration and evidence-based practice remain the foundation of excellence.
+""".trimIndent()
+
+        format.contains("Sales", ignoreCase = true) -> """
+[SMILE - CONFIDENT & WARM]
+Welcome everyone! If you have been looking for the most effective way to tackle $cleanTopic, you are in the right place.
+
+[LOOK DIRECTLY AT CAMERA]
+Here is why this solution stands out from everything else on the market:
+
+[EMPHASIZE]
+1. It saves you valuable time every single day.
+2. It eliminates guesswork and frustration.
+3. It delivers proven, repeatable results right from day one.
+
+[CALL TO ACTION - SMILE]
+Click the link below or reach out today to get started!
+""".trimIndent()
+
+        else -> """
+[LOOK AT CAMERA & SMILE]
+Welcome back everyone! Today we are diving deep into a topic that so many of you have asked for: $cleanTopic.
+
+[PAUSE 2 SECONDS]
+Whether you are just starting out or looking to elevate your skills, here are the 3 essential steps you need to follow:
+
+[EMPHASIZE STEP 1]
+Step 1: Set a clear goal and eliminate distractions.
+Step 2: Follow a proven framework that keeps you on track.
+Step 3: Measure your progress and adjust along the way.
+
+[SMILE & CALL TO ACTION]
+Which of these tips resonated with you the most? Drop your thoughts in the comments, and don't forget to subscribe for more insights!
+""".trimIndent()
+    }
 }
 
 // =============================================================

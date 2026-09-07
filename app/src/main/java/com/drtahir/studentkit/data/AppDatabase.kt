@@ -328,11 +328,15 @@ interface StudentKitDao {
     fun getAllPosOrders(): Flow<List<PosOrder>>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPosOrder(order: PosOrder)
+    @Query("DELETE FROM pos_orders WHERE id = :id")
+    suspend fun deletePosOrderById(id: String)
 
     @Query("SELECT * FROM pos_order_items WHERE orderId = :orderId")
     fun getPosOrderItems(orderId: String): Flow<List<PosOrderItem>>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPosOrderItem(item: PosOrderItem)
+    @Query("DELETE FROM pos_order_items WHERE orderId = :orderId")
+    suspend fun deletePosOrderItemsByOrderId(orderId: String)
 
     // --- POS EMPLOYEES & STAFF MANAGEMENT ---
     @Query("SELECT * FROM pos_employees ORDER BY fullName ASC")

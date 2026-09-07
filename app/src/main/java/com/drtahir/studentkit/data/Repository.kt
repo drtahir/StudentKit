@@ -143,6 +143,10 @@ class StudentKitRepository(private val dao: StudentKitDao) {
 
     val allPosOrders = dao.getAllPosOrders()
     suspend fun insertPosOrder(order: PosOrder) = dao.insertPosOrder(order)
+    suspend fun deletePosOrderById(id: String) {
+        dao.deletePosOrderItemsByOrderId(id)
+        dao.deletePosOrderById(id)
+    }
 
     fun getPosOrderItems(orderId: String) = dao.getPosOrderItems(orderId)
     suspend fun insertPosOrderItem(item: PosOrderItem) = dao.insertPosOrderItem(item)

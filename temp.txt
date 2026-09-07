@@ -1,0 +1,16 @@
+                val image = InputImage.fromFilePath(context, uri)
+                val barcodeScanner = BarcodeScanning.getClient(
+                    BarcodeScannerOptions.Builder()
+                        .setBarcodeFormats(
+                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
+                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
+                        )
+                        .build()
+                )
+                barcodeScanner.process(image)
+                    .addOnSuccessListener { barcodes ->
+                        var found = false
+                        for (barcode in barcodes) {
+                            val value = barcode.rawValue
+                            if (!value.isNullOrBlank()) {
+                                scannedBarcodeText = value

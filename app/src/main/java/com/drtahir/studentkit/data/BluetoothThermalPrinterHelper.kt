@@ -6,11 +6,15 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
@@ -22,7 +26,9 @@ import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
 
@@ -39,6 +45,7 @@ object BluetoothThermalPrinterHelper {
     private const val KEY_PRINTER_ADDRESS = "printer_address"
     private const val KEY_PRINTER_NAME = "printer_name"
     private const val KEY_PAPER_SIZE = "paper_size"
+    private const val LOGO_FILE_NAME = "omni_pos_logo.png"
 
     // ESC/POS Command Definitions
     val ESC_INIT = byteArrayOf(0x1B.toByte(), 0x40.toByte())
@@ -70,10 +77,13 @@ object BluetoothThermalPrinterHelper {
         return getPrefs(context).getString(KEY_PRINTER_NAME, "No Printer Selected") ?: "No Printer Selected"
     }
 
-    fun savePrinterAddress(context: Context, address: String, name: String) {
+    fun savePrinterAddress(context: Context, address: String, name: String = "") {
+        val finalName = if (name.isNotBlank()) name else {
+            getAvailablePrinters(context).find { it.address == address }?.name ?: "Bluetooth Printer"
+        }
         getPrefs(context).edit()
             .putString(KEY_PRINTER_ADDRESS, address)
-            .putString(KEY_PRINTER_NAME, name)
+            .putString(KEY_PRINTER_NAME, finalName)
             .apply()
     }
 
@@ -83,6 +93,102 @@ object BluetoothThermalPrinterHelper {
 
     fun savePaperSize(context: Context, paperSize: String) {
         getPrefs(context).edit().putString(KEY_PAPER_SIZE, paperSize).apply()
+    }
+
+    /**
+     * Permanent logo storage & decoding helpers
+     */
+    fun saveLogoFromUri(context: Context, sourceUri: Uri): String? {
+        return try {
+            val file = File(context.filesDir, LOGO_FILE_NAME)
+            val inputStream: InputStream? = context.contentResolver.openInputStream(sourceUri)
+            if (inputStream != null) {
+                FileOutputStream(file).use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+                inputStream.close()
+                file.absolutePath
+            } else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    fun getSavedLogoBitmap(context: Context): Bitmap? {
+        return try {
+            val file = File(context.filesDir, LOGO_FILE_NAME)
+            if (file.exists() && file.length() > 0) {
+                BitmapFactory.decodeFile(file.absolutePath)
+            } else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    fun deleteSavedLogo(context: Context): Boolean {
+        return try {
+            val file = File(context.filesDir, LOGO_FILE_NAME)
+            if (file.exists()) file.delete() else true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Converts a high-resolution Bitmap into crisp ESC/POS 1-bit monochrome Raster bit-image payload (GS v 0).
+     * Automatically scales to printer width (e.g. 384 dots for 58mm, 576 dots for 80mm) with luminance thresholding.
+     */
+    fun createEscPosRasterImage(
+        bitmap: Bitmap,
+        targetWidth: Int = 384,
+        threshold: Int = 128
+    ): ByteArray {
+        val buffer = java.io.ByteArrayOutputStream()
+        try {
+            val width = ((targetWidth / 8) * 8).coerceAtLeast(8) // Must be multiple of 8
+            val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
+            val height = (width * aspectRatio).toInt().coerceAtLeast(8)
+
+            val scaled = Bitmap.createScaledBitmap(bitmap, width, height, true)
+            val xBytes = width / 8
+            val xL = (xBytes % 256).toByte()
+            val xH = (xBytes / 256).toByte()
+            val yL = (height % 256).toByte()
+            val yH = (height / 256).toByte()
+
+            // Header for GS v 0 (Raster bit image)
+            buffer.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH))
+
+            for (y in 0 until height) {
+                for (xChunk in 0 until xBytes) {
+                    var byteVal = 0
+                    for (b in 0 until 8) {
+                        val px = xChunk * 8 + b
+                        val pixel = scaled.getPixel(px, y)
+                        val alpha = (pixel shr 24) and 0xFF
+                        if (alpha < 60) {
+                            // Transparent background -> Treat as white (0)
+                        } else {
+                            val r = (pixel shr 16) and 0xFF
+                            val g = (pixel shr 8) and 0xFF
+                            val bl = pixel and 0xFF
+                            val lum = (0.299 * r + 0.587 * g + 0.114 * bl).toInt()
+                            if (lum < threshold) {
+                                // Black pixel (1)
+                                byteVal = byteVal or (1 shl (7 - b))
+                            }
+                        }
+                    }
+                    buffer.write(byteVal)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return buffer.toByteArray()
     }
 
     @SuppressLint("MissingPermission")
@@ -142,7 +248,7 @@ object BluetoothThermalPrinterHelper {
     }
 
     /**
-     * Builds ESC/POS 58mm (32-character line) thermal receipt payload.
+     * Builds ESC/POS 58mm (32-character line) thermal receipt payload with optional high-resolution 1-bit raster logo.
      */
     fun buildPosReceiptPayload(
         businessName: String,
@@ -157,7 +263,10 @@ object BluetoothThermalPrinterHelper {
         tax: Double,
         total: Double,
         paymentMethod: String,
-        footerNote: String
+        footerNote: String,
+        logoBitmap: Bitmap? = null,
+        showLogo: Boolean = true,
+        threshold: Int = 128
     ): ByteArray {
         val buffer = java.io.ByteArrayOutputStream()
 
@@ -167,8 +276,19 @@ object BluetoothThermalPrinterHelper {
         // Reset
         write(ESC_INIT)
 
-        // Header
+        // Center Align for Header
         write(ESC_ALIGN_CENTER)
+
+        // Optional Thermal Logo Header (384 dots for 58mm / 576 dots for 80mm)
+        if (showLogo && logoBitmap != null) {
+            val logoBytes = createEscPosRasterImage(logoBitmap, targetWidth = 384, threshold = threshold)
+            if (logoBytes.isNotEmpty()) {
+                write(logoBytes)
+                writeLine()
+            }
+        }
+
+        // Business Header
         write(ESC_DOUBLE_SIZE)
         write(ESC_BOLD_ON)
         writeLine(businessName.take(16))
@@ -385,12 +505,15 @@ object BluetoothThermalPrinterHelper {
 
     /**
      * Triggers Android System PrintManager spooling for A4 page layout (works with Bluetooth, Wi-Fi, and USB A4 printers).
+     * Renders company logo in best quality directly onto the high-resolution vector PDF canvas.
      */
     fun printA4ViaSystem(
         context: Context,
         jobName: String,
         documentTitle: String,
-        contentText: String
+        contentText: String,
+        logoBitmap: Bitmap? = getSavedLogoBitmap(context),
+        showLogo: Boolean = true
     ) {
         val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
         if (printManager == null) {
@@ -429,26 +552,51 @@ object BluetoothThermalPrinterHelper {
             ) {
                 pdfDocument = PdfDocument()
 
-                // Standard A4 Page Dimensions: 595 x 842 points
+                // Standard A4 Page Dimensions: 595 x 842 points (300 DPI target)
                 val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
                 val page = pdfDocument?.startPage(pageInfo)
 
                 if (page != null) {
                     val canvas: Canvas = page.canvas
-                    val paint = Paint().apply {
+                    val textPaint = Paint().apply {
                         color = Color.BLACK
-                        textSize = 10f
+                        textSize = 9.5f
                         typeface = Typeface.MONOSPACE
+                        isAntiAlias = true
                     }
 
-                    var yPos = 40f
-                    val xPos = 40f
-                    val lines = contentText.split("\n")
+                    var yPos = 35f
+                    val xPos = 35f
 
+                    // Draw Logo on A4 Header in pristine high quality
+                    if (showLogo && logoBitmap != null) {
+                        try {
+                            val bitmapPaint = Paint().apply {
+                                isAntiAlias = true
+                                isFilterBitmap = true
+                                isDither = true
+                            }
+                            val maxLogoW = 90f
+                            val maxLogoH = 50f
+                            val aspect = logoBitmap.width.toFloat() / logoBitmap.height.toFloat()
+                            val drawW = if (aspect >= 1f) maxLogoW else maxLogoH * aspect
+                            val drawH = if (aspect >= 1f) maxLogoW / aspect else maxLogoH
+
+                            // Center the logo above the document header
+                            val logoLeft = (595f - drawW) / 2f
+                            val destRect = RectF(logoLeft, yPos, logoLeft + drawW, yPos + drawH)
+                            canvas.drawBitmap(logoBitmap, null, destRect, bitmapPaint)
+                            yPos += drawH + 10f
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+
+                    val lines = contentText.split("\n")
                     lines.forEach { line ->
-                        if (yPos < 800f) {
-                            canvas.drawText(line, xPos, yPos, paint)
-                            yPos += 14f
+                        if (yPos < 815f) {
+                            canvas.drawText(line, xPos, yPos, textPaint)
+                            yPos += 13.5f
                         }
                     }
 
@@ -488,7 +636,9 @@ object BluetoothThermalPrinterHelper {
         jobName: String,
         documentTitle: String,
         a4Text: String,
-        thermalBytes: ByteArray
+        thermalBytes: ByteArray,
+        logoBitmap: Bitmap? = getSavedLogoBitmap(context),
+        showLogo: Boolean = true
     ) {
         val paperSize = getSavedPaperSize(context)
         val deviceAddr = getSavedPrinterAddress(context)
@@ -501,7 +651,7 @@ object BluetoothThermalPrinterHelper {
                     Toast.makeText(context, "Bluetooth A4 Direct: $msg. Opening System A4 Printer...", Toast.LENGTH_SHORT).show()
                 }
             }
-            printA4ViaSystem(context, jobName, documentTitle, a4Text)
+            printA4ViaSystem(context, jobName, documentTitle, a4Text, logoBitmap, showLogo)
         } else {
             // Thermal Receipt 58mm or 80mm
             val targetAddr = if (deviceAddr.isNotBlank()) deviceAddr else getAvailablePrinters(context).firstOrNull()?.address ?: ""

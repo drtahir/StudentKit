@@ -48,11 +48,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.drtahir.studentkit.data.StandardPdfEncryptor
+import com.drtahir.studentkit.data.PdfMetadataManager
 import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,7 +97,8 @@ data class ComprehensivePdfFile(
     val sizeFormatted: String,
     val sizeBytes: Long,
     val pageCount: Int,
-    val previewBitmap: Bitmap?
+    val previewBitmap: Bitmap?,
+    val isEncrypted: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,6 +148,7 @@ fun EnhancedPdfToolsScreen(viewModel: StudentKitViewModel) {
     var marginCropPercent by remember { mutableFloatStateOf(10f) } // 5%, 10%, 15%, 20%
     var pdfPasswordText by remember { mutableStateOf("") }
     var pdfPasswordHint by remember { mutableStateOf("") }
+    var isPdfPasswordVisible by remember { mutableStateOf(false) }
     var metadataTitle by remember { mutableStateOf("") }
     var metadataAuthor by remember { mutableStateOf("") }
     var metadataSubject by remember { mutableStateOf("") }
@@ -172,8 +178,13 @@ fun EnhancedPdfToolsScreen(viewModel: StudentKitViewModel) {
                 if (item.pageCount > 0) {
                     splitPageRangeText = "1-${item.pageCount}"
                 }
-                metadataTitle = item.name.replace(".pdf", "", ignoreCase = true)
-                metadataAuthor = "Hikmah Omni Suite"
+                
+                // Extract existing metadata
+                val metadata = PdfMetadataManager.extractMetadata(context, uri)
+                metadataTitle = metadata.title.ifEmpty { item.name.replace(".pdf", "", ignoreCase = true) }
+                metadataAuthor = metadata.author
+                metadataSubject = metadata.subject
+                metadataKeywords = metadata.keywords
             } else {
                 Toast.makeText(context, "Failed to read selected PDF file.", Toast.LENGTH_SHORT).show()
             }
@@ -714,11 +725,54 @@ fun EnhancedPdfToolsScreen(viewModel: StudentKitViewModel) {
                                 }
 
                                 ComprehensivePdfTool.ENCRYPT_LOCK -> {
-                                    Text("Set Document Password Protection:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Security,
+                                                contentDescription = "Security",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Column {
+                                                Text(
+                                                    "Standard 128-bit PDF Encryption (ISO 32000-1)",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    "Secures pages and content streams. Any PDF viewer (Adobe Acrobat, Google Drive, Chrome) will strictly require this password.",
+                                                    fontSize = 10.5.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Text("Set Document Lock Password:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                     OutlinedTextField(
                                         value = pdfPasswordText,
                                         onValueChange = { pdfPasswordText = it },
-                                        label = { Text("Lock Password") },
+                                        label = { Text("Document Password *") },
+                                        placeholder = { Text("e.g. MySecurePass123") },
+                                        singleLine = true,
+                                        visualTransformation = if (isPdfPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                        trailingIcon = {
+                                            IconButton(onClick = { isPdfPasswordVisible = !isPdfPasswordVisible }) {
+                                                Icon(
+                                                    if (isPdfPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                    contentDescription = "Toggle password visibility"
+                                                )
+                                            }
+                                        },
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(10.dp)
                                     )
@@ -726,6 +780,8 @@ fun EnhancedPdfToolsScreen(viewModel: StudentKitViewModel) {
                                         value = pdfPasswordHint,
                                         onValueChange = { pdfPasswordHint = it },
                                         label = { Text("Password Hint (Optional)") },
+                                        placeholder = { Text("e.g. Pet's name / Roll number") },
+                                        singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(10.dp)
                                     )
@@ -1471,8 +1527,36 @@ fun parseComprehensivePdfFile(context: Context, uri: Uri): ComprehensivePdfFile?
                 if (sizeIdx != -1) sizeBytes = cursor.getLong(sizeIdx)
             }
         }
+
+        val sizeFormatted = if (sizeBytes <= 0) "Unknown size" else {
+            val kb = sizeBytes / 1024.0
+            val mb = kb / 1024.0
+            if (mb >= 1.0) String.format(Locale.US, "%.2f MB", mb) else String.format(Locale.US, "%.1f KB", kb)
+        }
+
+        // Check if file is password protected
+        var isProtected = false
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                isProtected = StandardPdfEncryptor.isPdfPasswordProtected(stream)
+            }
+        } catch (_: Exception) {}
+
+        if (isProtected) {
+            val lockedBmp = StandardPdfEncryptor.createLockedPreviewBitmap()
+            return ComprehensivePdfFile(uri, name, sizeFormatted, sizeBytes, 1, lockedBmp, isEncrypted = true)
+        }
+
         val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
-        val renderer = PdfRenderer(pfd)
+        val renderer: PdfRenderer
+        try {
+            renderer = PdfRenderer(pfd)
+        } catch (e: SecurityException) {
+            pfd.close()
+            val lockedBmp = StandardPdfEncryptor.createLockedPreviewBitmap()
+            return ComprehensivePdfFile(uri, name, sizeFormatted, sizeBytes, 1, lockedBmp, isEncrypted = true)
+        }
+
         val pageCount = renderer.pageCount
         var previewBmp: Bitmap? = null
         if (pageCount > 0) {
@@ -1489,12 +1573,7 @@ fun parseComprehensivePdfFile(context: Context, uri: Uri): ComprehensivePdfFile?
         renderer.close()
         pfd.close()
 
-        val sizeFormatted = if (sizeBytes <= 0) "Unknown size" else {
-            val kb = sizeBytes / 1024.0
-            val mb = kb / 1024.0
-            if (mb >= 1.0) String.format(Locale.US, "%.2f MB", mb) else String.format(Locale.US, "%.1f KB", kb)
-        }
-        ComprehensivePdfFile(uri, name, sizeFormatted, sizeBytes, pageCount, previewBmp)
+        ComprehensivePdfFile(uri, name, sizeFormatted, sizeBytes, pageCount, previewBmp, isEncrypted = false)
     } catch (e: Exception) {
         e.printStackTrace()
         null
@@ -1526,6 +1605,28 @@ fun renderComprehensivePdfPage(context: Context, uri: Uri, pageIndex: Int, maxDi
         e.printStackTrace()
         null
     }
+}
+
+fun saveComprehensivePdfBytes(context: Context, bytes: ByteArray, fileName: String): Uri? {
+    val resolver = context.contentResolver
+    val contentValues = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+        put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
+    }
+    val collectionUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    } else {
+        MediaStore.Files.getContentUri("external")
+    }
+    val uri = resolver.insert(collectionUri, contentValues) ?: return null
+    resolver.openOutputStream(uri)?.use { os ->
+        os.write(bytes)
+        os.flush()
+    }
+    return uri
 }
 
 fun saveComprehensivePdfDocument(context: Context, pdfDoc: PdfDocument, fileName: String): Uri? {
@@ -1957,43 +2058,21 @@ suspend fun processComprehensiveEncryptPdf(
     onComplete: (Uri?) -> Unit
 ) = withContext(Dispatchers.IO) {
     try {
-        onProgress(0.05f, "Preparing Offline Encryption Envelope...")
-        val pdfDoc = PdfDocument()
-        val pfd = context.contentResolver.openFileDescriptor(fileItem.uri, "r") ?: return@withContext onComplete(null)
-        val renderer = PdfRenderer(pfd)
-        val totalPages = renderer.pageCount.coerceAtLeast(1)
-
-        for (i in 0 until totalPages) {
-            val prog = 0.10f + ((i + 1).toFloat() / totalPages.toFloat()) * 0.78f
-            onProgress(prog, "Encrypting page ${i + 1} of $totalPages...")
-
-            val page = renderer.openPage(i)
-            val scale = 1.5f
-            val pW = (page.width * scale).toInt().coerceAtLeast(100)
-            val pH = (page.height * scale).toInt().coerceAtLeast(100)
-            val bmp = Bitmap.createBitmap(pW, pH, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bmp)
-            canvas.drawColor(android.graphics.Color.WHITE)
-            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            page.close()
-
-            val pageInfo = PdfDocument.PageInfo.Builder(page.width, page.height, i + 1).create()
-            val docPage = pdfDoc.startPage(pageInfo)
-            val docCanvas = docPage.canvas
-
-            val srcRect = Rect(0, 0, bmp.width, bmp.height)
-            val destRect = RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
-            val paint = Paint().apply { isAntiAlias = true; isFilterBitmap = true }
-            docCanvas.drawBitmap(bmp, srcRect, destRect, paint)
-            bmp.recycle()
-            pdfDoc.finishPage(docPage)
+        onProgress(0.05f, "Initializing Standard 128-bit PDF Encryption Engine...")
+        val encBytes = StandardPdfEncryptor.encryptPdfFile(
+            context = context,
+            uri = fileItem.uri,
+            passwordText = passwordText,
+            hintText = hintText,
+            onProgress = onProgress
+        )
+        if (encBytes == null) {
+            onComplete(null)
+            return@withContext
         }
-        renderer.close()
-        pfd.close()
-
-        onProgress(0.92f, "Locking and saving encrypted PDF file...")
-        val outUri = saveComprehensivePdfDocument(context, pdfDoc, "Protected_${System.currentTimeMillis()}.pdf")
-        pdfDoc.close()
+        onProgress(0.94f, "Saving Protected PDF to Downloads...")
+        val outUri = saveComprehensivePdfBytes(context, encBytes, "Protected_${System.currentTimeMillis()}.pdf")
+        onProgress(1.0f, "Password Protection Complete!")
         onComplete(outUri)
     } catch (e: Exception) {
         e.printStackTrace()

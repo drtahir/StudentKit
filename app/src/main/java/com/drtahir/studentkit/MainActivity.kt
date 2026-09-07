@@ -88,8 +88,8 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
             is Screen.LoanTracker, is Screen.SavingsGoals, is Screen.FinanceReportAndBackup -> 1
             is Screen.CvBuilder, is Screen.ImageToPdf, is Screen.ImageToXls, is Screen.ImageToWord,
             is Screen.DocumentScanner, is Screen.IdCardScanner, is Screen.PassportScanner,
-            is Screen.PdfTools, is Screen.InvoiceGenerator, is Screen.SignaturePad -> 2
-            is Screen.Calculator, is Screen.UnitConverter, is Screen.QrGenerator,
+            is Screen.PdfTools, is Screen.InvoiceGenerator, is Screen.HospitalClerkAdmin, is Screen.SignaturePad -> 2
+            is Screen.Calculator, is Screen.UnitConverter, is Screen.QrGenerator, is Screen.BarcodeGenerator,
             is Screen.QrScanner, is Screen.PasswordManager,
             is Screen.ImageTools, is Screen.AgeCalculator, is Screen.IntruderGuard, is Screen.WatermarkStudio, is Screen.BackgroundEraser,
             is Screen.FileEncryptor, is Screen.HiddenLocker, is Screen.Steganography, is Screen.Steganalysis, is Screen.ImageEnhancer, is Screen.Teleprompter -> 3
@@ -249,7 +249,7 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                         CvBuilderScreen(viewModel = viewModel)
                     }
                     is Screen.DocumentScanner -> DocumentHubScreen(viewModel = viewModel, title = "Document Edge Scanner") {
-                        DocumentScannerScreen(viewModel = viewModel)
+                        DocumentScannerScreenNew(viewModel = viewModel)
                     }
                     is Screen.IdCardScanner -> DocumentHubScreen(viewModel = viewModel, title = "ID Card Dual Scanner") {
                         IdCardScannerScreen(viewModel = viewModel)
@@ -269,6 +269,9 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                     is Screen.InvoiceGenerator -> DocumentHubScreen(viewModel = viewModel, title = "OmniPOS Invoice Suite") {
                         InvoiceGeneratorScreen(viewModel = viewModel)
                     }
+                    is Screen.HospitalClerkAdmin -> DocumentHubScreen(viewModel = viewModel, title = "Health Dept & Hospital Clerical Kit") {
+                        HospitalClericalAdminScreen(viewModel = viewModel)
+                    }
                     is Screen.SignaturePad -> DocumentHubScreen(viewModel = viewModel, title = "Digital Stamp & Sign") {
                         SignaturePadScreen(viewModel = viewModel)
                     }
@@ -276,6 +279,9 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                     // --- TOOLS MODULES ---
                     is Screen.QrGenerator -> ToolsHubScreen(viewModel = viewModel, title = "QR Code Studio") {
                         QrGeneratorScreen(viewModel = viewModel)
+                    }
+                    is Screen.BarcodeGenerator -> ToolsHubScreen(viewModel = viewModel, title = "Barcode Generator") {
+                        BarcodeGeneratorScreen(viewModel = viewModel)
                     }
                     is Screen.QrScanner -> ToolsHubScreen(viewModel = viewModel, title = "QR Code Scanner") {
                         QrScannerScreen(viewModel = viewModel)
@@ -492,6 +498,7 @@ fun CategoryModuleSheet(
                 CategoryModuleItem("Passport Scanner", "Full photo passport page scan utility", "GOVT DOC", Icons.Default.AssignmentInd, Color(0xFF00ACC1), Screen.PassportScanner),
                 CategoryModuleItem("PDF Tool Suite", "Compress, merge, split or lock PDFs", "EDIT", Icons.Default.Compress, Color(0xFFEF6C00), Screen.PdfTools),
                 CategoryModuleItem("OmniPOS Invoice", "Create professional PDF invoices", "INVOICES", Icons.Default.Receipt, Color(0xFF00838F), Screen.InvoiceGenerator),
+                CategoryModuleItem("Hospital Clerk Kit", "Health Dept letters, rosters, show causes & orders", "GOVT KP", Icons.Default.LocalHospital, Color(0xFF00796B), Screen.HospitalClerkAdmin),
                 CategoryModuleItem("Stamp & Sign", "Freehand draw signature & stamp docs", "STAMP", Icons.Default.Gesture, Color(0xFF1976D2), Screen.SignaturePad)
             )
         )
@@ -503,6 +510,7 @@ fun CategoryModuleSheet(
                 CategoryModuleItem("Scientific Calc", "Advance mathematical formula solver", "MATH", Icons.Default.Calculate, Color(0xFFE91E63), Screen.Calculator),
                 CategoryModuleItem("Unit Converter", "Convert data, length, weight, speeds", "CONVERT", Icons.Default.SwapVert, Color(0xFF00ACC1), Screen.UnitConverter),
                 CategoryModuleItem("QR Generator", "Generate secure colored QR codes", "VECTOR", Icons.Default.QrCode, Color(0xFF3949AB), Screen.QrGenerator),
+                CategoryModuleItem("Barcode Generator", "Generate all types of high-quality barcodes", "VECTOR", Icons.Default.QrCodeScanner, Color(0xFF1E88E5), Screen.BarcodeGenerator),
                 CategoryModuleItem("QR Scanner", "Scan bar codes & check web links", "CAMERA", Icons.Default.QrCodeScanner, Color(0xFF00897B), Screen.QrScanner),
                 CategoryModuleItem("Password Vault", "Local encrypted credentials keeper", "CRYPT", Icons.Default.Lock, Color(0xFF2E7D32), Screen.PasswordManager),
                 CategoryModuleItem("Image Compress", "Compress, resize & optimize images", "BATCH", Icons.Default.AddPhotoAlternate, Color(0xFFC2185B), Screen.ImageTools),
@@ -816,6 +824,7 @@ fun ToolsSubChoicesHub(
         Pair("Calculator", Screen.Calculator),
         Pair("Converter", Screen.UnitConverter),
         Pair("QR Generator", Screen.QrGenerator),
+        Pair("Barcode Generator", Screen.BarcodeGenerator),
         Pair("QR Scanner", Screen.QrScanner),
         Pair("Passwords", Screen.PasswordManager),
         Pair("Image Edits", Screen.ImageTools),

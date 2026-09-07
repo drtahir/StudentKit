@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -37,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +48,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drtahir.studentkit.data.BluetoothThermalPrinterHelper
+import com.drtahir.studentkit.data.PosBusinessProfile
+import com.drtahir.studentkit.data.getSavedBusinessProfile
 import com.drtahir.studentkit.data.PosClient
 import com.drtahir.studentkit.data.PosOrder
 import com.drtahir.studentkit.data.PosOrderItem
@@ -444,97 +450,194 @@ fun OmniPosFinancialReportsScreen(viewModel: StudentKitViewModel) {
         }
     }
 
-    // Fullscreen Report Inspection Modal
+    // Fullscreen Report Inspection Screen (Fit to Screen & Monospace Viewport)
     if (showFullPreviewModal && activeReportData != null) {
         val report = activeReportData!!
-        AlertDialog(
+        var zoomFactor by remember { mutableFloatStateOf(10f) }
+        var isPaperDarkTheme by remember { mutableStateOf(true) }
+
+        Dialog(
             onDismissRequest = { showFullPreviewModal = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(report.type.icon, contentDescription = null, tint = report.type.badgeColor)
-                    Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text(report.type.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("${report.timeRange.label} • Generated: ${report.generatedAt}", fontSize = 10.sp, color = Color.Gray)
-                    }
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 480.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Summary Rows Box
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            report.summaryRows.forEach { (label, value) ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = if (isPaperDarkTheme) Color(0xFF121824) else Color(0xFFF1F5F9)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Top App Bar
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 4.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f).padding(end = 8.dp)
+                            ) {
+                                IconButton(onClick = { showFullPreviewModal = false }) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Close Fullscreen")
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Column {
+                                    Text(
+                                        text = report.type.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${report.timeRange.label} • ${report.generatedAt}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            // Zoom & Theme Controls
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(
+                                    onClick = { zoomFactor = (zoomFactor - 1f).coerceAtLeast(7f) },
+                                    modifier = Modifier.size(32.dp)
                                 ) {
-                                    Text(label, fontSize = 11.sp, color = Color.DarkGray)
-                                    Text(value, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.ZoomOut, contentDescription = "Zoom Out", modifier = Modifier.size(18.dp))
+                                }
+                                Text("${zoomFactor.toInt()}pt", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                IconButton(
+                                    onClick = { zoomFactor = (zoomFactor + 1f).coerceAtMost(18f) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.ZoomIn, contentDescription = "Zoom In", modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(
+                                    onClick = { isPaperDarkTheme = !isPaperDarkTheme },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        if (isPaperDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                        contentDescription = "Toggle Theme",
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
                             }
                         }
                     }
 
-                    Text("Official Formatted Monospace Layout:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-
-                    // Monospace Paper Preview Container
-                    Box(
+                    // Key Summary Cards Row
+                    LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF1E1E1E), RoundedCornerShape(6.dp))
-                            .padding(10.dp)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(report.summaryRows) { (label, value) ->
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isPaperDarkTheme) Color(0xFF1E293B) else Color.White
+                                ),
+                                border = BorderStroke(1.dp, if (isPaperDarkTheme) Color(0xFF334155) else Color(0xFFE2E8F0))
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                    Text(label, fontSize = 10.sp, color = Color.Gray)
+                                    Text(
+                                        value,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isPaperDarkTheme) Color.White else Color.Black
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Monospace Document Sheet (Scrollable Vertically and Horizontally to Fit Screen)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isPaperDarkTheme) Color(0xFF0F172A) else Color.White)
+                            .border(1.dp, if (isPaperDarkTheme) Color(0xFF1E293B) else Color(0xFFCBD5E1), RoundedCornerShape(8.dp))
+                            .verticalScroll(rememberScrollState())
+                            .horizontalScroll(rememberScrollState())
+                            .padding(12.dp)
                     ) {
                         Text(
                             text = report.a4DocumentText,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 9.sp,
-                            color = Color(0xFFE0E0E0),
-                            lineHeight = 12.sp
+                            fontSize = zoomFactor.sp,
+                            color = if (isPaperDarkTheme) Color(0xFFE2E8F0) else Color(0xFF0F172A),
+                            lineHeight = (zoomFactor * 1.35f).sp
                         )
                     }
-                }
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(
-                        onClick = {
-                            BluetoothThermalPrinterHelper.printA4ViaSystem(
-                                context = context,
-                                jobName = "OmniPOS_${report.type.name}_Report",
-                                documentTitle = "${report.type.title}_${report.timeRange.name}",
-                                contentText = report.a4DocumentText
-                            )
-                        }
-                    ) {
-                        Icon(Icons.Default.Description, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Print A4 PDF", fontSize = 11.sp)
-                    }
 
-                    FilledTonalButton(
-                        onClick = {
-                            shareCsvReport(context, report, businessProfile)
-                        }
+                    // Bottom Action Bar
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 8.dp
                     ) {
-                        Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Export CSV", fontSize = 11.sp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    BluetoothThermalPrinterHelper.printA4ViaSystem(
+                                        context = context,
+                                        jobName = "OmniPOS_${report.type.name}_Report",
+                                        documentTitle = "${report.type.title}_${report.timeRange.name}",
+                                        contentText = report.a4DocumentText
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Print, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Print A4 PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+
+                            FilledTonalButton(
+                                onClick = { shareCsvReport(context, report, businessProfile) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Export CSV", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val sendIntent = Intent().apply {
+                                        action = Intent.ACTION_SEND
+                                        putExtra(Intent.EXTRA_TEXT, report.a4DocumentText)
+                                        type = "text/plain"
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "Share Report via"))
+                                },
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFullPreviewModal = false }) {
-                    Text("Close")
                 }
             }
-        )
+        }
     }
 }
 

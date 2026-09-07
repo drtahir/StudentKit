@@ -409,6 +409,7 @@ fun BiometricPassportSizerSection(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -434,7 +435,7 @@ fun BiometricPassportSizerSection(
                     OutlinedButton(
                         onClick = onPickImage,
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -569,14 +570,20 @@ fun BiometricPassportSizerSection(
                         .clip(RoundedCornerShape(8.dp))
                         .background(selectedBgColor.color)
                         .border(2.dp, Color.White, RoundedCornerShape(8.dp))
-                        .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, rotation ->
-                                scale = (scale * zoom).coerceIn(0.5f, 4f)
-                                rotationAngle = (rotationAngle + rotation)
-                                offsetX += pan.x
-                                offsetY += pan.y
+                        .then(
+                            if (loadedBitmap != null) {
+                                Modifier.pointerInput(Unit) {
+                                    detectTransformGestures { _, pan, zoom, rotation ->
+                                        scale = (scale * zoom).coerceIn(0.5f, 4f)
+                                        rotationAngle = (rotationAngle + rotation)
+                                        offsetX += pan.x
+                                        offsetY += pan.y
+                                    }
+                                }
+                            } else {
+                                Modifier.clickable { onPickImage() }
                             }
-                        },
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (loadedBitmap != null) {
@@ -885,7 +892,7 @@ fun TargetKbCompressorSection(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Image Info Card
+        // Image Info Header Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -901,7 +908,7 @@ fun TargetKbCompressorSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
                             "🎯 Target KB Precision Compressor",
                             fontWeight = FontWeight.Bold,
@@ -915,21 +922,134 @@ fun TargetKbCompressorSection(
                         )
                     }
 
-                    OutlinedButton(onClick = onPickImage, shape = RoundedCornerShape(10.dp)) {
+                    OutlinedButton(
+                        onClick = onPickImage,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
                         Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (loadedBitmap == null) "Select Photo" else "Replace", fontSize = 12.sp)
+                        Text(if (loadedBitmap == null) "Select Image" else "Replace", fontSize = 12.sp)
                     }
                 }
+            }
+        }
 
-                if (loadedBitmap != null) {
-                    Divider()
+        // Dedicated Image Selection / Preview Card
+        if (loadedBitmap == null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPickImage() },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Text(
+                        "No Image Selected",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "Tap below to choose a photo from gallery to compress under your target KB threshold",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Button(
+                        onClick = onPickImage,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Select Image from Gallery", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+        } else {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Original Size: ${formatStudioBytes(originalSize)}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Dimensions: ${loadedBitmap.width}×${loadedBitmap.height} px", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Image(
+                            bitmap = loadedBitmap.asImageBitmap(),
+                            contentDescription = "Selected Photo",
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = if (originalName.isNotBlank()) originalName else "Selected Photo",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "Original Size: ${formatStudioBytes(originalSize)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Dimensions: ${loadedBitmap.width} × ${loadedBitmap.height} px",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Prominent Select New Image Button
+                    FilledTonalButton(
+                        onClick = onPickImage,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("🔄 Select New Image / Choose Another", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -1176,6 +1296,7 @@ fun ExifPrivacyCleanerSection(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -1200,10 +1321,14 @@ fun ExifPrivacyCleanerSection(
                         }
                     }
 
-                    OutlinedButton(onClick = onPickImage, shape = RoundedCornerShape(10.dp)) {
+                    OutlinedButton(
+                        onClick = onPickImage,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
                         Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (selectedImageUri == null) "Select Photo" else "Replace", fontSize = 12.sp)
+                        Text(if (selectedImageUri == null) "Select Image" else "Replace", fontSize = 12.sp)
                     }
                 }
 
@@ -1226,6 +1351,133 @@ fun ExifPrivacyCleanerSection(
                                 fontSize = 12.sp
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // Dedicated Image Selection / Preview Card for EXIF
+        if (loadedBitmap == null || selectedImageUri == null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPickImage() },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Text(
+                        "No Image Selected for Privacy Analysis",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "Select any photo to inspect embedded GPS coordinates, camera model, date-time and strip tracking data",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Button(
+                        onClick = onPickImage,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Select Image to Inspect", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+        } else {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Image(
+                            bitmap = loadedBitmap.asImageBitmap(),
+                            contentDescription = "Selected Photo for EXIF Analysis",
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Selected Photo",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "Dimensions: ${loadedBitmap.width} × ${loadedBitmap.height} px",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (hasGpsLocation) {
+                                Text(
+                                    text = "⚠️ GPS Geotag Embedded",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFEF4444)
+                                )
+                            } else {
+                                Text(
+                                    text = "🛡️ ${exifTagsList.size} Metadata tags read",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    // Prominent Select New Image Button
+                    FilledTonalButton(
+                        onClick = onPickImage,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("🔄 Select New Photo / Change Image", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -1356,10 +1608,21 @@ fun UniversalFormatConverterSection(
     onPickImage: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    var selectedFormat by remember { mutableStateOf("PDF Document") } // PDF, JPEG, PNG, WEBP
+    var selectedFormat by remember { mutableStateOf("PDF Document") } // PDF Document, WEBP (Best Web), PNG Lossless, JPEG Standard
+    var selectedPdfLayout by remember { mutableStateOf("A4 Grid (9 Photos)") } // A4 Grid (9 Photos), 4x6 Paper (6 Photos), Single Photo (Portal Upload)
     var qualitySlider by remember { mutableStateOf(85f) }
     var selectedDpi by remember { mutableStateOf(300) } // 72, 150, 300, 600
+    var addCuttingLines by remember { mutableStateOf(true) }
+    var documentTitle by remember { mutableStateOf("Biometric Passport Photo Sheet") }
+    
     var isConverting by remember { mutableStateOf(false) }
+    var convertedSavedPath by remember { mutableStateOf<String?>(null) }
+    var convertedFileSize by remember { mutableStateOf<Long?>(null) }
+    var convertedMimeType by remember { mutableStateOf("application/pdf") }
+
+    val origUriDetails = remember(selectedImageUri) {
+        if (selectedImageUri != null) getUriDetails(context, selectedImageUri) else Pair(0L, "image.jpg")
+    }
 
     Column(
         modifier = Modifier
@@ -1368,6 +1631,7 @@ fun UniversalFormatConverterSection(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Top Header
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -1383,7 +1647,7 @@ fun UniversalFormatConverterSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
                             "🔄 Universal Format & PDF Generator",
                             fontWeight = FontWeight.Bold,
@@ -1397,10 +1661,134 @@ fun UniversalFormatConverterSection(
                         )
                     }
 
-                    OutlinedButton(onClick = onPickImage, shape = RoundedCornerShape(10.dp)) {
+                    OutlinedButton(
+                        onClick = onPickImage,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
                         Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (loadedBitmap == null) "Select Photo" else "Replace", fontSize = 12.sp)
+                        Text(if (loadedBitmap == null) "Select Image" else "Replace", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // Dedicated Image Selection / Preview Card
+        if (loadedBitmap == null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPickImage() },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Text(
+                        "No Image Selected for Conversion",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "Choose any photo to generate printable PDF sheets, or convert into WebP, PNG, and JPEG",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Button(
+                        onClick = onPickImage,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Select Image from Gallery", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+        } else {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Image(
+                            bitmap = loadedBitmap.asImageBitmap(),
+                            contentDescription = "Selected Photo",
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Selected Photo",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "Dimensions: ${loadedBitmap.width} × ${loadedBitmap.height} px",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (origUriDetails.first > 0) {
+                                Text(
+                                    text = "File size: ${formatStudioBytes(origUriDetails.first)}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    // Prominent Select New Image Button
+                    FilledTonalButton(
+                        onClick = onPickImage,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("🔄 Select New Photo / Change Image", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -1428,18 +1816,84 @@ fun UniversalFormatConverterSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("PDF Document", "WEBP (Best)", "PNG Lossless", "JPEG").forEach { format ->
+                    listOf("PDF Document", "WEBP (Best Web)", "PNG Lossless", "JPEG Standard").forEach { format ->
                         val isSelected = selectedFormat == format
                         FilterChip(
                             selected = isSelected,
                             onClick = { selectedFormat = format },
-                            label = { Text(format, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            label = { 
+                                Text(
+                                    when (format) {
+                                        "PDF Document" -> "PDF"
+                                        "WEBP (Best Web)" -> "WebP"
+                                        "PNG Lossless" -> "PNG"
+                                        else -> "JPEG"
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                ) 
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
 
-                if (selectedFormat != "PNG Lossless") {
+                // Format Details & Context Controls
+                if (selectedFormat == "PDF Document") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "PDF Sheet Layout:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("A4 Grid (9 Photos)", "4x6 Paper (6 Photos)", "Single Photo (Portal Upload)").forEach { layout ->
+                                val isSelected = selectedPdfLayout == layout
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedPdfLayout = layout },
+                                    label = {
+                                        Text(
+                                            when (layout) {
+                                                "A4 Grid (9 Photos)" -> "A4 (9 Pics)"
+                                                "4x6 Paper (6 Photos)" -> "4×6 (6 Pics)"
+                                                else -> "Single Photo"
+                                            },
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = documentTitle,
+                            onValueChange = { documentTitle = it },
+                            label = { Text("Sheet Header / Applicant Name", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Dotted Cutting Guidelines", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Switch(
+                                checked = addCuttingLines,
+                                onCheckedChange = { addCuttingLines = it }
+                            )
+                        }
+                    }
+                } else if (selectedFormat != "PNG Lossless") {
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1453,19 +1907,44 @@ fun UniversalFormatConverterSection(
                             onValueChange = { qualitySlider = it },
                             valueRange = 10f..100f
                         )
+                        Text(
+                            if (selectedFormat.contains("WEBP")) "⚡ WebP offers up to 80% smaller file sizes than standard JPEG with crisp details."
+                            else "🌐 Universal JPEG is compatible with all government portals and university upload systems.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Verified, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Text("💎 Lossless 100% pixel fidelity — Ideal for photo printers & archival master copies.", fontSize = 11.sp)
+                        }
                     }
                 }
 
                 // DPI Selection
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Print Resolution (DPI):", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         listOf(72, 150, 300, 600).forEach { dpi ->
                             val isSelected = selectedDpi == dpi
                             FilterChip(
                                 selected = isSelected,
                                 onClick = { selectedDpi = dpi },
-                                label = { Text("$dpi DPI") }
+                                label = { Text("$dpi DPI", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
@@ -1482,14 +1961,32 @@ fun UniversalFormatConverterSection(
                 }
                 isConverting = true
                 coroutineScope.launch(Dispatchers.IO) {
+                    val mime: String
                     val path = if (selectedFormat == "PDF Document") {
-                        generatePassportPdf(context, loadedBitmap, selectedDpi)
+                        mime = "application/pdf"
+                        generatePassportPdf(
+                            context = context,
+                            bitmap = loadedBitmap,
+                            dpi = selectedDpi,
+                            layoutMode = selectedPdfLayout,
+                            title = documentTitle,
+                            addCuttingLines = addCuttingLines
+                        )
                     } else {
+                        mime = when {
+                            selectedFormat.contains("WEBP") -> "image/webp"
+                            selectedFormat.contains("PNG") -> "image/png"
+                            else -> "image/jpeg"
+                        }
                         convertAndSaveFormat(context, loadedBitmap, selectedFormat, qualitySlider.toInt())
                     }
                     withContext(Dispatchers.Main) {
                         isConverting = false
+                        convertedSavedPath = path
+                        convertedMimeType = mime
                         if (path != null) {
+                            val f = File(path)
+                            if (f.exists()) convertedFileSize = f.length()
                             Toast.makeText(context, "Converted & Saved successfully! ($path)", Toast.LENGTH_LONG).show()
                         }
                     }
@@ -1505,11 +2002,94 @@ fun UniversalFormatConverterSection(
             if (isConverting) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Converting to $selectedFormat...", fontWeight = FontWeight.Bold)
+                Text("Generating $selectedFormat...", fontWeight = FontWeight.Bold)
             } else {
                 Icon(Icons.Default.Transform, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Export as $selectedFormat", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+        }
+
+        // Converted Output & Sharing Card
+        if (convertedSavedPath != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Export Complete!",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (convertedFileSize != null) {
+                                Text(
+                                    "Output Size: ${formatStudioBytes(convertedFileSize!!)}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        "Saved to: $convertedSavedPath",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                openExportedFile(context, convertedSavedPath!!, convertedMimeType)
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Visibility, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Open File", fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                shareExportedFile(context, convertedSavedPath!!, convertedMimeType)
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Share", fontSize = 12.sp)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1794,55 +2374,157 @@ fun convertAndSaveFormat(context: Context, bitmap: Bitmap, format: String, quali
     }
 }
 
-fun generatePassportPdf(context: Context, bitmap: Bitmap, dpi: Int): String? {
+fun generatePassportPdf(
+    context: Context,
+    bitmap: Bitmap,
+    dpi: Int,
+    layoutMode: String = "A4 Grid (9 Photos)",
+    title: String = "Biometric Passport Photo Sheet",
+    addCuttingLines: Boolean = true
+): String? {
     val fileName = "PassportSheet_${System.currentTimeMillis()}.pdf"
     return try {
         val pdfDocument = PdfDocument()
-        // A4 page size in points: 595 x 842 pt
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
-        val page = pdfDocument.startPage(pageInfo)
-        val canvas = page.canvas
 
-        canvas.drawColor(android.graphics.Color.WHITE)
+        when (layoutMode) {
+            "4x6 Paper (6 Photos)" -> {
+                // 4x6 inch page in points (landscape: 432 x 288 pt)
+                val pageInfo = PdfDocument.PageInfo.Builder(432, 288, 1).create()
+                val page = pdfDocument.startPage(pageInfo)
+                val canvas = page.canvas
+                canvas.drawColor(android.graphics.Color.WHITE)
 
-        val titlePaint = Paint().apply {
-            color = android.graphics.Color.DKGRAY
-            textSize = 14f
-            isFakeBoldText = true
-            textAlign = Paint.Align.CENTER
-        }
-        canvas.drawText("Official Biometric Passport Print Sheet — StudentKit Pro", 595 / 2f, 40f, titlePaint)
+                val titlePaint = Paint().apply {
+                    color = android.graphics.Color.DKGRAY
+                    textSize = 10f
+                    isFakeBoldText = true
+                    textAlign = Paint.Align.CENTER
+                }
+                val headerText = if (title.isNotBlank()) title else "Biometric 4x6 Photo Sheet"
+                canvas.drawText(headerText, 432 / 2f, 20f, titlePaint)
 
-        // Draw 6 passport photos tiled neatly
-        val passportW = 120f
-        val passportH = 155f
-        val startX = 60f
-        val startY = 80f
-        val spacingX = 40f
-        val spacingY = 30f
+                val passportW = 95f
+                val passportH = 118f
+                val startX = 40f
+                val startY = 32f
+                val spacingX = 35f
+                val spacingY = 10f
 
-        val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        val borderPaint = Paint().apply {
-            color = android.graphics.Color.LTGRAY
-            style = Paint.Style.STROKE
-            strokeWidth = 1f
-            pathEffect = DashPathEffect(floatArrayOf(6f, 6f), 0f)
-        }
+                val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                val borderPaint = Paint().apply {
+                    color = android.graphics.Color.LTGRAY
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1f
+                    pathEffect = DashPathEffect(floatArrayOf(4f, 4f), 0f)
+                }
 
-        var photoIndex = 0
-        for (r in 0 until 3) {
-            for (c in 0 until 3) {
-                val left = startX + c * (passportW + spacingX)
-                val top = startY + r * (passportH + spacingY)
-                val rect = RectF(left, top, left + passportW, top + passportH)
+                for (r in 0 until 2) {
+                    for (c in 0 until 3) {
+                        val left = startX + c * (passportW + spacingX)
+                        val top = startY + r * (passportH + spacingY)
+                        val rect = RectF(left, top, left + passportW, top + passportH)
+                        canvas.drawBitmap(bitmap, null, rect, bmpPaint)
+                        if (addCuttingLines) {
+                            canvas.drawRect(rect, borderPaint)
+                        }
+                    }
+                }
+                pdfDocument.finishPage(page)
+            }
+            "Single Photo (Portal Upload)" -> {
+                // Single high quality photo centered on A4
+                val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+                val page = pdfDocument.startPage(pageInfo)
+                val canvas = page.canvas
+                canvas.drawColor(android.graphics.Color.WHITE)
 
+                val titlePaint = Paint().apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 16f
+                    isFakeBoldText = true
+                    textAlign = Paint.Align.CENTER
+                }
+                val headerText = if (title.isNotBlank()) title else "Official Biometric Document Photo"
+                canvas.drawText(headerText, 595 / 2f, 80f, titlePaint)
+
+                val subPaint = Paint().apply {
+                    color = android.graphics.Color.GRAY
+                    textSize = 11f
+                    textAlign = Paint.Align.CENTER
+                }
+                canvas.drawText("Generated with StudentKit Pro Studio • High-DPI Biometric Compliance", 595 / 2f, 102f, subPaint)
+
+                val photoW = 240f
+                val photoH = 300f
+                val left = (595 - photoW) / 2f
+                val top = 160f
+                val rect = RectF(left, top, left + photoW, top + photoH)
+
+                val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
                 canvas.drawBitmap(bitmap, null, rect, bmpPaint)
+
+                val borderPaint = Paint().apply {
+                    color = android.graphics.Color.DKGRAY
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1.5f
+                }
                 canvas.drawRect(rect, borderPaint)
-                photoIndex++
+
+                val metaPaint = Paint().apply {
+                    color = android.graphics.Color.DKGRAY
+                    textSize = 10f
+                    textAlign = Paint.Align.CENTER
+                }
+                canvas.drawText("Official Size: 35 × 45 mm / 2 × 2 in @ $dpi DPI", 595 / 2f, top + photoH + 30f, metaPaint)
+
+                pdfDocument.finishPage(page)
+            }
+            else -> {
+                // Standard A4 Grid (9 Photos) - 3x3
+                val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+                val page = pdfDocument.startPage(pageInfo)
+                val canvas = page.canvas
+                canvas.drawColor(android.graphics.Color.WHITE)
+
+                val titlePaint = Paint().apply {
+                    color = android.graphics.Color.DKGRAY
+                    textSize = 14f
+                    isFakeBoldText = true
+                    textAlign = Paint.Align.CENTER
+                }
+                val headerText = if (title.isNotBlank()) title else "Official Biometric Passport Print Sheet — StudentKit Pro"
+                canvas.drawText(headerText, 595 / 2f, 40f, titlePaint)
+
+                val passportW = 120f
+                val passportH = 155f
+                val startX = 60f
+                val startY = 80f
+                val spacingX = 40f
+                val spacingY = 30f
+
+                val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                val borderPaint = Paint().apply {
+                    color = android.graphics.Color.LTGRAY
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1f
+                    pathEffect = DashPathEffect(floatArrayOf(6f, 6f), 0f)
+                }
+
+                for (r in 0 until 3) {
+                    for (c in 0 until 3) {
+                        val left = startX + c * (passportW + spacingX)
+                        val top = startY + r * (passportH + spacingY)
+                        val rect = RectF(left, top, left + passportW, top + passportH)
+
+                        canvas.drawBitmap(bitmap, null, rect, bmpPaint)
+                        if (addCuttingLines) {
+                            canvas.drawRect(rect, borderPaint)
+                        }
+                    }
+                }
+                pdfDocument.finishPage(page)
             }
         }
-
-        pdfDocument.finishPage(page)
 
         val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
         val appFolder = File(docsDir, "StudentKit_PDFs")
@@ -1857,7 +2539,46 @@ fun generatePassportPdf(context: Context, bitmap: Bitmap, dpi: Int): String? {
 
         file.absolutePath
     } catch (e: Exception) {
+        e.printStackTrace()
         null
+    }
+}
+
+fun openExportedFile(context: Context, filePath: String, mimeType: String) {
+    try {
+        val file = File(filePath)
+        if (!file.exists()) {
+            Toast.makeText(context, "File not found on storage", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Cannot open file: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun shareExportedFile(context: Context, filePath: String, mimeType: String) {
+    try {
+        val file = File(filePath)
+        if (!file.exists()) {
+            Toast.makeText(context, "File not found on storage", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share Document / Photo"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Cannot share: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
     }
 }
 

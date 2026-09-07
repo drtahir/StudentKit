@@ -1,0 +1,25 @@
+--- app/src/main/java/com/drtahir/studentkit/ui/screens/PdfSuiteScreens.kt
++++ app/src/main/java/com/drtahir/studentkit/ui/screens/PdfSuiteScreens.kt
+@@ -55,6 +55,7 @@
+ import androidx.compose.ui.window.DialogProperties
+ import com.drtahir.studentkit.data.StandardPdfEncryptor
++import com.drtahir.studentkit.data.PdfMetadataManager
+ import com.drtahir.studentkit.viewmodel.StudentKitViewModel
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.launch
+@@ -178,8 +179,18 @@
+                 if (item.pageCount > 0) {
+                     splitPageRangeText = "1-${item.pageCount}"
+                 }
+-                metadataTitle = item.name.replace(".pdf", "", ignoreCase = true)
+-                metadataAuthor = "Hikmah Omni Suite"
++                
++                // Extract existing metadata
++                val metadata = PdfMetadataManager.extractMetadata(context, uri)
++                metadataTitle = metadata.title.ifEmpty { item.name.replace(".pdf", "", ignoreCase = true) }
++                metadataAuthor = metadata.author
++                metadataSubject = metadata.subject
++                metadataKeywords = metadata.keywords
+             } else {
+                 Toast.makeText(context, "Failed to read selected PDF file.", Toast.LENGTH_SHORT).show()
+             }

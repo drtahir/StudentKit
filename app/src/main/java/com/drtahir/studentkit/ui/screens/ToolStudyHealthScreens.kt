@@ -2173,6 +2173,26 @@ fun drawBrandLogoAndroidCanvas(
     }
 }
 
+fun testDecodeQrBitmap(bitmap: android.graphics.Bitmap): String? {
+    return try {
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        val source = com.google.zxing.RGBLuminanceSource(width, height, pixels)
+        val binarizer = com.google.zxing.common.HybridBinarizer(source)
+        val binaryBitmap = com.google.zxing.BinaryBitmap(binarizer)
+        val hints = java.util.HashMap<com.google.zxing.DecodeHintType, Any>()
+        hints[com.google.zxing.DecodeHintType.TRY_HARDER] = true
+        hints[com.google.zxing.DecodeHintType.POSSIBLE_FORMATS] = listOf(com.google.zxing.BarcodeFormat.QR_CODE)
+        val reader = com.google.zxing.qrcode.QRCodeReader()
+        val result = reader.decode(binaryBitmap, hints)
+        result.text
+    } catch (e: Exception) {
+        null
+    }
+}
+
 fun generateQrCodeBitmap(
     qrContentText: String,
     selectedPalette: QrPalette,
@@ -2189,10 +2209,10 @@ fun generateQrCodeBitmap(
     imageBitmap: ImageBitmap? = null,
     resolutionPx: Int = 1024,
     customQrDensity: Int = 29,
-    logoScale: Float = 0.90f,
+    logoScale: Float = 0.22f,
     logoAlphaThreshold: Float = 0.35f,
     logoBlendOpacity: Float = 1.0f,
-    qrFusionMode: String = "Custom Brand Canvas",
+    qrFusionMode: String = "Centered Badge",
     contrastBoost: Boolean = true,
     useImageAsTexture: Boolean = true
 ): android.graphics.Bitmap {
@@ -2200,23 +2220,25 @@ fun generateQrCodeBitmap(
     val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bitmap)
     
-    // Fill white background
+    // Fill pure white background
     canvas.drawColor(android.graphics.Color.WHITE)
+    
+    val payload = qrContentText.ifEmpty { "https://google.com" }
     
     val hints = java.util.HashMap<com.google.zxing.EncodeHintType, Any>()
     hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
-    hints[com.google.zxing.EncodeHintType.MARGIN] = if (includeQuietZone) 1 else 0
+    hints[com.google.zxing.EncodeHintType.MARGIN] = if (includeQuietZone) 2 else 1
     hints[com.google.zxing.EncodeHintType.CHARACTER_SET] = "UTF-8"
     
     val bitMatrix = try {
         val writer = com.google.zxing.qrcode.QRCodeWriter()
-        writer.encode(qrContentText.ifEmpty { "https://google.com" }, com.google.zxing.BarcodeFormat.QR_CODE, customQrDensity, customQrDensity, hints)
+        writer.encode(payload, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0, hints)
     } catch (e: Exception) {
         null
     }
     
-    val matrixWidth = bitMatrix?.width ?: customQrDensity
-    val matrixHeight = bitMatrix?.height ?: customQrDensity
+    val matrixWidth = bitMatrix?.width ?: 29
+    val matrixHeight = bitMatrix?.height ?: 29
     
     val normalizedFrameStyle = qrFrameStyle.replace(Regex("^[📐🧊🌌]\\s*"), "")
     val hasTopBanner = normalizedFrameStyle == "Top Banner Tag" || normalizedFrameStyle == "Speech Bubble Top" || normalizedFrameStyle == "Pill Badge Top" || normalizedFrameStyle == "Resto Menu Tag Top" || normalizedFrameStyle == "Storefront Sign Header"
@@ -2339,83 +2361,16 @@ fun generateQrCodeBitmap(
         }
     }
 
-    // 2. Draw Logo Watermark / Canvas Background in QR Area
-    if (androidBitmap != null && qrFusionMode != "Centered Badge") {
-        val margin = ((1f - logoScale) / 2f).coerceAtLeast(0f)
-        val logoSizeX = qrAreaSize * logoScale
-        val logoSizeY = qrAreaSize * logoScale
-        val logoOffsetX = qrLeft + qrAreaSize * margin
-        val logoOffsetY = qrTop + qrAreaSize * margin
-        
-        if (qrFusionMode == "Custom Brand Canvas") {
-            val haloPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
-            canvas.drawCircle(qrLeft + qrAreaSize / 2f, qrTop + qrAreaSize / 2f, (logoSizeX / 2f) + size * 0.015f, haloPaint)
-            
-            val clipPath = android.graphics.Path().apply {
-                addOval(android.graphics.RectF(logoOffsetX, logoOffsetY, logoOffsetX + logoSizeX, logoOffsetY + logoSizeY), android.graphics.Path.Direction.CW)
-            }
-            canvas.save()
-            canvas.clipPath(clipPath)
-            val dstRect = android.graphics.RectF(logoOffsetX, logoOffsetY, logoOffsetX + logoSizeX, logoOffsetY + logoSizeY)
-            val srcRect = android.graphics.Rect(0, 0, androidBitmap.width, androidBitmap.height)
-            val imgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
-                alpha = (logoBlendOpacity.coerceAtLeast(0.85f) * 255).toInt().coerceIn(0, 255)
-            }
-            canvas.drawBitmap(androidBitmap, srcRect, dstRect, imgPaint)
-            canvas.restore()
-        } else {
-            val dstRect = android.graphics.RectF(logoOffsetX, logoOffsetY, logoOffsetX + logoSizeX, logoOffsetY + logoSizeY)
-            val srcRect = android.graphics.Rect(0, 0, androidBitmap.width, androidBitmap.height)
-            val imgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
-                alpha = (logoBlendOpacity * 255).toInt().coerceIn(0, 255)
-            }
-            canvas.drawBitmap(androidBitmap, srcRect, dstRect, imgPaint)
-        }
-    } else if (androidBitmap == null && selectedLogo in ALL_BRAND_LOGOS && selectedLogo != "None" && qrFusionMode != "Centered Badge") {
-        drawBrandLogoAndroidCanvas(canvas, selectedLogo, qrLeft, qrTop, qrAreaSize, qrAreaSize, logoScale, logoBlendOpacity)
+    // 2. Safe Logo Badge Coordinates (Max 22% matrix width to strictly preserve Error Correction Level H)
+    val hasLogo = selectedLogo != "None" || androidBitmap != null
+    val centerModuleCount = if (hasLogo) (matrixWidth * 0.22f).toInt().coerceAtLeast(3) else 0
+    val centerStart = (matrixWidth - centerModuleCount) / 2
+    val centerEnd = centerStart + centerModuleCount
+    val isInsideCenter = { x: Int, y: Int ->
+        hasLogo && x in centerStart until centerEnd && y in centerStart until centerEnd
     }
 
-    // Sample color for texture mapping
-    val getSampledColor: (Float, Float) -> Int = { cx, cy ->
-        if (androidBitmap == null) {
-            primaryColorInt
-        } else {
-            val relX = ((cx - qrLeft) / qrAreaSize).coerceIn(0f, 1f)
-            val relY = ((cy - qrTop) / qrAreaSize).coerceIn(0f, 1f)
-            val px = (relX * androidBitmap.width).toInt().coerceIn(0, androidBitmap.width - 1)
-            val py = (relY * androidBitmap.height).toInt().coerceIn(0, androidBitmap.height - 1)
-            val colorVal = androidBitmap.getPixel(px, py)
-            val alpha = (colorVal ushr 24) and 0xff
-            if (alpha < (logoAlphaThreshold * 255).toInt()) {
-                if (contrastBoost) android.graphics.Color.BLACK else android.graphics.Color.argb(40, android.graphics.Color.red(primaryColorInt), android.graphics.Color.green(primaryColorInt), android.graphics.Color.blue(primaryColorInt))
-            } else {
-                if (contrastBoost) {
-                    val r = (android.graphics.Color.red(colorVal) * 0.55f).toInt().coerceIn(0, 255)
-                    val g = (android.graphics.Color.green(colorVal) * 0.55f).toInt().coerceIn(0, 255)
-                    val b = (android.graphics.Color.blue(colorVal) * 0.55f).toInt().coerceIn(0, 255)
-                    android.graphics.Color.argb(255, r, g, b)
-                } else {
-                    colorVal
-                }
-            }
-        }
-    }
-
-    val isLogoPixelVisible: (Int, Int) -> Boolean = { x, y ->
-        if (androidBitmap == null) {
-            true
-        } else {
-            val relX = x.toFloat() / matrixWidth
-            val relY = y.toFloat() / matrixHeight
-            val px = (relX * androidBitmap.width).toInt().coerceIn(0, androidBitmap.width - 1)
-            val py = (relY * androidBitmap.height).toInt().coerceIn(0, androidBitmap.height - 1)
-            val colorVal = androidBitmap.getPixel(px, py)
-            val alpha = (colorVal ushr 24) and 0xff
-            alpha / 255f >= logoAlphaThreshold
-        }
-    }
-
-    // 3. Draw Finder Eyes
+    // Finder eye geometry: 7x7 modules standard 1:1:3:1:1 geometric ratio
     fun drawFinderEye(startX: Int, startY: Int) {
         val left = qrLeft + startX * cellSize
         val top = qrTop + startY * cellSize
@@ -2430,55 +2385,23 @@ fun generateQrCodeBitmap(
             color = android.graphics.Color.WHITE
         }
 
-        // White protective halo behind eye
-        if (qrFusionMode == "Custom Brand Canvas" || selectedLogo != "None" || androidBitmap != null) {
-            canvas.drawCircle(cenX, cenY, cellSize * 4.0f, whitePaint)
-        }
-        
         when (qrEyeStyle) {
-            "Brand Target Rings", "Concentric Bullseye" -> {
-                val blackPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.BLACK }
-                canvas.drawCircle(cenX, cenY, cellSize * 3.4f, blackPaint)
-                canvas.drawCircle(cenX, cenY, cellSize * 2.4f, whitePaint)
-                val centerColor = if (selectedEyePalette.name != "Match Theme") {
-                    eyeColorInt
-                } else {
-                    when (selectedLogo) {
-                        "Burger King", "KFC" -> android.graphics.Color.parseColor("#E2231A")
-                        "BMW", "Chrome" -> android.graphics.Color.parseColor("#0066B1")
-                        "Starbucks" -> android.graphics.Color.parseColor("#00704A")
-                        "Pepsi" -> android.graphics.Color.parseColor("#0051A2")
-                        "Facebook" -> android.graphics.Color.parseColor("#1877F2")
-                        "YouTube" -> android.graphics.Color.RED
-                        "WhatsApp" -> android.graphics.Color.parseColor("#25D366")
-                        else -> primaryColorInt
-                    }
-                }
-                val pupilP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = centerColor }
-                canvas.drawCircle(cenX, cenY, cellSize * 1.4f, pupilP)
+            "Rounded Retro", "Smooth Rounded" -> {
+                canvas.drawRoundRect(outerRect, cellSize * 1.2f, cellSize * 1.2f, eyePaint)
+                canvas.drawRoundRect(innerWhiteRect, cellSize * 0.8f, cellSize * 0.8f, whitePaint)
+                canvas.drawRoundRect(pupilRect, cellSize * 0.5f, cellSize * 0.5f, eyePaint)
             }
-            "Rounded Retro", "Soft Cushion" -> {
-                canvas.drawRoundRect(outerRect, eyeSize * 0.25f, eyeSize * 0.25f, eyePaint)
-                canvas.drawRoundRect(innerWhiteRect, eyeSize * 0.20f, eyeSize * 0.20f, whitePaint)
-                canvas.drawRoundRect(pupilRect, eyeSize * 0.15f, eyeSize * 0.15f, eyePaint)
-            }
-            "Circular Orbit" -> {
-                canvas.drawCircle(cenX, cenY, cellSize * 3.5f, eyePaint)
-                canvas.drawCircle(cenX, cenY, cellSize * 2.5f, whitePaint)
+            "Circular Orbit", "Brand Target Rings" -> {
+                canvas.drawRoundRect(outerRect, cellSize * 0.8f, cellSize * 0.8f, eyePaint)
+                canvas.drawRoundRect(innerWhiteRect, cellSize * 0.5f, cellSize * 0.5f, whitePaint)
                 canvas.drawCircle(cenX, cenY, cellSize * 1.5f, eyePaint)
             }
             "Modern Diamond" -> {
-                canvas.save()
-                canvas.rotate(45f, cenX, cenY)
-                val outerD = android.graphics.RectF(cenX - cellSize * 3f, cenY - cellSize * 3f, cenX + cellSize * 3f, cenY + cellSize * 3f)
-                val innerWD = android.graphics.RectF(cenX - cellSize * 2f, cenY - cellSize * 2f, cenX + cellSize * 2f, cenY + cellSize * 2f)
-                val pupilD = android.graphics.RectF(cenX - cellSize * 1f, cenY - cellSize * 1f, cenX + cellSize * 1f, cenY + cellSize * 1f)
-                canvas.drawRoundRect(outerD, cellSize * 1.2f, cellSize * 1.2f, eyePaint)
-                canvas.drawRoundRect(innerWD, cellSize * 0.8f, cellSize * 0.8f, whitePaint)
-                canvas.drawRoundRect(pupilD, cellSize * 0.4f, cellSize * 0.4f, eyePaint)
-                canvas.restore()
+                canvas.drawRoundRect(outerRect, cellSize * 0.6f, cellSize * 0.6f, eyePaint)
+                canvas.drawRoundRect(innerWhiteRect, cellSize * 0.4f, cellSize * 0.4f, whitePaint)
+                canvas.drawRoundRect(pupilRect, cellSize * 0.3f, cellSize * 0.3f, eyePaint)
             }
-            else -> { // Classic Edge
+            else -> { // Classic Edge / Classic Square
                 canvas.drawRect(outerRect, eyePaint)
                 canvas.drawRect(innerWhiteRect, whitePaint)
                 canvas.drawRect(pupilRect, eyePaint)
@@ -2486,7 +2409,7 @@ fun generateQrCodeBitmap(
         }
     }
     
-    // Draw 3 corner finder eyes
+    // Draw 3 corner finder eyes (always 7x7 modules)
     drawFinderEye(0, 0)
     drawFinderEye(matrixWidth - 7, 0)
     drawFinderEye(0, matrixHeight - 7)
@@ -2494,27 +2417,16 @@ fun generateQrCodeBitmap(
     // Finder eye collision checker
     val isInsideFinder = { x: Int, y: Int ->
         (x in 0..6 && y in 0..6) ||
-        (x in (matrixWidth - 7)..<matrixWidth && y in 0..6) ||
-        (x in 0..6 && y in (matrixHeight - 7)..<matrixHeight)
+        (x in (matrixWidth - 7) until matrixWidth && y in 0..6) ||
+        (x in 0..6 && y in (matrixHeight - 7) until matrixHeight)
     }
 
-    val hasLogo = selectedLogo != "None" || androidBitmap != null
-    val centerStart = (matrixWidth * 0.38f).toInt()
-    val centerEnd = (matrixWidth * 0.62f).toInt()
-    val isInsideCenter = { x: Int, y: Int ->
-        hasLogo && qrFusionMode == "Centered Badge" && x in centerStart..centerEnd && y in centerStart..centerEnd
-    }
-
-    // 4. Draw Matrix Cells
+    // 3. Draw Matrix Data Modules (Solid, high-contrast, fully scannable)
     if (bitMatrix != null) {
         for (y in 0 until matrixHeight) {
             for (x in 0 until matrixWidth) {
                 if (isInsideFinder(x, y)) continue
                 if (isInsideCenter(x, y)) continue
-                
-                if (qrFusionMode == "Silhouette Shaping" && androidBitmap != null && !isLogoPixelVisible(x, y)) {
-                    continue
-                }
                 
                 if (bitMatrix.get(x, y)) {
                     val left = qrLeft + x * cellSize
@@ -2524,88 +2436,22 @@ fun generateQrCodeBitmap(
                     val cx = left + cellSize / 2f
                     val cy = top + cellSize / 2f
                     
-                    val cellPaint = if ((useImageAsTexture || qrDotStyle == "Logo Image Texture") && androidBitmap != null) {
-                        val sampledColor = getSampledColor(cx, cy)
-                        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = sampledColor }
-                    } else if ((useImageAsTexture || qrDotStyle == "Logo Image Texture") && selectedLogo != "None") {
-                        val brandColor = when (selectedLogo) {
-                            "Burger King", "KFC" -> android.graphics.Color.parseColor("#E2231A")
-                            "BMW", "Chrome" -> android.graphics.Color.parseColor("#0066B1")
-                            "Starbucks" -> android.graphics.Color.parseColor("#00704A")
-                            "Pepsi" -> android.graphics.Color.parseColor("#0051A2")
-                            "Facebook" -> android.graphics.Color.parseColor("#1877F2")
-                            "YouTube" -> android.graphics.Color.RED
-                            "WhatsApp" -> android.graphics.Color.parseColor("#25D366")
-                            else -> primaryColorInt
-                        }
-                        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = brandColor }
-                    } else {
-                        qrPaint
-                    }
-
                     when (qrDotStyle) {
-                        "Logo Image Texture", "Micro-Dot Stencil", "Logo Halftone Fusion", "My Logo as QR Matrix" -> {
-                            val dotRadius = cellSize * 0.40f
-                            if (qrFusionMode == "Custom Brand Canvas" && androidBitmap == null) {
-                                val darkP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#111111") }
-                                canvas.drawCircle(cx, cy, dotRadius, darkP)
-                            } else {
-                                val sampledColor = getSampledColor(cx, cy)
-                                val dotP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = sampledColor }
-                                canvas.drawCircle(cx, cy, dotRadius, dotP)
-                            }
-                        }
                         "Dots / Circle", "Classy Dots", "Spherical Dot" -> {
-                            canvas.drawCircle(cx, cy, (cellSize / 2f) * 0.88f, cellPaint)
+                            // Radius = 0.49 * cellSize ensures adjacent dark dots touch cleanly for 100% binarization
+                            canvas.drawCircle(cx, cy, cellSize * 0.49f, qrPaint)
                         }
                         "Rounded Retro", "Fluid Curves", "Fluid Rounded" -> {
-                            val rect = android.graphics.RectF(left + cellSize * 0.08f, top + cellSize * 0.08f, right - cellSize * 0.08f, bottom - cellSize * 0.08f)
-                            canvas.drawRoundRect(rect, cellSize * 0.35f, cellSize * 0.35f, cellPaint)
-                        }
-                        "Cyber Cross" -> {
-                            val crossSize = cellSize * 0.3f
-                            canvas.drawRect(left + crossSize, top, right - crossSize, bottom, cellPaint)
-                            canvas.drawRect(left, top + crossSize, right, bottom - crossSize, cellPaint)
-                        }
-                        "Ring Wave" -> {
-                            val ringStroke = android.graphics.Paint(cellPaint).apply {
-                                style = android.graphics.Paint.Style.STROKE
-                                strokeWidth = cellSize * 0.18f
-                            }
-                            canvas.drawCircle(cx, cy, cellSize * 0.42f, ringStroke)
-                            canvas.drawCircle(cx, cy, cellSize * 0.15f, cellPaint)
-                        }
-                        "Stellar Star" -> {
-                            val starPath = android.graphics.Path().apply {
-                                moveTo(cx, top + cellSize * 0.05f)
-                                quadTo(cx, cy, right - cellSize * 0.05f, cy)
-                                quadTo(cx, cy, cx, bottom - cellSize * 0.05f)
-                                quadTo(cx, cy, left + cellSize * 0.05f, cy)
-                                close()
-                            }
-                            canvas.drawPath(starPath, cellPaint)
-                        }
-                        "Curved Leaf" -> {
-                            val leafPath = android.graphics.Path().apply {
-                                moveTo(left, bottom)
-                                cubicTo(left, top, right, top, right, top)
-                                cubicTo(right, bottom, left, bottom, left, bottom)
-                                close()
-                            }
-                            canvas.drawPath(leafPath, cellPaint)
-                        }
-                        "Heart Shape" -> {
-                            val hp = android.graphics.Path().apply {
-                                moveTo(cx, cy + cellSize * 0.35f)
-                                cubicTo(cx - cellSize * 0.5f, cy - cellSize * 0.1f, cx - cellSize * 0.3f, cy - cellSize * 0.5f, cx, cy - cellSize * 0.25f)
-                                cubicTo(cx + cellSize * 0.3f, cy - cellSize * 0.5f, cx + cellSize * 0.5f, cy - cellSize * 0.1f, cx, cy + cellSize * 0.35f)
-                                close()
-                            }
-                            canvas.drawPath(hp, cellPaint)
-                        }
-                        else -> { // Classic Square
                             val rect = android.graphics.RectF(left, top, right, bottom)
-                            canvas.drawRect(rect, cellPaint)
+                            canvas.drawRoundRect(rect, cellSize * 0.25f, cellSize * 0.25f, qrPaint)
+                        }
+                        "Squircle", "Stellar Star", "Curved Leaf", "Cyber Cross", "Logo Image Texture" -> {
+                            val rect = android.graphics.RectF(left + cellSize * 0.04f, top + cellSize * 0.04f, right - cellSize * 0.04f, bottom - cellSize * 0.04f)
+                            canvas.drawRoundRect(rect, cellSize * 0.35f, cellSize * 0.35f, qrPaint)
+                        }
+                        else -> { // Classic Square (100% solid fill)
+                            val rect = android.graphics.RectF(left, top, right, bottom)
+                            canvas.drawRect(rect, qrPaint)
                         }
                     }
                 }
@@ -2613,20 +2459,35 @@ fun generateQrCodeBitmap(
         }
     }
 
-    // 5. Draw Centered Badge if in "Centered Badge" Mode
-    if (hasLogo && qrFusionMode == "Centered Badge") {
-        val badgeSize = qrAreaSize * (logoScale.coerceIn(0.20f, 0.35f))
+    // 4. Draw Clean Centered Logo Badge if requested
+    if (hasLogo) {
+        val badgeSize = (centerModuleCount * cellSize).coerceAtLeast(cellSize * 3f)
         val badgeLeft = qrLeft + (qrAreaSize - badgeSize) / 2f
         val badgeTop = qrTop + (qrAreaSize - badgeSize) / 2f
         val badgeCenX = qrLeft + qrAreaSize / 2f
         val badgeCenY = qrTop + qrAreaSize / 2f
         
+        // Pure white background plate with protective halo margin
         val whiteBadgePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
-        canvas.drawCircle(badgeCenX, badgeCenY, (badgeSize / 2f) + size * 0.01f, whiteBadgePaint)
+        canvas.drawRoundRect(
+            android.graphics.RectF(badgeLeft - cellSize * 0.4f, badgeTop - cellSize * 0.4f, badgeLeft + badgeSize + cellSize * 0.4f, badgeTop + badgeSize + cellSize * 0.4f),
+            badgeSize * 0.25f, badgeSize * 0.25f, whiteBadgePaint
+        )
+        
+        // Subtle outline border
+        val borderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = primaryColorInt
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = cellSize * 0.15f
+        }
+        canvas.drawRoundRect(
+            android.graphics.RectF(badgeLeft - cellSize * 0.2f, badgeTop - cellSize * 0.2f, badgeLeft + badgeSize + cellSize * 0.2f, badgeTop + badgeSize + cellSize * 0.2f),
+            badgeSize * 0.22f, badgeSize * 0.22f, borderPaint
+        )
         
         if (androidBitmap != null) {
             val clipP = android.graphics.Path().apply {
-                addCircle(badgeCenX, badgeCenY, badgeSize / 2f, android.graphics.Path.Direction.CW)
+                addRoundRect(android.graphics.RectF(badgeLeft, badgeTop, badgeLeft + badgeSize, badgeTop + badgeSize), badgeSize * 0.2f, badgeSize * 0.2f, android.graphics.Path.Direction.CW)
             }
             canvas.save()
             canvas.clipPath(clipP)
@@ -2638,15 +2499,9 @@ fun generateQrCodeBitmap(
             drawBrandLogoAndroidCanvas(canvas, selectedLogo, badgeLeft, badgeTop, badgeSize, badgeSize, 1.0f, 1.0f)
         } else {
             val emblemColor = if (selectedEmblemPalette.name == "Match Theme") primaryColorInt else try { android.graphics.Color.parseColor(selectedEmblemPalette.startColor) } catch (e: Exception) { primaryColorInt }
-            val borderP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = emblemColor
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = size * 0.006f
-            }
-            canvas.drawCircle(badgeCenX, badgeCenY, badgeSize / 2f, borderP)
             val iconP = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = emblemColor
-                textSize = badgeSize * 0.45f
+                textSize = badgeSize * 0.50f
                 textAlign = android.graphics.Paint.Align.CENTER
                 isFakeBoldText = true
             }
@@ -2666,7 +2521,7 @@ fun generateQrCodeBitmap(
         }
     }
 
-    // 6. Draw Frame Banner CTA Text
+    // 5. Draw Frame Banner CTA Text
     if (hasTopBanner || hasBottomBanner) {
         val bannerTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color = try { android.graphics.Color.parseColor(frameTextColorHex) } catch (e: Exception) { android.graphics.Color.WHITE }
@@ -2725,7 +2580,6 @@ fun saveBitmapToDeviceGallery(
             }
             "Pictures/QRCodeStudio/$fileName.$ext"
         } else {
-            // Downloads directory fallback
             val downloadValues = android.content.ContentValues().apply {
                 put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "$fileName.$ext")
                 put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
@@ -2761,15 +2615,15 @@ fun QrCodePreviewEngine(
     includeQuietZone: Boolean,
     imageBitmap: ImageBitmap?,
     sizeDp: Int = 160,
-    logoScale: Float = 0.23f,
+    logoScale: Float = 0.22f,
     logoAlphaThreshold: Float = 0.35f,
-    logoBlendOpacity: Float = 0.35f,
-    qrFusionMode: String = "Silhouette Shaping",
-    contrastBoost: Boolean = false,
+    logoBlendOpacity: Float = 1.0f,
+    qrFusionMode: String = "Centered Badge",
+    contrastBoost: Boolean = true,
     customQrDensity: Int = 29,
     useImageAsTexture: Boolean = true
 ) {
-    val hasLogo = remember(selectedLogo) { selectedLogo != "None" }
+    val hasLogo = selectedLogo != "None" || imageBitmap != null
 
     val androidBitmap = remember(imageBitmap) {
         try {
@@ -2828,22 +2682,37 @@ fun QrCodePreviewEngine(
         }
     }
 
-    // Real ZXing QR Code BitMatrix Generation
-    val bitMatrix = remember(qrContentText, customQrDensity) {
+    val payload = qrContentText.ifEmpty { "https://google.com" }
+
+    // Real ZXing QR Code BitMatrix Generation with Level H Error Correction
+    val bitMatrix = remember(payload, includeQuietZone) {
         try {
             val hints = java.util.HashMap<com.google.zxing.EncodeHintType, Any>()
             hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
-            hints[com.google.zxing.EncodeHintType.MARGIN] = 1
+            hints[com.google.zxing.EncodeHintType.MARGIN] = if (includeQuietZone) 2 else 1
             hints[com.google.zxing.EncodeHintType.CHARACTER_SET] = "UTF-8"
             val writer = com.google.zxing.qrcode.QRCodeWriter()
-            writer.encode(qrContentText, com.google.zxing.BarcodeFormat.QR_CODE, customQrDensity, customQrDensity, hints)
+            writer.encode(payload, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0, hints)
         } catch (e: Exception) {
             null
         }
     }
 
-    val matrixWidth = remember(bitMatrix) { bitMatrix?.width ?: customQrDensity }
-    val matrixHeight = remember(bitMatrix) { bitMatrix?.height ?: customQrDensity }
+    val matrixWidth = bitMatrix?.width ?: 29
+    val matrixHeight = bitMatrix?.height ?: 29
+
+    val centerModuleCount = if (hasLogo) (matrixWidth * 0.22f).toInt().coerceAtLeast(3) else 0
+    val centerStart = (matrixWidth - centerModuleCount) / 2
+    val centerEnd = centerStart + centerModuleCount
+    val isInsideCenter = { x: Int, y: Int ->
+        hasLogo && x in centerStart until centerEnd && y in centerStart until centerEnd
+    }
+
+    val isInsideFinder = { x: Int, y: Int ->
+        (x in 0..6 && y in 0..6) ||
+        (x in (matrixWidth - 7) until matrixWidth && y in 0..6) ||
+        (x in 0..6 && y in (matrixHeight - 7) until matrixHeight)
+    }
 
     Box(
         modifier = Modifier
@@ -2854,89 +2723,7 @@ fun QrCodePreviewEngine(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val boxSize = size.width / matrixWidth.toFloat()
 
-            // Draw the logo watermark/canvas background
-            if (imageBitmap != null && qrFusionMode != "Centered Badge") {
-                val margin = ((1f - logoScale) / 2f).coerceAtLeast(0f)
-                val logoSizeX = size.width * logoScale
-                val logoSizeY = size.height * logoScale
-                val logoOffsetX = size.width * margin
-                val logoOffsetY = size.height * margin
-                
-                if (qrFusionMode == "Custom Brand Canvas") {
-                    drawCircle(
-                        color = Color.White,
-                        radius = (logoSizeX / 2f) + 4.dp.toPx(),
-                        center = Offset(size.width / 2f, size.height / 2f)
-                    )
-                    clipPath(Path().apply {
-                        addOval(Rect(Offset(logoOffsetX, logoOffsetY), Size(logoSizeX, logoSizeY)))
-                    }) {
-                        drawImage(
-                            image = imageBitmap,
-                            dstOffset = IntOffset(logoOffsetX.toInt(), logoOffsetY.toInt()),
-                            dstSize = IntSize(logoSizeX.toInt(), logoSizeY.toInt()),
-                            alpha = logoBlendOpacity.coerceAtLeast(0.85f)
-                        )
-                    }
-                } else {
-                    drawImage(
-                        image = imageBitmap,
-                        dstOffset = IntOffset(logoOffsetX.toInt(), logoOffsetY.toInt()),
-                        dstSize = IntSize(logoSizeX.toInt(), logoSizeY.toInt()),
-                        alpha = logoBlendOpacity
-                    )
-                }
-            } else if (imageBitmap == null && selectedLogo in ALL_BRAND_LOGOS && selectedLogo != "None" && qrFusionMode != "Centered Badge") {
-                drawBrandLogoCanvas(this, selectedLogo, size, logoScale, logoBlendOpacity)
-            }
-
-            val getSampledColor: (Float, Float) -> Color = { cx, cy ->
-                val bmp = androidBitmap
-                if (bmp == null) {
-                    primaryQrColor
-                } else {
-                    val relativeX = cx / size.width
-                    val relativeY = cy / size.height
-                    val px = (relativeX * bmp.width).toInt().coerceIn(0, bmp.width - 1)
-                    val py = (relativeY * bmp.height).toInt().coerceIn(0, bmp.height - 1)
-                    val colorValue = bmp.getPixel(px, py)
-                    val alpha = (colorValue ushr 24) and 0xff
-                    if (alpha < (logoAlphaThreshold * 255).toInt()) {
-                        if (contrastBoost) Color.Black else primaryQrColor.copy(alpha = 0.15f)
-                    } else {
-                        val r = (colorValue ushr 16) and 0xff
-                        val g = (colorValue ushr 8) and 0xff
-                        val b = colorValue and 0xff
-                        var cellColor = Color(red = r / 255f, green = g / 255f, blue = b / 255f)
-                        if (contrastBoost) {
-                            cellColor = Color(
-                                red = (cellColor.red * 0.55f).coerceIn(0f, 1f),
-                                green = (cellColor.green * 0.55f).coerceIn(0f, 1f),
-                                blue = (cellColor.blue * 0.55f).coerceIn(0f, 1f),
-                                alpha = 1.0f
-                            )
-                        }
-                        cellColor
-                    }
-                }
-            }
-
-            val isLogoPixelVisible: (Int, Int) -> Boolean = { x, y ->
-                val bmp = androidBitmap
-                if (bmp == null) {
-                    true
-                } else {
-                    val relativeX = x.toFloat() / matrixWidth
-                    val relativeY = y.toFloat() / matrixHeight
-                    val px = (relativeX * bmp.width).toInt().coerceIn(0, bmp.width - 1)
-                    val py = (relativeY * bmp.height).toInt().coerceIn(0, bmp.height - 1)
-                    val colorValue = bmp.getPixel(px, py)
-                    val alpha = (colorValue ushr 24) and 0xff
-                    alpha / 255f >= logoAlphaThreshold
-                }
-            }
-            
-            // Draw Finder Eyes (7x7 modules standard)
+            // Draw Finder Eyes (7x7 modules standard 1:1:3:1:1 geometric ratio)
             fun drawFinder(ofX: Float, ofY: Float) {
                 val outerSize = boxSize * 7f
                 val midOffset = boxSize * 1f
@@ -2945,52 +2732,26 @@ fun QrCodePreviewEngine(
                 val innerSize = boxSize * 3f
                 val cen = Offset(ofX + boxSize * 3.5f, ofY + boxSize * 3.5f)
 
-                // Draw clean white protective halo cutout behind finder eyes
-                if (qrFusionMode == "Custom Brand Canvas" || selectedLogo != "None" || imageBitmap != null) {
-                    drawCircle(SolidColor(Color.White), radius = boxSize * 4.0f, center = cen)
-                }
-
                 when (qrEyeStyle) {
-                    "Brand Target Rings", "Concentric Bullseye" -> {
-                        drawCircle(SolidColor(Color.Black), radius = boxSize * 3.4f, center = cen)
-                        drawCircle(SolidColor(Color.White), radius = boxSize * 2.4f, center = cen)
-                        val centerColor = if (selectedEyePalette.name != "Match Theme") {
-                            try { Color(android.graphics.Color.parseColor(selectedEyePalette.startColor)) } catch(e: Exception) { primaryQrColor }
-                        } else {
-                            when (selectedLogo) {
-                                "Burger King", "KFC" -> Color(0xFFE2231A)
-                                "BMW", "Chrome" -> Color(0xFF0066B1)
-                                "Starbucks" -> Color(0xFF00704A)
-                                "Pepsi" -> Color(0xFF0051A2)
-                                "Facebook" -> Color(0xFF1877F2)
-                                "YouTube" -> Color(0xFFFF0000)
-                                "WhatsApp" -> Color(0xFF25D366)
-                                else -> primaryQrColor
-                            }
-                        }
-                        drawCircle(SolidColor(centerColor), radius = boxSize * 1.4f, center = cen)
+                    "Rounded Retro", "Smooth Rounded" -> {
+                        drawRoundRect(eyeBrush, Offset(ofX, ofY), Size(outerSize, outerSize), CornerRadius(boxSize * 1.2f))
+                        drawRoundRect(SolidColor(Color.White), Offset(ofX + midOffset, ofY + midOffset), Size(midSize, midSize), CornerRadius(boxSize * 0.8f))
+                        drawRoundRect(eyeBrush, Offset(ofX + innerOffset, ofY + innerOffset), Size(innerSize, innerSize), CornerRadius(boxSize * 0.5f))
                     }
-                    "Classic Edge" -> {
-                        drawRect(eyeBrush, Offset(ofX, ofY), Size(outerSize, outerSize))
-                        drawRect(SolidColor(Color.White), Offset(ofX + midOffset, ofY + midOffset), Size(midSize, midSize))
-                        drawRect(eyeBrush, Offset(ofX + innerOffset, ofY + innerOffset), Size(innerSize, innerSize))
-                    }
-                    "Rounded Retro" -> {
-                        drawRoundRect(eyeBrush, Offset(ofX, ofY), Size(outerSize, outerSize), CornerRadius(boxSize * 1.8f))
-                        drawRoundRect(SolidColor(Color.White), Offset(ofX + midOffset, ofY + midOffset), Size(midSize, midSize), CornerRadius(boxSize * 1.2f))
-                        drawRoundRect(eyeBrush, Offset(ofX + innerOffset, ofY + innerOffset), Size(innerSize, innerSize), CornerRadius(boxSize * 0.6f))
-                    }
-                    "Circular Orbit" -> {
-                        drawCircle(eyeBrush, radius = boxSize * 3.5f, center = cen)
-                        drawCircle(SolidColor(Color.White), radius = boxSize * 2.5f, center = cen)
+                    "Circular Orbit", "Brand Target Rings" -> {
+                        drawRoundRect(eyeBrush, Offset(ofX, ofY), Size(outerSize, outerSize), CornerRadius(boxSize * 0.8f))
+                        drawRoundRect(SolidColor(Color.White), Offset(ofX + midOffset, ofY + midOffset), Size(midSize, midSize), CornerRadius(boxSize * 0.5f))
                         drawCircle(eyeBrush, radius = boxSize * 1.5f, center = cen)
                     }
                     "Modern Diamond" -> {
-                        rotate(45f, cen) {
-                            drawRoundRect(eyeBrush, Offset(ofX + boxSize * 0.5f, ofY + boxSize * 0.5f), Size(boxSize * 6f, boxSize * 6f), CornerRadius(boxSize * 1.2f))
-                            drawRoundRect(SolidColor(Color.White), Offset(ofX + boxSize * 1.5f, ofY + boxSize * 1.5f), Size(boxSize * 4f, boxSize * 4f), CornerRadius(boxSize * 0.8f))
-                            drawRoundRect(eyeBrush, Offset(ofX + boxSize * 2.5f, ofY + boxSize * 2.5f), Size(boxSize * 2f, boxSize * 2f), CornerRadius(boxSize * 0.4f))
-                        }
+                        drawRoundRect(eyeBrush, Offset(ofX, ofY), Size(outerSize, outerSize), CornerRadius(boxSize * 0.6f))
+                        drawRoundRect(SolidColor(Color.White), Offset(ofX + midOffset, ofY + midOffset), Size(midSize, midSize), CornerRadius(boxSize * 0.4f))
+                        drawRoundRect(eyeBrush, Offset(ofX + innerOffset, ofY + innerOffset), Size(innerSize, innerSize), CornerRadius(boxSize * 0.3f))
+                    }
+                    else -> { // Classic Edge / Classic Square
+                        drawRect(eyeBrush, Offset(ofX, ofY), Size(outerSize, outerSize))
+                        drawRect(SolidColor(Color.White), Offset(ofX + midOffset, ofY + midOffset), Size(midSize, midSize))
+                        drawRect(eyeBrush, Offset(ofX + innerOffset, ofY + innerOffset), Size(innerSize, innerSize))
                     }
                 }
             }
@@ -2999,139 +2760,46 @@ fun QrCodePreviewEngine(
             drawFinder((matrixWidth - 7) * boxSize, 0f)
             drawFinder(0f, (matrixHeight - 7) * boxSize)
 
-            val getCellBrush: (Float, Float) -> Brush = { cx, cy ->
-                if ((useImageAsTexture || qrDotStyle == "Logo Image Texture") && androidBitmap != null) {
-                    val sampledColor = getSampledColor(cx + boxSize / 2f, cy + boxSize / 2f)
-                    SolidColor(sampledColor)
-                } else if ((useImageAsTexture || qrDotStyle == "Logo Image Texture") && selectedLogo != "None") {
-                    val brandColor = when (selectedLogo) {
-                        "Burger King", "KFC" -> Color(0xFFE2231A)
-                        "BMW", "Chrome" -> Color(0xFF0066B1)
-                        "Starbucks" -> Color(0xFF00704A)
-                        "Pepsi" -> Color(0xFF0051A2)
-                        "Facebook" -> Color(0xFF1877F2)
-                        "YouTube" -> Color(0xFFFF0000)
-                        "WhatsApp" -> Color(0xFF25D366)
-                        else -> primaryQrColor
-                    }
-                    SolidColor(brandColor)
-                } else {
-                    qrBrush
-                }
-            }
-
-            // Draw matrix cell patterns
+            // Draw matrix cell patterns (Solid, scannable)
             fun drawCellPattern(cx: Float, cy: Float) {
                 val cellCenter = Offset(cx + boxSize / 2f, cy + boxSize / 2f)
-                val cellBrush = getCellBrush(cx, cy)
 
                 when (qrDotStyle) {
-                    "Logo Image Texture", "Micro-Dot Stencil", "Logo Halftone Fusion", "My Logo as QR Matrix" -> {
-                        val dotRadius = boxSize * 0.40f
-                        if (qrFusionMode == "Custom Brand Canvas" && androidBitmap == null) {
-                            drawCircle(
-                                SolidColor(Color(0xFF111111)),
-                                radius = dotRadius,
-                                center = cellCenter
-                            )
-                        } else {
-                            val cellColor = getSampledColor(cellCenter.x, cellCenter.y)
-                            val finalColor = if (contrastBoost) {
-                                Color(
-                                    red = (cellColor.red * 0.60f).coerceIn(0f, 1f),
-                                    green = (cellColor.green * 0.60f).coerceIn(0f, 1f),
-                                    blue = (cellColor.blue * 0.60f).coerceIn(0f, 1f),
-                                    alpha = 1.0f
-                                )
-                            } else {
-                                cellColor
-                            }
-                            drawCircle(
-                                SolidColor(finalColor),
-                                radius = dotRadius,
-                                center = cellCenter
-                            )
-                        }
+                    "Dots / Circle", "Classy Dots", "Spherical Dot" -> {
+                        drawCircle(qrBrush, radius = boxSize * 0.49f, center = cellCenter)
                     }
-                    "Classic Square" -> drawRect(cellBrush, Offset(cx, cy), Size(boxSize, boxSize))
-                    "Spherical Dot" -> drawCircle(cellBrush, radius = boxSize * 0.42f, center = cellCenter)
-                    "Fluid Rounded" -> drawRoundRect(cellBrush, topLeft = Offset(cx + boxSize * 0.08f, cy + boxSize * 0.08f), size = Size(boxSize * 0.84f, boxSize * 0.84f), cornerRadius = CornerRadius(boxSize * 0.35f, boxSize * 0.35f))
-                    "Stellar Star" -> {
-                        val scx = cellCenter.x
-                        val scy = cellCenter.y
-                        drawPath(Path().apply {
-                            moveTo(scx, scy - boxSize * 0.45f)
-                            quadraticTo(scx, scy, scx + boxSize * 0.45f, scy)
-                            quadraticTo(scx, scy, scx, scy + boxSize * 0.45f)
-                            quadraticTo(scx, scy, scx - boxSize * 0.45f, scy)
-                            close()
-                        }, cellBrush)
+                    "Rounded Retro", "Fluid Curves", "Fluid Rounded" -> {
+                        drawRoundRect(qrBrush, topLeft = Offset(cx, cy), size = Size(boxSize, boxSize), cornerRadius = CornerRadius(boxSize * 0.25f, boxSize * 0.25f))
                     }
-                    "Curved Leaf" -> {
-                        drawPath(Path().apply {
-                            moveTo(cx, cy + boxSize)
-                            cubicTo(cx, cy, cx + boxSize, cy, cx + boxSize, cy)
-                            cubicTo(cx + boxSize, cy + boxSize, cx, cy + boxSize, cx, cy + boxSize)
-                            close()
-                        }, cellBrush)
+                    "Squircle", "Stellar Star", "Curved Leaf", "Cyber Cross", "Logo Image Texture" -> {
+                        drawRoundRect(qrBrush, topLeft = Offset(cx + boxSize * 0.04f, cy + boxSize * 0.04f), size = Size(boxSize * 0.92f, boxSize * 0.92f), cornerRadius = CornerRadius(boxSize * 0.35f, boxSize * 0.35f))
                     }
-                    "Cyber Cross" -> {
-                        val crossSize = boxSize * 0.3f
-                        drawRect(cellBrush, Offset(cx + crossSize, cy), Size(boxSize - crossSize * 2, boxSize))
-                        drawRect(cellBrush, Offset(cx, cy + crossSize), Size(boxSize, boxSize - crossSize * 2))
-                    }
-                    "Heart Shape" -> {
-                        val hcx = cellCenter.x
-                        val hcy = cellCenter.y
-                        drawPath(Path().apply {
-                            moveTo(hcx, hcy + boxSize * 0.35f)
-                            cubicTo(hcx - boxSize * 0.5f, hcy - boxSize * 0.1f, hcx - boxSize * 0.3f, hcy - boxSize * 0.5f, hcx, hcy - boxSize * 0.25f)
-                            cubicTo(hcx + boxSize * 0.3f, hcy - boxSize * 0.5f, hcx + boxSize * 0.5f, hcy - boxSize * 0.1f, hcx, hcy + boxSize * 0.35f)
-                            close()
-                        }, cellBrush)
-                    }
-                    "Ring Wave" -> {
-                        drawCircle(cellBrush, radius = boxSize * 0.42f, center = cellCenter, style = Stroke(width = boxSize * 0.18f))
-                        drawCircle(cellBrush, radius = boxSize * 0.15f, center = cellCenter)
+                    else -> { // Classic Square
+                        drawRect(qrBrush, Offset(cx, cy), Size(boxSize, boxSize))
                     }
                 }
             }
 
-            // Finder eye collision checker
-            val isInsideFinder = { x: Int, y: Int ->
-                (x in 0..6 && y in 0..6) ||
-                (x in (matrixWidth - 7)..<matrixWidth && y in 0..6) ||
-                (x in 0..6 && y in (matrixHeight - 7)..<matrixHeight)
-            }
-
-            // Clear space in the center for emblem logo (typically 24% of the width)
-            val centerStart = (matrixWidth * 0.38f).toInt()
-            val centerEnd = (matrixWidth * 0.62f).toInt()
-            val isInsideCenter = { x: Int, y: Int ->
-                hasLogo && qrFusionMode == "Centered Badge" && x in centerStart..centerEnd && y in centerStart..centerEnd
-            }
-
-            // Iterate over the bit matrix cells to draw the actual scannable QR code!
-            for (x in 0 until matrixWidth) {
-                for (y in 0 until matrixHeight) {
-                    if (isInsideFinder(x, y)) continue
-                    if (isInsideCenter(x, y)) continue
-                    
-                    if (qrFusionMode == "Silhouette Shaping" && imageBitmap != null && !isLogoPixelVisible(x, y)) {
-                        continue
-                    }
-                    
-                    val isDark = bitMatrix?.get(x, y) ?: false
-                    if (isDark) {
-                        drawCellPattern(x * boxSize, y * boxSize)
+            // Iterate over bit matrix to draw modules
+            if (bitMatrix != null) {
+                for (x in 0 until matrixWidth) {
+                    for (y in 0 until matrixHeight) {
+                        if (isInsideFinder(x, y)) continue
+                        if (isInsideCenter(x, y)) continue
+                        
+                        if (bitMatrix.get(x, y)) {
+                            drawCellPattern(x * boxSize, y * boxSize)
+                        }
                     }
                 }
             }
         }
 
-        if (hasLogo && qrFusionMode == "Centered Badge") {
+        // Draw Centered Emblem / Logo inside safe badge
+        if (hasLogo) {
             val emblemColor = if (selectedEmblemPalette.name == "Match Theme") primaryQrColor else Color(android.graphics.Color.parseColor(selectedEmblemPalette.startColor))
-            val badgeSize = (sizeDp * logoScale).dp
+            val badgeFraction = (centerModuleCount.toFloat() / matrixWidth.toFloat()).coerceIn(0.18f, 0.24f)
+            val badgeSize = (sizeDp * badgeFraction).dp
             CenterEmblemLayout(
                 logo = selectedLogo,
                 emblemColor = emblemColor,
@@ -3793,7 +3461,207 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // --- 1. INSTANT LOGO UPLOAD & AI FUSION CARD AT THE BEGINNING ---
+            // --- 1. PRIMARY CONTENT & LINK INPUT (LIVE REAL-TIME PREVIEW) ---
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("qr_primary_content_input_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                ),
+                border = BorderStroke(
+                    width = 1.5.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = "QR Content",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "🔗 Enter Link / Content",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Type or paste any URL, text, or data. Updates live!",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(1.dp, Color(0xFF2E7D32))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00E676))
+                                )
+                                Text(
+                                    text = "100% Scannable",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    color = Color(0xFF1B5E20)
+                                )
+                            }
+                        }
+                    }
+
+                    // Quick Helper Chips for URL / Link type
+                    if (selectedType in listOf("URL", "Custom URL", "Web Link", "Shaped", "Social Media")) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("https://", "https://www.", "http://").forEach { prefix ->
+                                AssistChip(
+                                    onClick = {
+                                        val cur = fieldValues["$selectedType-0"] ?: ""
+                                        if (!cur.startsWith("http://") && !cur.startsWith("https://")) {
+                                            fieldValues["$selectedType-0"] = prefix + cur
+                                        }
+                                    },
+                                    label = { Text(prefix, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
+                                    modifier = Modifier.height(28.dp)
+                                )
+                            }
+
+                            AssistChip(
+                                onClick = {
+                                    try {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                        val clipData = clipboard?.primaryClip
+                                        if (clipData != null && clipData.itemCount > 0) {
+                                            val pasteText = clipData.getItemAt(0).text?.toString() ?: ""
+                                            if (pasteText.isNotBlank()) {
+                                                fieldValues["$selectedType-0"] = pasteText
+                                                Toast.makeText(context, "Pasted from clipboard!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        // Ignore
+                                    }
+                                },
+                                label = { Text("📋 Paste", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.height(28.dp)
+                            )
+
+                            AssistChip(
+                                onClick = {
+                                    fieldValues["$selectedType-0"] = ""
+                                },
+                                label = { Text("✕ Clear", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                    }
+
+                    // Dynamic Fields based on selectedType
+                    val currentFields = when (selectedType) {
+                        "Wi-Fi" -> listOf("Wi-Fi SSID Network Name", "Wi-Fi Password", "Encryption Type (WPA/WEP/nopass)")
+                        "vCard" -> listOf("Full Contact Name", "Phone Number", "Email Address")
+                        "WhatsApp", "SMS" -> listOf("Phone Number (with Country Code e.g. 92300)", "Pre-filled Message Body")
+                        "PayPal", "Venmo", "UPI" -> listOf("Username / Pay ID / UPI ID", "Amount ($/INR)", "Memo / Note")
+                        "Crypto Pay" -> listOf("Wallet Address", "Coin (ethereum/bitcoin/solana)", "Amount")
+                        "App Markets" -> listOf("App Package Name / ID", "Platform (Android / iOS)")
+                        "Calendar" -> listOf("Event Title", "Event Date & Location")
+                        "PCR" -> listOf("Report Reference ID", "Laboratory Name", "Status (Negative/Positive)")
+                        "List of Links" -> listOf("Collection Title", "Destination Link URL")
+                        else -> listOf("Destination URL / Web Link / Text Payload")
+                    }
+
+                    currentFields.forEachIndexed { idx, fieldName ->
+                        val valueKey = "$selectedType-$idx"
+                        val currentVal = fieldValues[valueKey] ?: ""
+                        OutlinedTextField(
+                            value = currentVal,
+                            onValueChange = { newValue ->
+                                fieldValues[valueKey] = newValue
+                            },
+                            label = { Text(fieldName, fontSize = 12.sp) },
+                            placeholder = {
+                                val defHint = when {
+                                    idx == 0 && (selectedType == "URL" || selectedType == "Web") -> "https://yourwebsite.com"
+                                    idx == 0 && selectedType == "Wi-Fi" -> "Campus-WiFi"
+                                    idx == 0 && selectedType == "WhatsApp" -> "923001234567"
+                                    else -> "Enter $fieldName..."
+                                }
+                                Text(defHint, fontSize = 11.sp, color = Color.Gray)
+                            },
+                            trailingIcon = {
+                                if (currentVal.isNotEmpty()) {
+                                    IconButton(onClick = { fieldValues[valueKey] = "" }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("qr_dynamic_top_input_$idx"),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = (idx != 1 || selectedType !in listOf("WhatsApp", "SMS"))
+                        )
+                    }
+
+                    // Live encoded payload preview banner
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Live Encoded Payload:",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = qrContentText,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // --- 2. INSTANT LOGO UPLOAD & AI FUSION CARD ---
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -4205,48 +4073,6 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                             }
                         }
                     }
-                }
-            }
-        }
-
-        ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(primaryQrColor))
-                    Text("Sub-Form Settings: $selectedType Content", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-
-                val fields = when (selectedType) {
-                    "Wi-Fi" -> listOf("SSID Network Name", "Password Keys", "Encryption Status (WPA/WEP)")
-                    "vCard" -> listOf("Full Contact Name", "Contact Mobile", "Email Address ID")
-                    "WhatsApp", "SMS" -> listOf("Mobile Phone (Country Code First)", "Preset Message Body")
-                    "PayPal", "Venmo", "UPI" -> listOf("Recipient ID", "Amount ($/INR)", "Memo Detail")
-                    "Crypto Pay" -> listOf("Wallet Pay Address", "Coin Name (BTC/ETH/SOL)", "Amount")
-                    "App Markets" -> listOf("App Package/Bundle ID", "Platform (Android/iOS)")
-                    "Calendar" -> listOf("Event Subject Title", "Event Date & Location")
-                    "PCR" -> listOf("Patient Barcode ID", "Lab Code Name", "Status")
-                    "List of Links" -> listOf("Main Link Hub Title", "Secondary Sub Link URL")
-                    else -> listOf("Primary Destination Payload Link / URL / Details")
-                }
-
-                fields.forEachIndexed { idx, fieldName ->
-                    val valueKey = "$selectedType-$idx"
-                    val currentVal = fieldValues[valueKey] ?: ""
-                    OutlinedTextField(
-                        value = currentVal,
-                        onValueChange = { fieldValues[valueKey] = it },
-                        label = { Text(fieldName) },
-                        modifier = Modifier.fillMaxWidth().testTag("qr_dynamic_input_$idx")
-                    )
                 }
             }
         }
@@ -5535,7 +5361,6 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                 val barcodeScanner = BarcodeScanning.getClient(
                     BarcodeScannerOptions.Builder()
                         .setBarcodeFormats(
-                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE,
                             com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
                         )
                         .build()
@@ -5550,7 +5375,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                 lastScannedType = when (barcode.valueType) {
                                     com.google.mlkit.vision.barcode.common.Barcode.TYPE_URL -> "Website Link"
                                     com.google.mlkit.vision.barcode.common.Barcode.TYPE_WIFI -> "Wi-Fi Config"
-                                    else -> "Gallery QR Code"
+                                    else -> "Scanned Code"
                                 }
                                 isScanResultActive = true
                                 isScanningActive = false
@@ -5576,7 +5401,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
     val gmsScannerClient = remember {
         try {
             val options = GmsBarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_ALL_FORMATS)
+                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
                 .enableAutoZoom()
                 .build()
             GmsBarcodeScanning.getClient(context, options)
@@ -5691,20 +5516,20 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                             cameraProviderFuture.addListener({
                                 val cameraProvider = cameraProviderFuture.get()
-                                val preview = Preview.Builder().build().also {
+                                val preview = Preview.Builder().setTargetResolution(android.util.Size(1280, 720)).build().also {
                                     it.setSurfaceProvider(previewView.surfaceProvider)
                                 }
                                 
                                 val barcodeScanner = BarcodeScanning.getClient(
                                     com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
                                         .setBarcodeFormats(
-                                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE,
                                             com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
                                         )
                                         .build()
                                 )
                                 
                                 val imageAnalysis = ImageAnalysis.Builder()
+                                    .setTargetResolution(android.util.Size(1280, 720))
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
                                     .also { analysis ->
@@ -5721,11 +5546,11 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                                                 lastScannedType = when (barcode.valueType) {
                                                                     com.google.mlkit.vision.barcode.common.Barcode.TYPE_URL -> "Website Link"
                                                                     com.google.mlkit.vision.barcode.common.Barcode.TYPE_WIFI -> "Wi-Fi Config"
-                                                                    else -> "QR Code Text"
+                                                                    else -> "Scanned Code"
                                                                 }
                                                                 isScanResultActive = true
                                                                 isScanningActive = false
-                                                                Toast.makeText(ctx, "QR Code Detected Successfully!", Toast.LENGTH_SHORT).show()
+                                                                Toast.makeText(ctx, "Barcode Detected Successfully!", Toast.LENGTH_SHORT).show()
                                                                 break
                                                             }
                                                         }

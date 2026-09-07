@@ -1,11 +1,14 @@
 package com.drtahir.studentkit.ui.screens
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.*
 import android.graphics.Color as AndroidColor
 import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import android.widget.Toast
 import kotlin.math.roundToInt
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -70,12 +73,14 @@ import androidx.core.content.FileProvider
 data class ColorFilterPreset(
     val name: String,
     val description: String,
+    val category: String = "Cinematic",
     val colorMatrix: FloatArray?
 )
 
 // Watermark Preset Text Styling model
 data class WatermarkStylePreset(
     val name: String,
+    val category: String = "Classic",
     val textColor: Int,
     val outlineColor: Int? = null,
     val shadowColor: Int? = null,
@@ -87,30 +92,49 @@ data class WatermarkStylePreset(
 )
 
 val watermarkPresetsList = listOf(
-    WatermarkStylePreset("Classic White", AndroidColor.WHITE, shadowColor = AndroidColor.BLACK, shadowRadius = 8f),
-    WatermarkStylePreset("Neon Cyber Glow", AndroidColor.parseColor("#00E5FF"), shadowColor = AndroidColor.parseColor("#00E5FF"), shadowRadius = 20f, defaultFontFamily = "Monospace"),
-    WatermarkStylePreset("Gold Luxury", AndroidColor.parseColor("#FFD700"), shadowColor = AndroidColor.parseColor("#B8860B"), shadowRadius = 12f, defaultFontFamily = "Serif"),
-    WatermarkStylePreset("Vintage Badge", AndroidColor.parseColor("#D2B48C"), outlineColor = AndroidColor.parseColor("#3E2723"), shadowColor = AndroidColor.BLACK, shadowRadius = 6f, defaultFontFamily = "Serif"),
-    WatermarkStylePreset("Outline Crimson", AndroidColor.TRANSPARENT, outlineColor = AndroidColor.parseColor("#FF1744")),
-    WatermarkStylePreset("Silver Metallic", AndroidColor.parseColor("#E0E0E0"), shadowColor = AndroidColor.parseColor("#212121"), shadowRadius = 10f),
-    WatermarkStylePreset("Sunset Coral", AndroidColor.parseColor("#FF7F50"), shadowColor = AndroidColor.parseColor("#D50000"), shadowRadius = 14f),
-    WatermarkStylePreset("Emerald Shield", AndroidColor.parseColor("#00E676"), shadowColor = AndroidColor.parseColor("#1B5E20"), shadowRadius = 12f),
-    WatermarkStylePreset("Dark Noir", AndroidColor.parseColor("#121212"), outlineColor = AndroidColor.WHITE, shadowColor = AndroidColor.WHITE, shadowRadius = 4f),
-    WatermarkStylePreset("Electric Purple", AndroidColor.parseColor("#E040FB"), shadowColor = AndroidColor.parseColor("#AA00FF"), shadowRadius = 18f, defaultFontFamily = "Monospace"),
-    WatermarkStylePreset("Calligraphy Rose", AndroidColor.parseColor("#FF80AB"), shadowColor = AndroidColor.parseColor("#C2185B"), shadowRadius = 8f, isItalic = true, defaultFontFamily = "Cursive"),
-    WatermarkStylePreset("Security Stamp", AndroidColor.parseColor("#B71C1C"), outlineColor = AndroidColor.parseColor("#D50000"), bgPillColor = AndroidColor.parseColor("#33000000"), defaultFontFamily = "Condensed"),
-    WatermarkStylePreset("Glassmorphic Pill", AndroidColor.WHITE, shadowColor = AndroidColor.BLACK, shadowRadius = 6f, bgPillColor = AndroidColor.parseColor("#77000000")),
-    WatermarkStylePreset("Solar Yellow", AndroidColor.parseColor("#FFEA00"), outlineColor = AndroidColor.BLACK, shadowColor = AndroidColor.BLACK, shadowRadius = 10f),
-    WatermarkStylePreset("Toxic Lime", AndroidColor.parseColor("#76FF03"), shadowColor = AndroidColor.parseColor("#1B5E20"), shadowRadius = 16f, defaultFontFamily = "Monospace"),
-    WatermarkStylePreset("Royal Azure", AndroidColor.parseColor("#2979FF"), shadowColor = AndroidColor.parseColor("#0D47A1"), shadowRadius = 12f, defaultFontFamily = "Serif"),
-    WatermarkStylePreset("Glitch Cyan", AndroidColor.parseColor("#00FFFF"), shadowColor = AndroidColor.parseColor("#FF00FF"), shadowRadius = 14f, defaultFontFamily = "Monospace"),
-    WatermarkStylePreset("Opal Lavender", AndroidColor.parseColor("#E1BEE7"), shadowColor = AndroidColor.parseColor("#4A148C"), shadowRadius = 10f, defaultFontFamily = "Serif"),
-    WatermarkStylePreset("Copper Bronze", AndroidColor.parseColor("#CD7F32"), shadowColor = AndroidColor.parseColor("#3E2723"), shadowRadius = 8f, defaultFontFamily = "Serif"),
-    WatermarkStylePreset("Minimal Slate", AndroidColor.parseColor("#94A3B8"), shadowColor = AndroidColor.BLACK, shadowRadius = 4f),
-    WatermarkStylePreset("Hot Pink Flame", AndroidColor.parseColor("#FF4081"), shadowColor = AndroidColor.parseColor("#880E4F"), shadowRadius = 15f, isItalic = true, defaultFontFamily = "Cursive"),
-    WatermarkStylePreset("Midnight Ice", AndroidColor.parseColor("#E0F7FA"), shadowColor = AndroidColor.parseColor("#006064"), shadowRadius = 12f),
-    WatermarkStylePreset("Casual Stamp", AndroidColor.parseColor("#FF6F00"), outlineColor = AndroidColor.BLACK, defaultFontFamily = "Casual"),
-    WatermarkStylePreset("Terminal Green", AndroidColor.parseColor("#00FF66"), shadowColor = AndroidColor.parseColor("#003300"), shadowRadius = 14f, defaultFontFamily = "Monospace")
+    // Classic & Essentials
+    WatermarkStylePreset("Classic White", "Classic", AndroidColor.WHITE, shadowColor = AndroidColor.BLACK, shadowRadius = 8f),
+    WatermarkStylePreset("Ghost Subtle", "Classic", AndroidColor.parseColor("#80FFFFFF"), shadowColor = AndroidColor.parseColor("#40000000"), shadowRadius = 4f),
+    WatermarkStylePreset("Minimal Slate", "Classic", AndroidColor.parseColor("#94A3B8"), shadowColor = AndroidColor.BLACK, shadowRadius = 4f),
+    WatermarkStylePreset("Clean DropShadow", "Classic", AndroidColor.WHITE, shadowColor = AndroidColor.parseColor("#DD000000"), shadowRadius = 16f, isBold = true),
+    WatermarkStylePreset("Dark Noir", "Classic", AndroidColor.parseColor("#121212"), outlineColor = AndroidColor.WHITE, shadowColor = AndroidColor.WHITE, shadowRadius = 4f),
+
+    // Security, Official & Stamps
+    WatermarkStylePreset("Security Red Stamp", "Official", AndroidColor.parseColor("#B71C1C"), outlineColor = AndroidColor.parseColor("#D50000"), bgPillColor = AndroidColor.parseColor("#33000000"), defaultFontFamily = "Condensed"),
+    WatermarkStylePreset("Official Navy Pill", "Official", AndroidColor.WHITE, bgPillColor = AndroidColor.parseColor("#CC0D47A1"), shadowColor = AndroidColor.BLACK, shadowRadius = 6f, defaultFontFamily = "Condensed"),
+    WatermarkStylePreset("Top Secret Crimson", "Official", AndroidColor.parseColor("#FF1744"), outlineColor = AndroidColor.BLACK, shadowColor = AndroidColor.BLACK, shadowRadius = 10f, defaultFontFamily = "Condensed"),
+    WatermarkStylePreset("Verified Emerald Shield", "Official", AndroidColor.parseColor("#00E676"), shadowColor = AndroidColor.parseColor("#1B5E20"), shadowRadius = 12f, bgPillColor = AndroidColor.parseColor("#33003300"), defaultFontFamily = "Sans-Serif"),
+    WatermarkStylePreset("Outline Crimson", "Official", AndroidColor.TRANSPARENT, outlineColor = AndroidColor.parseColor("#FF1744")),
+    WatermarkStylePreset("Hazard Caution", "Official", AndroidColor.parseColor("#FFD600"), outlineColor = AndroidColor.BLACK, bgPillColor = AndroidColor.parseColor("#DD1A1A1A"), defaultFontFamily = "Condensed"),
+    WatermarkStylePreset("Vintage Postal Stamp", "Official", AndroidColor.parseColor("#D2B48C"), outlineColor = AndroidColor.parseColor("#3E2723"), shadowColor = AndroidColor.BLACK, shadowRadius = 6f, defaultFontFamily = "Serif"),
+
+    // Neon & Cyber Creator
+    WatermarkStylePreset("Neon Cyber Cyan", "Neon Glow", AndroidColor.parseColor("#00E5FF"), shadowColor = AndroidColor.parseColor("#00E5FF"), shadowRadius = 20f, defaultFontFamily = "Monospace"),
+    WatermarkStylePreset("Electric Purple UV", "Neon Glow", AndroidColor.parseColor("#E040FB"), shadowColor = AndroidColor.parseColor("#AA00FF"), shadowRadius = 18f, defaultFontFamily = "Monospace"),
+    WatermarkStylePreset("Toxic Lime Glow", "Neon Glow", AndroidColor.parseColor("#76FF03"), shadowColor = AndroidColor.parseColor("#1B5E20"), shadowRadius = 16f, defaultFontFamily = "Monospace"),
+    WatermarkStylePreset("Glitch Dual Cyan-Magenta", "Neon Glow", AndroidColor.parseColor("#00FFFF"), shadowColor = AndroidColor.parseColor("#FF00FF"), shadowRadius = 14f, defaultFontFamily = "Monospace"),
+    WatermarkStylePreset("Hot Pink Flame", "Neon Glow", AndroidColor.parseColor("#FF4081"), shadowColor = AndroidColor.parseColor("#880E4F"), shadowRadius = 15f, isItalic = true, defaultFontFamily = "Cursive"),
+    WatermarkStylePreset("Terminal Green CRT", "Neon Glow", AndroidColor.parseColor("#00FF66"), shadowColor = AndroidColor.parseColor("#003300"), shadowRadius = 14f, defaultFontFamily = "Monospace"),
+
+    // Luxury & Metallic
+    WatermarkStylePreset("Gold 24K Luxury", "Luxury", AndroidColor.parseColor("#FFD700"), shadowColor = AndroidColor.parseColor("#B8860B"), shadowRadius = 12f, defaultFontFamily = "Serif"),
+    WatermarkStylePreset("Silver Metallic Platinum", "Luxury", AndroidColor.parseColor("#E0E0E0"), shadowColor = AndroidColor.parseColor("#212121"), shadowRadius = 10f),
+    WatermarkStylePreset("Rose Gold Luxe", "Luxury", AndroidColor.parseColor("#F48FB1"), shadowColor = AndroidColor.parseColor("#AD1457"), shadowRadius = 10f, isItalic = true, defaultFontFamily = "Serif"),
+    WatermarkStylePreset("Copper Bronze Antique", "Luxury", AndroidColor.parseColor("#CD7F32"), shadowColor = AndroidColor.parseColor("#3E2723"), shadowRadius = 8f, defaultFontFamily = "Serif"),
+    WatermarkStylePreset("Royal Azure Crest", "Luxury", AndroidColor.parseColor("#2979FF"), shadowColor = AndroidColor.parseColor("#0D47A1"), shadowRadius = 12f, defaultFontFamily = "Serif"),
+    WatermarkStylePreset("Diamond Ice Crystal", "Luxury", AndroidColor.parseColor("#E0F7FA"), shadowColor = AndroidColor.parseColor("#00B0FF"), shadowRadius = 14f),
+
+    // Glassmorphic & Modern Badges
+    WatermarkStylePreset("Glassmorphic Dark Pill", "Pill Badges", AndroidColor.WHITE, shadowColor = AndroidColor.BLACK, shadowRadius = 6f, bgPillColor = AndroidColor.parseColor("#88000000")),
+    WatermarkStylePreset("Glassmorphic Light Pill", "Pill Badges", AndroidColor.parseColor("#1E293B"), bgPillColor = AndroidColor.parseColor("#DDF8FAFC")),
+    WatermarkStylePreset("Frosted Coral Pill", "Pill Badges", AndroidColor.WHITE, bgPillColor = AndroidColor.parseColor("#CCFF5722")),
+    WatermarkStylePreset("Opal Lavender Pill", "Pill Badges", AndroidColor.WHITE, bgPillColor = AndroidColor.parseColor("#AA6A1B9A")),
+    WatermarkStylePreset("Midnight Indigo Pill", "Pill Badges", AndroidColor.parseColor("#80D8FF"), bgPillColor = AndroidColor.parseColor("#DD0A192F")),
+
+    // Artistic & Calligraphy
+    WatermarkStylePreset("Calligraphy Rose", "Artistic", AndroidColor.parseColor("#FF80AB"), shadowColor = AndroidColor.parseColor("#C2185B"), shadowRadius = 8f, isItalic = true, defaultFontFamily = "Cursive"),
+    WatermarkStylePreset("Retro Typewriter 1950", "Artistic", AndroidColor.parseColor("#ECEFF1"), outlineColor = AndroidColor.parseColor("#263238"), shadowColor = AndroidColor.BLACK, shadowRadius = 4f, defaultFontFamily = "Monospace"),
+    WatermarkStylePreset("Sunset Coral Glow", "Artistic", AndroidColor.parseColor("#FF7F50"), shadowColor = AndroidColor.parseColor("#D50000"), shadowRadius = 14f)
 )
 
 val fontFamiliesList = listOf(
@@ -139,6 +163,7 @@ fun getFontTypeface(family: String): Typeface {
     }
 }
 
+// 20 High-Definition Matrix Color Filters
 val sepiaMatrix = floatArrayOf(
     0.393f, 0.769f, 0.189f, 0f, 0f,
     0.349f, 0.686f, 0.168f, 0f, 0f,
@@ -147,60 +172,177 @@ val sepiaMatrix = floatArrayOf(
 )
 
 val monochromeMatrix = floatArrayOf(
-    0.33f, 0.33f, 0.33f, 0f, 0f,
-    0.33f, 0.33f, 0.33f, 0f, 0f,
-    0.33f, 0.33f, 0.33f, 0f, 0f,
+    0.40f, 0.45f, 0.15f, 0f, -20f,
+    0.40f, 0.45f, 0.15f, 0f, -20f,
+    0.40f, 0.45f, 0.15f, 0f, -20f,
     0f,    0f,    0f,    1f, 0f
+)
+
+val cinematicTealOrangeMatrix = floatArrayOf(
+    1.25f, 0f,    0f,    0f, 15f,
+    0f,    1.05f, 0f,    0f, 0f,
+    0f,    0.1f,  1.35f, 0f, -10f,
+    0f,    0f,    0f,    1f, 0f
+)
+
+val cyberpunkNeonMatrix = floatArrayOf(
+    1.3f, 0f,    0.2f,  0f, 20f,
+    0f,   0.8f,  0.4f,  0f, 0f,
+    0.3f, 0f,    1.5f,  0f, 25f,
+    0f,   0f,    0f,    1f, 0f
 )
 
 val emeraldMatrix = floatArrayOf(
-    0.5f,  0f,    0f,    0f, 0f,
-    0.1f,  1.4f,  0.1f,  0f, 0f,
-    0.1f,  0f,    0.5f,  0f, 0f,
+    0.7f,  0.1f,  0f,    0f, -10f,
+    0.1f,  1.45f, 0.1f,  0f, 15f,
+    0.05f, 0.1f,  0.8f,  0f, -5f,
     0f,    0f,    0f,    1f, 0f
 )
 
-val cyanMatrix = floatArrayOf(
-    0.8f,  0f,    0f,    0f, 0f,
-    0f,    1.1f,  0.2f,  0f, 0f,
-    0f,    0.2f,  1.4f,  0f, 0f,
+val cyanPolarMatrix = floatArrayOf(
+    0.85f, 0f,    0.1f,  0f, -10f,
+    0f,    1.1f,  0.1f,  0f, 5f,
+    0.1f,  0.2f,  1.45f, 0f, 25f,
     0f,    0f,    0f,    1f, 0f
 )
 
-val amberMatrix = floatArrayOf(
-    1.4f,  0f,    0f,    0f, 0f,
-    0.2f,  1.0f,  0f,    0f, 0f,
-    0f,    0f,    0.6f,  0f, 0f,
+val goldenHourMatrix = floatArrayOf(
+    1.35f, 0.1f,  0f,    0f, 20f,
+    0.1f,  1.15f, 0f,    0f, 10f,
+    0f,    0f,    0.75f, 0f, -15f,
     0f,    0f,    0f,    1f, 0f
+)
+
+val polaroid1985Matrix = floatArrayOf(
+    1.1f,  0.1f,  0.05f, 0f, 15f,
+    0.05f, 1.0f,  0.05f, 0f, 10f,
+    0.05f, 0.05f, 0.85f, 0f, 25f,
+    0f,    0f,    0f,    1f, 0f
+)
+
+val tokyoPastelMatrix = floatArrayOf(
+    1.15f, 0.05f, 0.1f,  0f, 25f,
+    0.05f, 1.1f,  0.05f, 0f, 20f,
+    0.1f,  0.05f, 1.2f,  0f, 30f,
+    0f,    0f,    0f,    1f, 0f
+)
+
+val sunsetCrimsonMatrix = floatArrayOf(
+    1.4f,  0.05f, 0.1f,  0f, 30f,
+    0.1f,  0.85f, 0.05f, 0f, -5f,
+    0.2f,  0.05f, 1.1f,  0f, 15f,
+    0f,    0f,    0f,    1f, 0f
+)
+
+val moodyGothicMatrix = floatArrayOf(
+    0.9f, 0.1f, 0.1f, 0f, 10f,
+    0.1f, 0.9f, 0.1f, 0f, 10f,
+    0.1f, 0.1f, 0.9f, 0f, 10f,
+    0f,   0f,   0f,   1f, 0f
+)
+
+val vividHdrPopMatrix = floatArrayOf(
+    1.35f, -0.15f, -0.15f, 0f, 5f,
+    -0.15f, 1.35f, -0.15f, 0f, 5f,
+    -0.15f, -0.15f, 1.35f, 0f, 5f,
+    0f,     0f,     0f,    1f, 0f
+)
+
+val lavenderOpalMatrix = floatArrayOf(
+    1.1f, 0f,    0.2f, 0f, 15f,
+    0f,   0.95f, 0.1f, 0f, 5f,
+    0.2f, 0.1f,  1.3f, 0f, 25f,
+    0f,   0f,    0f,   1f, 0f
+)
+
+val solarAmberMatrix = floatArrayOf(
+    1.45f, 0.1f,  0f,    0f, 25f,
+    0.2f,  1.1f,  0f,    0f, 15f,
+    0f,    0f,    0.5f,  0f, -20f,
+    0f,    0f,    0f,    1f, 0f
+)
+
+val crossProcessMatrix = floatArrayOf(
+    1.3f,  0.05f, -0.1f, 0f, 10f,
+    0f,    1.25f, 0.05f, 0f, 15f,
+    -0.1f, 0.05f, 1.4f,  0f, -15f,
+    0f,    0f,    0f,    1f, 0f
+)
+
+val documentScanMatrix = floatArrayOf(
+    1.8f, 1.8f, 1.8f, 0f, -280f,
+    1.8f, 1.8f, 1.8f, 0f, -280f,
+    1.8f, 1.8f, 1.8f, 0f, -280f,
+    0f,   0f,   0f,   1f, 0f
+)
+
+val warmCoffeeMatrix = floatArrayOf(
+    1.15f, 0.15f, 0.05f, 0f, 15f,
+    0.1f,  1.0f,  0.05f, 0f, 5f,
+    0.05f, 0.05f, 0.7f,  0f, -10f,
+    0f,    0f,    0f,    1f, 0f
+)
+
+val coolCinemaSlateMatrix = floatArrayOf(
+    0.9f,  0f,    0.1f, 0f, -5f,
+    0.05f, 0.95f, 0.1f, 0f, 0f,
+    0.1f,  0.15f, 1.25f, 0f, 15f,
+    0f,    0f,    0f,   1f, 0f
+)
+
+val infraredSurrealMatrix = floatArrayOf(
+    0.1f, 0.9f, 0.2f, 0f, 20f,
+    0.2f, 0.1f, 0.8f, 0f, 10f,
+    0.8f, 0.2f, 0.1f, 0f, 15f,
+    0f,   0f,   0f,   1f, 0f
 )
 
 val presets = listOf(
-    ColorFilterPreset("Original", "No filter applied", null),
-    ColorFilterPreset("Vintage Sepia", "Warm nostalgic glow", sepiaMatrix),
-    ColorFilterPreset("Noir Mono", "High-contrast monochrome", monochromeMatrix),
-    ColorFilterPreset("Emerald Jade", "Lush greenish tones", emeraldMatrix),
-    ColorFilterPreset("Cool Cyan", "Chilly polar matrix", cyanMatrix),
-    ColorFilterPreset("Warm Amber", "Sunny golden saturation", amberMatrix)
+    ColorFilterPreset("Original", "Natural untouched colors", "All", null),
+    ColorFilterPreset("Cinematic Teal & Orange", "Hollywood movie blockbuster grade", "Cinematic", cinematicTealOrangeMatrix),
+    ColorFilterPreset("Vintage 1970s Sepia", "Warm nostalgic golden film tones", "Vintage", sepiaMatrix),
+    ColorFilterPreset("Film Noir B&W", "High contrast dramatic monochrome", "B&W & Scan", monochromeMatrix),
+    ColorFilterPreset("Cyberpunk Neon", "Vivid electric purple and cyan boost", "Artistic", cyberpunkNeonMatrix),
+    ColorFilterPreset("Golden Hour", "Sunlit sunset radiance and warmth", "Cinematic", goldenHourMatrix),
+    ColorFilterPreset("Arctic Polar Frost", "Crisp cool glacial tones", "Cinematic", cyanPolarMatrix),
+    ColorFilterPreset("Retro Polaroid 1985", "Faded analog warm film look", "Vintage", polaroid1985Matrix),
+    ColorFilterPreset("Tokyo Pastel Dream", "Dreamy soft high-key palette", "Artistic", tokyoPastelMatrix),
+    ColorFilterPreset("Emerald Forest", "Lush organic greenery & foliage boost", "Artistic", emeraldMatrix),
+    ColorFilterPreset("Sunset Crimson", "Fiery twilight crimson and magenta", "Cinematic", sunsetCrimsonMatrix),
+    ColorFilterPreset("Moody Gothic Matte", "Muted shadows with rich contrast", "Cinematic", moodyGothicMatrix),
+    ColorFilterPreset("Vivid HDR Pop", "Maximum saturation dynamic range", "Artistic", vividHdrPopMatrix),
+    ColorFilterPreset("Lavender Opal", "Ethereal romantic purple hues", "Artistic", lavenderOpalMatrix),
+    ColorFilterPreset("Solar Amber Blaze", "Warm golden honey radiance", "Vintage", solarAmberMatrix),
+    ColorFilterPreset("Cross Process Film", "Punchy chemical analog cross-process", "Vintage", crossProcessMatrix),
+    ColorFilterPreset("Document Clean Scan", "High clarity sharp text scanner", "B&W & Scan", documentScanMatrix),
+    ColorFilterPreset("Warm Coffee", "Rustic cozy cafe brown undertones", "Vintage", warmCoffeeMatrix),
+    ColorFilterPreset("Cool Cinema Slate", "Moody architectural cold steel grade", "Cinematic", coolCinemaSlateMatrix),
+    ColorFilterPreset("Infrared Surreal", "Otherworldly inverted dreamscape", "Artistic", infraredSurrealMatrix)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var baseBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     // Mode tab
     var currentSubTab by remember { mutableStateOf("Filters") } // "Filters", "Watermark"
 
-    // Settings
+    // Filter Filter/Category
+    var selectedFilterCategory by remember { mutableStateOf("All") }
     var selectedPreset by remember { mutableStateOf(presets[0]) }
+
+    // Watermark Category & Presets
+    var selectedWatermarkCategory by remember { mutableStateOf("All") }
     var selectedStylePreset by remember { mutableStateOf(watermarkPresetsList[0]) }
     var selectedFontFamily by remember { mutableStateOf(fontFamiliesList[0]) }
     var watermarkText by remember { mutableStateOf("CONFIDENTIAL") }
-    var watermarkOpacity by remember { mutableStateOf(0.4f) }
-    var watermarkSize by remember { mutableStateOf(45f) }
-    var watermarkLayout by remember { mutableStateOf("Grid Tiled") } // "Single Center", "Grid Tiled"
+    var watermarkOpacity by remember { mutableStateOf(0.45f) }
+    var watermarkSize by remember { mutableStateOf(42f) }
+    var watermarkLayout by remember { mutableStateOf("Grid Tiled") } // "Grid Tiled", "Single Center", "Diagonal Ribbon", "Bottom Right Signature", "Top Header Bar"
     var watermarkRotation by remember { mutableStateOf(45f) }
 
     // Fullscreen Preview & Export Dialog states
@@ -208,6 +350,7 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
     var showExportDialog by remember { mutableStateOf(false) }
     var exportResolution by remember { mutableStateOf("Original Native") }
     var exportFormat by remember { mutableStateOf("PNG (Lossless)") }
+    var lastSavedFile by remember { mutableStateOf<File?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -253,6 +396,43 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
         )
     }
 
+    val filterCategories = listOf("All", "Cinematic", "Vintage", "B&W & Scan", "Artistic")
+    val filteredPresets = remember(selectedFilterCategory) {
+        if (selectedFilterCategory == "All") presets
+        else presets.filter { it.category == selectedFilterCategory || it.category == "All" }
+    }
+
+    val watermarkCategories = listOf("All", "Classic", "Official", "Neon Glow", "Luxury", "Pill Badges", "Artistic")
+    val filteredWatermarkPresets = remember(selectedWatermarkCategory) {
+        if (selectedWatermarkCategory == "All") watermarkPresetsList
+        else watermarkPresetsList.filter { it.category == selectedWatermarkCategory }
+    }
+
+    val quickTextSuggestions = listOf(
+        "CONFIDENTIAL",
+        "DO NOT COPY",
+        "OFFICIAL COPY",
+        "SAMPLE",
+        "STUDENTKIT PRO",
+        "TOP SECRET",
+        "APPROVED",
+        "VERIFIED",
+        "DRAFT",
+        "COPYRIGHT ©",
+        "PRIVATE",
+        "CERTIFIED"
+    )
+
+    val watermarkLayouts = listOf(
+        "Grid Tiled",
+        "Single Center",
+        "Diagonal Ribbon",
+        "Bottom Right Signature",
+        "Top Header Bar"
+    )
+
+    val quickRotations = listOf(0f, 30f, 45f, 90f, -45f)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -262,25 +442,40 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .padding(14.dp)
         ) {
-            Text(
-                text = "WATERMARK & FILTERS STUDIO",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 1.sp,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "WATERMARK & FILTERS STUDIO",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Gray,
+                    letterSpacing = 1.sp
+                )
+                if (baseBitmap != null) {
+                    Text(
+                        text = "${baseBitmap!!.width} × ${baseBitmap!!.height} px",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Image Workbench / Preview Panel
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1.2f)
+                    .weight(1.15f)
                     .clip(RoundedCornerShape(12.dp))
-                    .border(1.5.dp, Color.LightGray, RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1E293B)),
+                    .border(1.5.dp, Color.LightGray.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                    .background(Color(0xFF0F172A)),
                 contentAlignment = Alignment.Center
             ) {
                 val preview = previewBitmap
@@ -323,7 +518,7 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                         ) {
                             Icon(Icons.Default.OpenInFull, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Full Screen Preview", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("Full Screen Zoom", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
@@ -335,24 +530,25 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                             Icons.Default.AddPhotoAlternate,
                             contentDescription = "Add image",
                             tint = Color.LightGray.copy(alpha = 0.5f),
-                            modifier = Modifier.size(60.dp)
+                            modifier = Modifier.size(56.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Tap to load a photo from Gallery",
-                            color = Color.LightGray.copy(alpha = 0.6f),
-                            fontSize = 12.sp
+                            text = "Tap to load a photo from Phone Gallery",
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "JPG, PNG, or WEBP supported",
-                            color = Color.LightGray.copy(alpha = 0.4f),
+                            text = "PNG, JPG, or WEBP at full resolution",
+                            color = Color.LightGray.copy(alpha = 0.6f),
                             fontSize = 10.sp
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Sub Tab Selection
             TabRow(
@@ -367,7 +563,7 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.PhotoFilter, contentDescription = "Filters", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Color Filters", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Color Filters (${presets.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 )
@@ -378,45 +574,61 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.ColorLens, contentDescription = "Watermarks", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Text Presets & Styling", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Text Presets & Styling (${watermarkPresetsList.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Controls viewport
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .weight(1.05f)
             ) {
                 if (currentSubTab == "Filters") {
                     // FILTERS PANEL
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Text(
-                            text = "Select Cinematic Color Filter",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        // Filter Category Chips
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(filterCategories) { cat ->
+                                val isSelected = selectedFilterCategory == cat
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedFilterCategory = cat },
+                                    label = { Text(cat, fontSize = 10.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Filter Cards Row
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            items(presets) { preset ->
+                            items(filteredPresets) { preset ->
                                 val isSelected = selectedPreset == preset
                                 Card(
                                     modifier = Modifier
-                                        .size(110.dp, 80.dp)
+                                        .size(120.dp, 84.dp)
                                         .clickable { selectedPreset = preset },
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.White
                                     ),
                                     border = BorderStroke(
                                         width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f)
                                     )
                                 ) {
                                     Column(
@@ -430,37 +642,47 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                                             text = preset.name,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
-                                            textAlign = TextAlign.Center
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 2
                                         )
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = preset.description,
                                             fontSize = 8.sp,
                                             color = Color.Gray,
                                             textAlign = TextAlign.Center,
-                                            lineHeight = 10.sp
+                                            lineHeight = 10.sp,
+                                            maxLines = 2
                                         )
                                     }
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F5F9))
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = "Matrix Processing Info",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    color = Color.DarkGray
-                                )
-                                Text(
-                                    text = "Our matrix processor compiles channel colors directly inside native GPU registers, producing ultra-sharp output instantly.",
-                                    fontSize = 10.sp,
-                                    color = Color.Gray
-                                )
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Active Preset: ${selectedPreset.name}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = Color.DarkGray
+                                    )
+                                    Text(
+                                        text = selectedPreset.description,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray
+                                    )
+                                }
                             }
                         }
                     }
@@ -477,29 +699,67 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                             label = { Text("Watermark text label") },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            singleLine = true
+                            singleLine = true,
+                            trailingIcon = {
+                                if (watermarkText.isNotEmpty()) {
+                                    IconButton(onClick = { watermarkText = "" }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
                         )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                        // Text Styling Presets Selection (Dozens of Presets)
+                        // Quick Text Suggestions
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(quickTextSuggestions) { sugg ->
+                                AssistChip(
+                                    onClick = { watermarkText = sugg },
+                                    label = { Text(sugg, fontSize = 9.sp, fontWeight = FontWeight.SemiBold) },
+                                    modifier = Modifier.height(28.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Watermark Category Filter
                         Text(
-                            text = "Preset Text Styling (20+ Dozens)",
+                            text = "Preset Text Styling (${watermarkPresetsList.size} Styles)",
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = Color.DarkGray,
-                            modifier = Modifier.padding(bottom = 4.dp)
+                            color = Color.DarkGray
                         )
 
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            items(watermarkCategories) { cat ->
+                                val isSelected = selectedWatermarkCategory == cat
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedWatermarkCategory = cat },
+                                    label = { Text(cat, fontSize = 9.sp) },
+                                    modifier = Modifier.height(28.dp)
+                                )
+                            }
+                        }
+
+                        // Text Styling Presets Cards
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            items(watermarkPresetsList) { preset ->
+                            items(filteredWatermarkPresets) { preset ->
                                 val isSelected = selectedStylePreset == preset
                                 Card(
                                     modifier = Modifier
-                                        .width(130.dp)
+                                        .width(135.dp)
                                         .clickable {
                                             selectedStylePreset = preset
                                             if (preset.defaultFontFamily.isNotEmpty()) {
@@ -511,24 +771,24 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                                     ),
                                     border = BorderStroke(
                                         width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f)
                                     )
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(8.dp),
+                                        modifier = Modifier.padding(6.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(30.dp)
+                                                .height(28.dp)
                                                 .clip(RoundedCornerShape(4.dp))
                                                 .background(Color(0xFF1E293B)),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                text = "STYLE",
-                                                fontSize = 10.sp,
+                                                text = "PREVIEW",
+                                                fontSize = 9.sp,
                                                 fontWeight = if (preset.isBold) FontWeight.Bold else FontWeight.Normal,
                                                 color = Color(preset.textColor)
                                             )
@@ -536,7 +796,7 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = preset.name,
-                                            fontSize = 10.sp,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             textAlign = TextAlign.Center
@@ -546,32 +806,56 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Watermark Layout Choices
+                        Text(
+                            text = "Watermark Position & Layout",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = Color.DarkGray
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            items(watermarkLayouts) { mode ->
+                                val isSelected = watermarkLayout == mode
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { watermarkLayout = mode },
+                                    label = { Text(mode, fontSize = 9.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                    modifier = Modifier.height(28.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         // Font Selection
                         Text(
-                            text = "Font Typeface Selection",
+                            text = "Font Typeface",
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = Color.DarkGray,
-                            modifier = Modifier.padding(bottom = 4.dp)
+                            color = Color.DarkGray
                         )
 
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                         ) {
                             items(fontFamiliesList) { fontName ->
                                 val isSelected = selectedFontFamily == fontName
                                 FilterChip(
                                     selected = isSelected,
                                     onClick = { selectedFontFamily = fontName },
-                                    label = { Text(fontName, fontSize = 10.sp) }
+                                    label = { Text(fontName, fontSize = 9.sp) },
+                                    modifier = Modifier.height(28.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         // Opacity & Size Sliders
                         Row(modifier = Modifier.fillMaxWidth()) {
@@ -597,12 +881,12 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                                 Slider(
                                     value = watermarkSize,
                                     onValueChange = { watermarkSize = it },
-                                    valueRange = 20f..80f
+                                    valueRange = 15f..85f
                                 )
                             }
                         }
 
-                        // Rotation Angle Slider & Layout choices
+                        // Quick Rotation Chips & Angle Slider
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -617,25 +901,24 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                                 Slider(
                                     value = watermarkRotation,
                                     onValueChange = { watermarkRotation = it },
-                                    valueRange = 0f..90f
+                                    valueRange = -90f..90f
                                 )
                             }
 
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf("Single Center", "Grid Tiled").forEach { mode ->
-                                    val isSelected = watermarkLayout == mode
+                                quickRotations.forEach { r ->
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(if (isSelected) Color.DarkGray else Color.LightGray.copy(alpha = 0.3f))
-                                            .clickable { watermarkLayout = mode }
-                                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                                            .background(if (watermarkRotation == r) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.3f))
+                                            .clickable { watermarkRotation = r }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp)
                                     ) {
                                         Text(
-                                            text = mode,
-                                            fontSize = 10.sp,
+                                            text = "${r.toInt()}°",
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) Color.White else Color.Black
+                                            color = if (watermarkRotation == r) Color.White else Color.Black
                                         )
                                     }
                                 }
@@ -645,43 +928,79 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Main Action Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = { imagePickerLauncher.launch("image/*") },
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
                     border = BorderStroke(1.dp, Color.LightGray),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(0.9f)
                 ) {
-                    Icon(Icons.Default.CloudUpload, contentDescription = "Load")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Change Photo", fontSize = 11.sp)
+                    Icon(Icons.Default.CloudUpload, contentDescription = "Load", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Pick Photo", fontSize = 11.sp)
                 }
 
                 Button(
                     onClick = {
-                        if (previewBitmap == null) {
+                        val base = baseBitmap
+                        if (base == null) {
                             Toast.makeText(context, "Please load a photo first", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
-                        showExportDialog = true
+                        val rendered = applyEffectsToBitmap(
+                            base = base,
+                            preset = selectedPreset,
+                            text = if (currentSubTab == "Watermark") watermarkText else "",
+                            opacity = watermarkOpacity,
+                            size = watermarkSize,
+                            stylePreset = selectedStylePreset,
+                            fontFamily = selectedFontFamily,
+                            layout = watermarkLayout,
+                            rotation = watermarkRotation
+                        )
+                        val savedFile = saveBitmapToGalleryHelper(context, rendered, "JPEG", 100)
+                        lastSavedFile = savedFile
+                        if (savedFile != null) {
+                            Toast.makeText(context, "Saved to Gallery:\n${savedFile.name}", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Save failed", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1.3f)
+                    modifier = Modifier.weight(1.1f)
                 ) {
-                    Icon(Icons.Default.Download, contentDescription = "Export")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("High Quality Save", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.SaveAlt, contentDescription = "Save", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Save to Gallery", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val base = baseBitmap
+                        if (base == null) {
+                            Toast.makeText(context, "Please load a photo first", Toast.LENGTH_SHORT).show()
+                            return@OutlinedButton
+                        }
+                        showExportDialog = true
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.weight(0.9f)
+                ) {
+                    Icon(Icons.Default.Tune, contentDescription = "Export Options", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("HD Export", fontSize = 11.sp)
                 }
             }
         }
@@ -777,14 +1096,17 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
 
                     Button(
                         onClick = {
+                            val savedFile = saveBitmapToGalleryHelper(context, previewBitmap, "JPEG", 100)
+                            if (savedFile != null) {
+                                Toast.makeText(context, "Saved directly to Gallery:\n${savedFile.name}", Toast.LENGTH_LONG).show()
+                            }
                             isFullscreenPreviewOpen = false
-                            showExportDialog = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Save HD Image", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Save to Gallery", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -860,7 +1182,7 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Image will be rendered at native hardware graphics resolution and saved directly into phone memory (Pictures/StudioExports).",
+                            text = "Image is rendered at native hardware graphics resolution and saved directly into Phone Gallery (Pictures/StudentKit).",
                             fontSize = 10.sp,
                             color = Color.DarkGray,
                             modifier = Modifier.padding(8.dp)
@@ -915,7 +1237,7 @@ fun WatermarkStudioScreen(viewModel: StudentKitViewModel) {
                         if (savedFile != null) {
                             Toast.makeText(
                                 context,
-                                "Exported successfully to Phone Memory Gallery!\n${savedFile.name}",
+                                "Exported successfully to Phone Gallery!\n${savedFile.name}",
                                 Toast.LENGTH_LONG
                             ).show()
                         } else {
@@ -960,16 +1282,18 @@ fun applyEffectsToBitmap(
         base
     }
 
-    val out = scaledBase.copy(Bitmap.Config.ARGB_8888, true)
+    val out = Bitmap.createBitmap(scaledBase.width, scaledBase.height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(out)
 
     // 1. Apply Matrix Color Filter if present
-    preset.colorMatrix?.let { matrix ->
-        val paint = Paint().apply {
+    val basePaint = Paint().apply {
+        isAntiAlias = true
+        isFilterBitmap = true
+        preset.colorMatrix?.let { matrix ->
             colorFilter = ColorMatrixColorFilter(matrix)
         }
-        canvas.drawBitmap(out, 0f, 0f, paint)
     }
+    canvas.drawBitmap(scaledBase, 0f, 0f, basePaint)
 
     // 2. Draw Watermark if present
     if (text.isNotEmpty()) {
@@ -1045,22 +1369,65 @@ fun applyEffectsToBitmap(
             }
         }
 
-        canvas.save()
-        if (layout == "Single Center") {
-            canvas.rotate(rotation, (out.width / 2).toFloat(), (out.height / 2).toFloat())
-            drawTextWithEffects((out.width / 2).toFloat(), (out.height / 2).toFloat())
-        } else {
-            canvas.rotate(rotation, (out.width / 2).toFloat(), (out.height / 2).toFloat())
-            val stepX = (out.width / 2.5f).coerceAtLeast(150f)
-            val stepY = (out.height / 3.5f).coerceAtLeast(150f)
-
-            for (x in (-out.width)..(out.width * 2) step stepX.toInt()) {
-                for (y in (-out.height)..(out.height * 2) step stepY.toInt()) {
-                    drawTextWithEffects(x.toFloat(), y.toFloat())
+        when (layout) {
+            "Single Center" -> {
+                canvas.save()
+                canvas.rotate(rotation, (out.width / 2).toFloat(), (out.height / 2).toFloat())
+                drawTextWithEffects((out.width / 2).toFloat(), (out.height / 2).toFloat())
+                canvas.restore()
+            }
+            "Diagonal Ribbon" -> {
+                canvas.save()
+                val ribbonAngle = -35f
+                canvas.rotate(ribbonAngle, (out.width / 2).toFloat(), (out.height / 2).toFloat())
+                // Ribbon strip background
+                val ribbonPaint = Paint().apply {
+                    color = AndroidColor.parseColor("#99000000")
+                    alpha = (opacity * 180).toInt()
+                    style = Paint.Style.FILL
                 }
+                val ribbonHeight = scaledTextSize * 1.8f
+                canvas.drawRect(
+                    -out.width.toFloat(),
+                    (out.height / 2).toFloat() - ribbonHeight / 2f,
+                    out.width.toFloat() * 2f,
+                    (out.height / 2).toFloat() + ribbonHeight / 2f,
+                    ribbonPaint
+                )
+                drawTextWithEffects((out.width / 2).toFloat(), (out.height / 2).toFloat() + (bounds.height() / 3f))
+                canvas.restore()
+            }
+            "Bottom Right Signature" -> {
+                canvas.save()
+                val padX = 40f * (out.width / 800f)
+                val padY = 40f * (out.height / 800f)
+                val targetCx = out.width - bounds.width() / 2f - padX
+                val targetCy = out.height - padY
+                drawTextWithEffects(targetCx, targetCy)
+                canvas.restore()
+            }
+            "Top Header Bar" -> {
+                canvas.save()
+                val targetCx = out.width / 2f
+                val targetCy = bounds.height() + 30f * (out.height / 800f)
+                drawTextWithEffects(targetCx, targetCy)
+                canvas.restore()
+            }
+            else -> {
+                // "Grid Tiled"
+                canvas.save()
+                canvas.rotate(rotation, (out.width / 2).toFloat(), (out.height / 2).toFloat())
+                val stepX = (out.width / 2.5f).coerceAtLeast(150f)
+                val stepY = (out.height / 3.5f).coerceAtLeast(150f)
+
+                for (x in (-out.width)..(out.width * 2) step stepX.toInt()) {
+                    for (y in (-out.height)..(out.height * 2) step stepY.toInt()) {
+                        drawTextWithEffects(x.toFloat(), y.toFloat())
+                    }
+                }
+                canvas.restore()
             }
         }
-        canvas.restore()
     }
 
     return out
@@ -1072,35 +1439,90 @@ fun saveBitmapToGalleryHelper(
     formatName: String = "JPEG",
     quality: Int = 100
 ): File? {
-    val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-    val ext = when (formatName) {
-        "PNG" -> "png"
-        "WEBP" -> "webp"
+    val ext = when {
+        formatName.contains("PNG", ignoreCase = true) -> "png"
+        formatName.contains("WEBP", ignoreCase = true) -> "webp"
         else -> "jpg"
     }
-    val file = File(dir, "Studio_Export_${System.currentTimeMillis()}.$ext")
-    return try {
-        val stream = FileOutputStream(file)
-        val compressFormat = when (formatName) {
-            "PNG" -> Bitmap.CompressFormat.PNG
-            "WEBP" -> Bitmap.CompressFormat.WEBP
-            else -> Bitmap.CompressFormat.JPEG
-        }
-        bitmap.compress(compressFormat, quality, stream)
-        stream.flush()
-        stream.close()
+    val mimeType = when (ext) {
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        else -> "image/jpeg"
+    }
+    val fileName = "WatermarkStudio_${System.currentTimeMillis()}.$ext"
+    val compressFormat = when (ext) {
+        "png" -> Bitmap.CompressFormat.PNG
+        "webp" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.WEBP
+        else -> Bitmap.CompressFormat.JPEG
+    }
 
-        // Request MediaScanner to scan file so it shows in device Gallery
+    // 1. Insert into MediaStore for instant Gallery availability (Android 10+ and standard Scoped Storage)
+    try {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/StudentKit")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+
+        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        if (uri != null) {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                bitmap.compress(compressFormat, quality, stream)
+                stream.flush()
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                context.contentResolver.update(uri, contentValues, null, null)
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+
+    // 2. Also save to Public Pictures directory so a tangible File reference is returned and scanned
+    return try {
+        val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        val appFolder = File(picturesDir, "StudentKit")
+        if (!appFolder.exists()) appFolder.mkdirs()
+
+        val file = File(appFolder, fileName)
+        FileOutputStream(file).use { stream ->
+            bitmap.compress(compressFormat, quality, stream)
+            stream.flush()
+        }
+
+        // Request MediaScanner to scan file so it shows in device Gallery immediately
         MediaScannerConnection.scanFile(
             context,
             arrayOf(file.absolutePath),
-            arrayOf(if (ext == "png") "image/png" else if (ext == "webp") "image/webp" else "image/jpeg"),
+            arrayOf(mimeType),
             null
         )
         file
     } catch (e: Exception) {
-        e.printStackTrace()
-        null
+        // Fallback to app external files dir if public dir throws permission error
+        try {
+            val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+            val fallbackFile = File(dir, fileName)
+            FileOutputStream(fallbackFile).use { stream ->
+                bitmap.compress(compressFormat, quality, stream)
+                stream.flush()
+            }
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(fallbackFile.absolutePath),
+                arrayOf(mimeType),
+                null
+            )
+            fallbackFile
+        } catch (e2: Exception) {
+            e2.printStackTrace()
+            null
+        }
     }
 }
 
@@ -2359,18 +2781,75 @@ fun createExportBitmap(
 }
 
 fun saveImageHelper(context: Context, bitmap: Bitmap, format: Bitmap.CompressFormat = Bitmap.CompressFormat.PNG): File? {
-    val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
     val ext = if (format == Bitmap.CompressFormat.PNG) "png" else "jpg"
-    val file = File(dir, "Eraser_Export_${System.currentTimeMillis()}.$ext")
-    return try {
-        val stream = FileOutputStream(file)
-        bitmap.compress(format, 100, stream)
-        stream.flush()
-        stream.close()
-        file
+    val mimeType = if (format == Bitmap.CompressFormat.PNG) "image/png" else "image/jpeg"
+    val fileName = "Eraser_Export_${System.currentTimeMillis()}.$ext"
+
+    // 1. Insert into MediaStore for instant Gallery availability
+    try {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/StudentKit")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+
+        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        if (uri != null) {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                bitmap.compress(format, 100, stream)
+                stream.flush()
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                context.contentResolver.update(uri, contentValues, null, null)
+            }
+        }
     } catch (e: Exception) {
         e.printStackTrace()
-        null
+    }
+
+    // 2. Also save to Public Pictures directory
+    return try {
+        val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        val appFolder = File(picturesDir, "StudentKit")
+        if (!appFolder.exists()) appFolder.mkdirs()
+
+        val file = File(appFolder, fileName)
+        FileOutputStream(file).use { stream ->
+            bitmap.compress(format, 100, stream)
+            stream.flush()
+        }
+
+        MediaScannerConnection.scanFile(
+            context,
+            arrayOf(file.absolutePath),
+            arrayOf(mimeType),
+            null
+        )
+        file
+    } catch (e: Exception) {
+        try {
+            val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+            val fallbackFile = File(dir, fileName)
+            FileOutputStream(fallbackFile).use { stream ->
+                bitmap.compress(format, 100, stream)
+                stream.flush()
+            }
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(fallbackFile.absolutePath),
+                arrayOf(mimeType),
+                null
+            )
+            fallbackFile
+        } catch (e2: Exception) {
+            e2.printStackTrace()
+            null
+        }
     }
 }
 

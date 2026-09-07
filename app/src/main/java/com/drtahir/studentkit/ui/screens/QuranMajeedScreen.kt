@@ -37,6 +37,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.Font
+import com.drtahir.studentkit.R
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -124,6 +127,22 @@ fun getQuranThemeColors(themeName: String): QuranThemeColors {
             borderColor = Color(0xFFCED4DA),
             decorationColor = Color(0xFF0F5132)
         )
+        "Gold" -> QuranThemeColors(
+            bgColor = Color(0xFFFFF8E1),
+            cardColor = Color(0xFFFFFDE7),
+            txtArabicColor = Color(0xFF4E342E),
+            txtUrduColor = Color(0xFF5D4037),
+            borderColor = Color(0xFFFFC107),
+            decorationColor = Color(0xFFFF9800)
+        )
+        "Multi" -> QuranThemeColors(
+            bgColor = Color(0xFFF3E5F5),
+            cardColor = Color(0xFFE8EAF6),
+            txtArabicColor = Color(0xFF4A148C),
+            txtUrduColor = Color(0xFF1A237E),
+            borderColor = Color(0xFFAD1457),
+            decorationColor = Color(0xFF00695C)
+        )
         else -> QuranThemeColors(
             bgColor = QuranBeigeBackground,
             cardColor = QuranBeigeCard,
@@ -181,6 +200,8 @@ fun QuranMajeedScreen(
     var selectedSurah by remember { mutableStateOf<SurahMetadata?>(null) }
     var selectedJuz by remember { mutableStateOf<JuzMetadata?>(null) }
     var readerModePage by remember { mutableStateOf<Int?>(null) } // if not null, reading page-by-page
+    var ayahJumpLoading by remember { mutableStateOf(false) }
+    var selectedTargetAyahKey by remember { mutableStateOf<String?>(null) }
     
     // Settings state persisted in SharedPreferences
     var arabicFontSize by remember { mutableStateOf(settingsManager.arabicFontSize) }
@@ -374,7 +395,13 @@ fun QuranMajeedScreen(
                 QuranPageReader(
                     viewModel = viewModel,
                     surah = selectedSurah!!,
-                    onBack = { selectedSurah = null },
+                    initialPageNum = readerModePage ?: 0,
+                    targetAyahKey = selectedTargetAyahKey,
+                    onBack = { 
+                        selectedSurah = null 
+                        readerModePage = null
+                        selectedTargetAyahKey = null
+                    },
                     arabicFontSize = arabicFontSize,
                     onArabicFontSizeChange = updateArabicFontSize,
                     urduFontSize = urduFontSize,
@@ -402,7 +429,11 @@ fun QuranMajeedScreen(
                     viewModel = viewModel,
                     surah = dummySurah,
                     initialPageNum = readerModePage!!,
-                    onBack = { readerModePage = null },
+                    targetAyahKey = selectedTargetAyahKey,
+                    onBack = { 
+                        readerModePage = null 
+                        selectedTargetAyahKey = null
+                    },
                     arabicFontSize = arabicFontSize,
                     onArabicFontSizeChange = updateArabicFontSize,
                     urduFontSize = urduFontSize,
@@ -450,6 +481,13 @@ fun QuranMajeedScreen(
 
                     when (activeTab) {
                         0 -> {
+                            // Ayah Jump Match
+                            val ayahJumpMatch = remember(searchQuery) {
+                                val regex1 = Regex("^(\\d+)\\s*:\\s*(\\d+)$")
+                                val regex2 = Regex("^(?:surah|sura)\\s+(\\d+)\\s+(?:ayah|ayat|verse)\\s+(\\d+)$", RegexOption.IGNORE_CASE)
+                                regex1.find(searchQuery.trim()) ?: regex2.find(searchQuery.trim())
+                            }
+
                             // Surah List
                             val filteredSurahs = remember(searchQuery) {
                                 if (searchQuery.isEmpty()) surahs
@@ -467,6 +505,81 @@ fun QuranMajeedScreen(
                                     .padding(horizontal = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
+                                if (ayahJumpMatch != null) {
+                                    val sNum = ayahJumpMatch.groupValues[1].toIntOrNull() ?: 1
+                                    val aNum = ayahJumpMatch.groupValues[2].toIntOrNull() ?: 1
+                                    val targetSurah = surahs.find { it.number == sNum }
+                                    
+                                    if (targetSurah != null && aNum > 0 && aNum <= targetSurah.numberOfAyahs) {
+                                        item {
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        if (ayahJumpLoading) return@clickable
+                                                        ayahJumpLoading = true
+                                                        coroutineScope.launch(Dispatchers.IO) {
+                                                            try {
+                                                                val url = java.net.URL("https://api.alquran.cloud/v1/ayah/$sNum:$aNum")
+                                                                val conn = url.openConnection() as java.net.HttpURLConnection
+                                                                conn.requestMethod = "GET"
+                                                                conn.connectTimeout = 5000
+                                                                conn.readTimeout = 5000
+                                                                
+                                                                if (conn.responseCode == 200) {
+                                                                    val reader = java.io.BufferedReader(java.io.InputStreamReader(conn.inputStream))
+                                                                    val sb = StringBuilder()
+                                                                    var line: String?
+                                                                    while (reader.readLine().also { line = it } != null) {
+                                                                        sb.append(line)
+                                                                    }
+                                                                    reader.close()
+                                                                    val obj = org.json.JSONObject(sb.toString())
+                                                                    val data = obj.getJSONObject("data")
+                                                                    val pageNum = data.getInt("page")
+                                                                    
+                                                                    withContext(Dispatchers.Main) {
+                                                                        ayahJumpLoading = false
+                                                                        selectedTargetAyahKey = "$sNum:$aNum"
+                                                                        readerModePage = pageNum
+                                                                        selectedSurah = targetSurah
+                                                                    }
+                                                                } else {
+                                                                    withContext(Dispatchers.Main) {
+                                                                        ayahJumpLoading = false
+                                                                        Toast.makeText(context, "Could not find Ayah", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                }
+                                                            } catch (e: Exception) {
+                                                                withContext(Dispatchers.Main) {
+                                                                    ayahJumpLoading = false
+                                                                    Toast.makeText(context, "Network error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                colors = CardDefaults.cardColors(containerColor = indexThemeColors.decorationColor.copy(alpha = 0.1f)),
+                                                border = BorderStroke(1.dp, indexThemeColors.decorationColor)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Column {
+                                                        Text("Jump to ${targetSurah.englishName}, Ayah $aNum", fontWeight = FontWeight.Bold, color = indexThemeColors.decorationColor)
+                                                        Text("Direct navigation", fontSize = 12.sp, color = indexThemeColors.txtUrduColor)
+                                                    }
+                                                    if (ayahJumpLoading) {
+                                                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = indexThemeColors.decorationColor, strokeWidth = 2.dp)
+                                                    } else {
+                                                        Icon(Icons.Filled.ArrowForward, contentDescription = "Go", tint = indexThemeColors.decorationColor)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 items(filteredSurahs) { surah ->
                                     SurahRowItem(
                                         surah = surah,
@@ -892,7 +1005,7 @@ fun QuranDisplaySettingsDialog(
                     Text("Reader Theme Palette", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = themeColors.decorationColor)
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("Beige", "Green", "White", "Dark").forEach { th ->
+                        listOf("Beige", "Green", "White", "Dark", "Gold", "Multi").forEach { th ->
                             val isSelected = readerTheme == th
                             val boxColors = getQuranThemeColors(th)
                             Box(
@@ -1081,7 +1194,97 @@ fun QariSelectionDialog(
     )
 }
 
+fun stripBismillahPrefix(text: String): String {
+    val bismillahPatterns = listOf(
+        "بِسۡمِ ٱللَّهِ ٱلرَّحۡمَـٰنِ ٱلرَّحِیمِ",
+        "بِسۡمِ ٱللَّهِ ٱلرَّحۡمَـٰنِ ٱلرَّحِيمِ",
+        "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+        "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ",
+        "بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ",
+        "بِسْمِ اللهِ الرَّحْمَنِ الرَّحِيمِ",
+        "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+        "بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ",
+        "بِسۡمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ"
+    )
+    var result = text.trim()
+    for (pat in bismillahPatterns) {
+        if (result.startsWith(pat)) {
+            result = result.removePrefix(pat).trim()
+            break
+        }
+    }
+    val regex = Regex("^[\\s\\u064B-\\u065F\\u0670]*بِ?سۡ?مِ?\\s+[ٱا]?ل[ـَّٰ]*ل[ـَّٰ]*هِ?\\s+[ٱا]?ل[ـَّٰ]*ر[ـَّٰ]*ح[ـَّٰ]*م[ـَّٰ]*[ـٰنِ]*\\s+[ٱا]?ل[ـَّٰ]*ر[ـَّٰ]*ح[ـَّٰ]*[یي][ـَّٰ]*مِ?[\\s\\u064B-\\u065F\\u0670]*")
+    result = regex.replace(result, "").trim()
+    return if (result.isEmpty()) text else result
+}
+
+fun stripUrduBismillahPrefix(text: String): String {
+    val urduPrefixes = listOf(
+        "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے",
+        "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے۔",
+        "اللہ کے نام سے جو رحمان و رحیم ہے",
+        "اللہ کے نام سے جو رحمان و رحیم ہے۔",
+        "شروع اللہ کے نام سے جو سب پر مہربان، بہت رحم والا ہے",
+        "شروع اللہ کے نام سے جو سب پر مہربان، بہت رحم والا ہے۔"
+    )
+    var result = text.trim()
+    for (pat in urduPrefixes) {
+        if (result.startsWith(pat)) {
+            result = result.removePrefix(pat).trim()
+            break
+        }
+    }
+    return if (result.isEmpty()) text else result
+}
+
 suspend fun downloadQuranSurah(surahNum: Int): List<CachedQuranVerse> {
+    if (surahNum == 1) {
+        return listOf(
+            CachedQuranVerse(
+                id = "1_1", surahNumber = 1, verseNumber = 1, juz = 1, page = 1,
+                textArabic = "اَلْحَمْدُ لِلّٰهِ رَبِّ الْعٰلَمِیْنَۙ",
+                textUrdu = "سب تعریفیں اللہ ہی کے لیے ہیں جو تمام جہانوں کا پالنے والا ہے۔",
+                textEnglish = "[All] praise is [due] to Allah, Lord of the worlds -"
+            ),
+            CachedQuranVerse(
+                id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
+                textArabic = "الرَّحْمٰنِ الرَّحِیْمِۙ",
+                textUrdu = "بڑا مہربان نہایت رحم والا ہے۔",
+                textEnglish = "The Entirely Merciful, the Especially Merciful,"
+            ),
+            CachedQuranVerse(
+                id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
+                textArabic = "مٰلِكِ یَوْمِ الدِّیْنِؕ",
+                textUrdu = "روزِ جزا کا مالک ہے۔",
+                textEnglish = "Sovereign of the Day of Recompense."
+            ),
+            CachedQuranVerse(
+                id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
+                textArabic = "اِیَّاكَ نَعْبُدُ وَاِیَّاكَ نَسْتَعِیْنُؕ",
+                textUrdu = "ہم تیری ہی عبادت کرتے ہیں اور تجھ ہی سے مدد مانگتے ہیں۔",
+                textEnglish = "It is You we worship and You we ask for help."
+            ),
+            CachedQuranVerse(
+                id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
+                textArabic = "اِهْدِنَا الصِّرَاطَ الْمُسْتَقِیْمَۙ",
+                textUrdu = "ہمیں سیدھے راستے پر چلا۔",
+                textEnglish = "Guide us to the straight path -"
+            ),
+            CachedQuranVerse(
+                id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
+                textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ",
+                textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا،",
+                textEnglish = "The path of those upon whom You have bestowed favor,"
+            ),
+            CachedQuranVerse(
+                id = "1_7", surahNumber = 1, verseNumber = 7, juz = 1, page = 1,
+                textArabic = "غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
+                textUrdu = "نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
+                textEnglish = "Not of those who have evoked [Your] anger or of those who are astray."
+            )
+        )
+    }
+
     val versesList = mutableListOf<CachedQuranVerse>()
     try {
         // Fetch Arabic Indo-Pak Pakistani Script + Urdu Jalandhry Translation
@@ -1119,11 +1322,14 @@ suspend fun downloadQuranSurah(surahNum: Int): List<CachedQuranVerse> {
                     
                     val verseNum = aAr.getInt("numberInSurah")
                     val key = "${surahNum}_${verseNum}"
-                    val textArabic = aAr.getString("text")
-                    val textUrdu = aUr?.optString("text") ?: "اردو ترجمہ دستیاب نہیں ہے۔"
+                    val rawArabic = aAr.getString("text")
+                    val rawUrdu = aUr?.optString("text") ?: "اردو ترجمہ دستیاب نہیں ہے۔"
                     val textEnglish = aEn?.optString("text") ?: "English translation."
                     val juz = aAr.optInt("juz", 1)
                     val page = aAr.optInt("page", 1)
+                    
+                    val textArabic = if (verseNum == 1 && surahNum != 9) stripBismillahPrefix(rawArabic) else rawArabic
+                    val textUrdu = if (verseNum == 1 && surahNum != 9) stripUrduBismillahPrefix(rawUrdu) else rawUrdu
                     
                     versesList.add(
                         CachedQuranVerse(
@@ -1168,6 +1374,7 @@ fun QuranPageReader(
     viewModel: StudentKitViewModel,
     surah: SurahMetadata,
     initialPageNum: Int = 0,
+    targetAyahKey: String? = null,
     onBack: () -> Unit,
     arabicFontSize: Float,
     onArabicFontSizeChange: (Float) -> Unit,
@@ -1204,6 +1411,21 @@ fun QuranPageReader(
     var activeVerseId by remember { mutableStateOf<String?>(null) }
     var autoPlayNextPage by remember { mutableStateOf(false) }
     val lazyListState = rememberLazyListState()
+    
+    var hasScrolledToTarget by remember(targetAyahKey) { mutableStateOf(false) }
+
+    LaunchedEffect(versesForPage, targetAyahKey) {
+        if (targetAyahKey != null && !hasScrolledToTarget && versesForPage.isNotEmpty()) {
+            val index = versesForPage.indexOfFirst { "${it.surahNumber}:${it.verseNumber}" == targetAyahKey }
+            if (index != -1) {
+                // Short delay to ensure layout is ready
+                kotlinx.coroutines.delay(200)
+                lazyListState.animateScrollToItem(index)
+                activeVerseId = targetAyahKey // Highlight it
+                hasScrolledToTarget = true
+            }
+        }
+    }
 
     // Audio Playback State
     var activeRecitationUrl by remember { mutableStateOf<String?>(null) }
@@ -1556,11 +1778,14 @@ fun QuranPageReader(
                     }
                 }
         ) {
-            // Maximized full-length viewport with high-resolution vector scaling & elegant framing
+            // Maximized full-length viewport with high-resolution scaling & clean framing
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(2.dp)
+                    .padding(4.dp)
+                    .background(themeColors.bgColor)
+                    .border(1.dp, borderColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                    .padding(6.dp)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
@@ -1568,29 +1793,17 @@ fun QuranPageReader(
                         translationY = offsetY
                     }
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width
-                    val h = size.height
-                    drawRoundRect(
-                        color = borderColor.copy(alpha = 0.8f),
-                        topLeft = Offset(2.dp.toPx(), 2.dp.toPx()),
-                        size = Size(w - 4.dp.toPx(), h - 4.dp.toPx()),
-                        cornerRadius = CornerRadius(8.dp.toPx()),
-                        style = Stroke(width = 1.2.dp.toPx())
-                    )
-                }
-                
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // Page / Surah Header Banner
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 4.dp),
+                            .padding(bottom = 4.dp, start = 4.dp, end = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1624,7 +1837,7 @@ fun QuranPageReader(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
-                            .background(borderColor.copy(alpha = 0.4f))
+                            .background(borderColor.copy(alpha = 0.3f))
                     )
                     
                     if (isLoading) {
@@ -1688,10 +1901,128 @@ fun QuranPageReader(
                         ) {
                             items(versesForPage) { verse ->
                                 val isActive = activeVerseId == verse.id
+
+                                // Surah Header and Standalone Bismillah for Verse 1
+                                if (verse.verseNumber == 1) {
+                                    val surahMeta = getSurahList().find { it.number == verse.surahNumber } ?: surah
+
+                                    // Clean Native Surah Header Banner
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 2.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = decorationColor.copy(alpha = 0.08f)
+                                        ),
+                                        border = BorderStroke(1.dp, decorationColor.copy(alpha = 0.35f))
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(decorationColor.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (surahMeta.revelationType.equals("Meccan", ignoreCase = true)) "مَكِّيَّة" else "مَدَنِيَّة",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = decorationColor
+                                                    )
+                                                }
+
+                                                Text(
+                                                    text = "سُورَةُ ${surahMeta.arabicName}",
+                                                    fontSize = 20.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = decorationColor,
+                                                    fontFamily = getFontFamily(quranFontFamily)
+                                                )
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(decorationColor.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "آياتها ${formatArabicNumber(surahMeta.numberOfAyahs)}",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = decorationColor
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${surahMeta.englishName} • ${surahMeta.englishNameTranslation} • ${surahMeta.numberOfAyahs} Verses",
+                                                fontSize = 11.sp,
+                                                color = txtUrduColor.copy(alpha = 0.75f)
+                                            )
+                                        }
+                                    }
+
+                                    // Standalone Bismillah Header (Not counted as an Ayah, except Surah 9 At-Tawbah)
+                                    if (verse.surahNumber != 9) {
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = themeColors.cardColor.copy(alpha = 0.75f)
+                                            ),
+                                            border = BorderStroke(1.dp, borderColor.copy(alpha = 0.3f))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 8.dp, horizontal = 12.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(
+                                                    text = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ",
+                                                    fontSize = (arabicFontSize * 0.95f).sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = decorationColor,
+                                                    textAlign = TextAlign.Center,
+                                                    lineHeight = (arabicFontSize + 8).sp,
+                                                    fontFamily = getFontFamily(quranFontFamily),
+                                                    style = LocalTextStyle.current.copy(textDirection = TextDirection.ContentOrRtl)
+                                                )
+                                                if (isUrduEnabled) {
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے",
+                                                        fontSize = (urduFontSize * 0.85f).sp,
+                                                        color = txtUrduColor.copy(alpha = 0.85f),
+                                                        textAlign = TextAlign.Center,
+                                                        fontFamily = getFontFamily(quranFontFamily)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Clean up Bismillah from Verse 1 text so Bismillah is never counted as an Ayah
+                                val cleanArabicText = if (verse.verseNumber == 1 && verse.surahNumber != 9) stripBismillahPrefix(verse.textArabic) else verse.textArabic
+                                val cleanUrduText = if (verse.verseNumber == 1 && verse.surahNumber != 9) stripUrduBismillahPrefix(verse.textUrdu) else verse.textUrdu
+
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 3.dp, horizontal = 2.dp)
+                                        .padding(vertical = 2.dp, horizontal = 2.dp)
                                         .clickable { playVerse(verse) },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = CardDefaults.cardColors(
@@ -1748,7 +2079,7 @@ fun QuranPageReader(
 
                                         // Arabic Calligraphy Text
                                         Text(
-                                            text = verse.textArabic,
+                                            text = cleanArabicText,
                                             fontSize = arabicFontSize.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = txtArabicColor,
@@ -1766,7 +2097,7 @@ fun QuranPageReader(
                                         // Urdu Translation
                                         if (isUrduEnabled) {
                                             Text(
-                                                text = verse.textUrdu,
+                                                text = cleanUrduText,
                                                 fontSize = urduFontSize.sp,
                                                 color = txtUrduColor,
                                                 textAlign = TextAlign.Center,
@@ -2057,7 +2388,7 @@ fun QuranSettingsView(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("Beige", "Green", "White", "Dark").forEach { th ->
+                listOf("Beige", "Green", "White", "Dark", "Gold", "Multi").forEach { th ->
                     val isSelected = readerTheme == th
                     val boxColors = getQuranThemeColors(th)
                     Box(
@@ -2770,6 +3101,53 @@ fun AnimatedQuranDownloadCard(
 // --- DYNAMIC AL QURAN API CRAWLER ---
 
 suspend fun downloadQuranPage(pageNum: Int): List<CachedQuranVerse> {
+    if (pageNum == 1) {
+        return listOf(
+            CachedQuranVerse(
+                id = "1_1", surahNumber = 1, verseNumber = 1, juz = 1, page = 1,
+                textArabic = "اَلْحَمْدُ لِلّٰهِ رَبِّ الْعٰلَمِیْنَۙ",
+                textUrdu = "سب تعریفیں اللہ ہی کے لیے ہیں جو تمام جہانوں کا پالنے والا ہے۔",
+                textEnglish = "[All] praise is [due] to Allah, Lord of the worlds -"
+            ),
+            CachedQuranVerse(
+                id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
+                textArabic = "الرَّحْمٰنِ الرَّحِیْمِۙ",
+                textUrdu = "بڑا مہربان نہایت رحم والا ہے۔",
+                textEnglish = "The Entirely Merciful, the Especially Merciful,"
+            ),
+            CachedQuranVerse(
+                id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
+                textArabic = "مٰلِكِ یَوْمِ الدِّیْنِؕ",
+                textUrdu = "روزِ جزا کا مالک ہے۔",
+                textEnglish = "Sovereign of the Day of Recompense."
+            ),
+            CachedQuranVerse(
+                id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
+                textArabic = "اِیَّاكَ نَعْبُدُ وَاِیَّاكَ نَسْتَعِیْنُؕ",
+                textUrdu = "ہم تیری ہی عبادت کرتے ہیں اور تجھ ہی سے مدد مانگتے ہیں۔",
+                textEnglish = "It is You we worship and You we ask for help."
+            ),
+            CachedQuranVerse(
+                id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
+                textArabic = "اِهْدِنَا الصِّرَاطَ الْمُسْتَقِیْمَۙ",
+                textUrdu = "ہمیں سیدھے راستے پر چلا۔",
+                textEnglish = "Guide us to the straight path -"
+            ),
+            CachedQuranVerse(
+                id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
+                textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ",
+                textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا،",
+                textEnglish = "The path of those upon whom You have bestowed favor,"
+            ),
+            CachedQuranVerse(
+                id = "1_7", surahNumber = 1, verseNumber = 7, juz = 1, page = 1,
+                textArabic = "غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
+                textUrdu = "نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
+                textEnglish = "Not of those who have evoked [Your] anger or of those who are astray."
+            )
+        )
+    }
+
     val versesList = mutableListOf<CachedQuranVerse>()
     try {
         // Fetch Arabic Indo-Pak Pakistani Script text
@@ -2860,9 +3238,12 @@ suspend fun downloadQuranPage(pageNum: Int): List<CachedQuranVerse> {
                 val ayahNum = ayah.getInt("numberInSurah")
                 val key = "${surahNum}_${ayahNum}"
                 
-                val textArabic = ayah.getString("text")
-                val textUrdu = urduMap[key] ?: "اردو ترجمہ دستیاب نہیں ہے۔"
+                val rawArabic = ayah.getString("text")
+                val rawUrdu = urduMap[key] ?: "اردو ترجمہ دستیاب نہیں ہے۔"
                 val textEnglish = "English translation cached offline."
+                
+                val textArabic = if (ayahNum == 1 && surahNum != 9) stripBismillahPrefix(rawArabic) else rawArabic
+                val textUrdu = if (ayahNum == 1 && surahNum != 9) stripUrduBismillahPrefix(rawUrdu) else rawUrdu
                 
                 versesList.add(
                     CachedQuranVerse(
@@ -2889,45 +3270,45 @@ fun savePreloadedSurahs(viewModel: StudentKitViewModel) {
     val verses = listOf(
         CachedQuranVerse(
             id = "1_1", surahNumber = 1, verseNumber = 1, juz = 1, page = 1,
-            textArabic = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ",
-            textUrdu = "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے۔",
-            textEnglish = "In the name of Allah, the Entirely Merciful, the Especially Merciful."
-        ),
-        CachedQuranVerse(
-            id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
             textArabic = "اَلْحَمْدُ لِلّٰهِ رَبِّ الْعٰلَمِیْنَۙ",
             textUrdu = "سب تعریفیں اللہ ہی کے لیے ہیں جو تمام جہانوں کا پالنے والا ہے۔",
             textEnglish = "[All] praise is [due] to Allah, Lord of the worlds -"
         ),
         CachedQuranVerse(
-            id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
+            id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
             textArabic = "الرَّحْمٰنِ الرَّحِیْمِۙ",
             textUrdu = "بڑا مہربان نہایت رحم والا ہے۔",
             textEnglish = "The Entirely Merciful, the Especially Merciful,"
         ),
         CachedQuranVerse(
-            id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
+            id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
             textArabic = "مٰلِكِ یَوْمِ الدِّیْنِؕ",
             textUrdu = "روزِ جزا کا مالک ہے۔",
             textEnglish = "Sovereign of the Day of Recompense."
         ),
         CachedQuranVerse(
-            id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
+            id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
             textArabic = "اِیَّاكَ نَعْبُدُ وَاِیَّاكَ نَسْتَعِیْنُؕ",
             textUrdu = "ہم تیری ہی عبادت کرتے ہیں اور تجھ ہی سے مدد مانگتے ہیں۔",
             textEnglish = "It is You we worship and You we ask for help."
         ),
         CachedQuranVerse(
-            id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
+            id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
             textArabic = "اِهْدِنَا الصِّرَاطَ الْمُسْتَقِیْمَۙ",
             textUrdu = "ہمیں سیدھے راستے پر چلا۔",
             textEnglish = "Guide us to the straight path -"
         ),
         CachedQuranVerse(
+            id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
+            textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ",
+            textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا،",
+            textEnglish = "The path of those upon whom You have bestowed favor,"
+        ),
+        CachedQuranVerse(
             id = "1_7", surahNumber = 1, verseNumber = 7, juz = 1, page = 1,
-            textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
-            textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا، نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
-            textEnglish = "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray."
+            textArabic = "غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
+            textUrdu = "نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
+            textEnglish = "Not of those who have evoked [Your] anger or of those who are astray."
         ),
         // Surah Al-Ikhlas
         CachedQuranVerse(

@@ -87,68 +87,72 @@ fun NursingExamScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Top Banner Card
+        // Compact Top Banner
         Surface(
-            tonalElevation = 4.dp,
+            tonalElevation = 3.dp,
             color = getHeaderBannerColor(),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Surface(
                             shape = CircleShape,
                             color = Color.White.copy(alpha = 0.2f),
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.MedicalServices,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = "Nursing Exam & Clinical Kit",
-                                fontSize = 18.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
                             Text(
                                 text = "DHA, Saudi Prometric, NCLEX-RN, HAAD, MOH & PNC",
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.9f)
+                                fontSize = 10.sp,
+                                color = Color.White.copy(alpha = 0.9f),
+                                maxLines = 1
                             )
                         }
                     }
 
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = Color.White.copy(alpha = 0.2f)
+                        color = Color.White.copy(alpha = 0.25f)
                     ) {
                         Text(
-                            text = "12000+ Question Bank",
+                            text = "12000+ MCQs",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Exam Badges Row
                 val examBadges = listOf("DHA Dubai", "Saudi Prometric", "NCLEX-RN", "HAAD / DoH", "MOH Gulf", "PNC Pakistan")
@@ -158,16 +162,16 @@ fun NursingExamScreen(
                 ) {
                     items(examBadges.size) { index ->
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(6.dp),
                             color = Color.White.copy(alpha = 0.15f),
                             border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f))
                         ) {
                             Text(
                                 text = "✓ ${examBadges[index]}",
-                                fontSize = 10.sp,
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -234,6 +238,9 @@ fun NursingQuizBankView() {
 
     val prefs = remember { context.getSharedPreferences("nursing_quiz_progress_prefs_v2", android.content.Context.MODE_PRIVATE) }
 
+    // 0 = All MCQs List View, 1 = Single Question Exam Mode
+    var viewMode by remember { mutableStateOf(0) }
+
     var selectedSubjectFilter by remember {
         mutableStateOf(prefs.getString("last_selected_subject_filter", "All Subjects") ?: "All Subjects")
     }
@@ -295,7 +302,10 @@ fun NursingQuizBankView() {
     val filteredQuestions = remember(selectedSubjectFilter, searchQuery, allQuestions) {
         val filtered = allQuestions.filter { q ->
             val matchSubj = (selectedSubjectFilter == "All Subjects") || q.subject.equals(selectedSubjectFilter, ignoreCase = true)
-            val matchSearch = searchQuery.isEmpty() || q.question.contains(searchQuery, ignoreCase = true) || q.options.any { it.contains(searchQuery, ignoreCase = true) }
+            val matchSearch = searchQuery.isEmpty() ||
+                    q.question.contains(searchQuery, ignoreCase = true) ||
+                    q.explanation.contains(searchQuery, ignoreCase = true) ||
+                    q.options.any { it.contains(searchQuery, ignoreCase = true) }
             matchSubj && matchSearch
         }
         if (filtered.isEmpty() && selectedSubjectFilter != "All Subjects" && searchQuery.isEmpty()) {
@@ -345,558 +355,405 @@ fun NursingQuizBankView() {
     val incorrectCountInFilter = completedCountInFilter - correctCountInFilter
     val correctPercentInFilter = if (completedCountInFilter > 0) (correctCountInFilter.toFloat() / completedCountInFilter) * 100f else 0f
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        // Control Dashboard Banner
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isDark) Color(0xFF1B2826) else brandTeal.copy(alpha = 0.08f)
-                ),
-                border = BorderStroke(1.dp, brandTeal.copy(alpha = 0.25f))
+        // --- CONTROL BAR & VIEW SWITCHER ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isDark) Color(0xFF1B2826) else brandTeal.copy(alpha = 0.07f)
+            ),
+            border = BorderStroke(1.dp, brandTeal.copy(alpha = 0.2f))
+        ) {
+            Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Quiz, contentDescription = null, tint = brandTeal, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "12000+ Nursing Question Bank",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = brandTeal
-                            )
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isDark) Color(0xFF1E3A20) else Color(0xFF2E7D32).copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "${String.format(java.util.Locale.US, "%.1f", correctPercentInFilter)}% Correct",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { showSubjectAnalyticsDialog = true },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Default.Assessment, contentDescription = "Subject Analytics", tint = brandTeal)
-                            }
-                        }
-                    }
-
-                    // Progress Overview Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Filter: $selectedSubjectFilter",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Completed: $completedCountInFilter / $totalInFilter Qs (${String.format(java.util.Locale.US, "%.1f", completedPercentInFilter)}%)",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = brandTeal.copy(alpha = 0.15f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Bookmark, contentDescription = null, tint = brandTeal, modifier = Modifier.size(12.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Resumed Q#${currentQIndex + 1}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = brandTeal
-                                )
-                            }
-                        }
-                    }
-
-                    LinearProgressIndicator(
-                        progress = if (totalInFilter > 0) completedCountInFilter.toFloat() / totalInFilter else 0f,
-                        color = Color(0xFF10B981),
-                        trackColor = brandTeal.copy(alpha = 0.2f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(CircleShape)
-                    )
-
-                    // Mode Toggles: Instant Learn Mode vs Timed Board Exam
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilterChip(
-                                selected = instantLearnMode,
-                                onClick = {
-                                    instantLearnMode = true
-                                    timedMode = false
-                                    isTimerActive = false
-                                },
-                                label = { Text("Instant Learn", fontSize = 11.sp) },
-                                leadingIcon = {
-                                    Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(14.dp))
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = brandTeal,
-                                    selectedLabelColor = Color.White
-                                )
-                            )
-
-                            FilterChip(
-                                selected = timedMode,
-                                onClick = {
-                                    timedMode = true
-                                    instantLearnMode = false
-                                    isTimerActive = true
-                                    if (timerSeconds == 0) timerSeconds = 1800
-                                },
-                                label = { Text("Timed Exam", fontSize = 11.sp) },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(14.dp))
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = brandTeal,
-                                    selectedLabelColor = Color.White
-                                )
-                            )
-                        }
-
-                        if (timedMode) {
-                            val mins = timerSeconds / 60
-                            val secs = timerSeconds % 60
-                            Text(
-                                text = String.format(java.util.Locale.US, "%02d:%02d", mins, secs),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Subject Filter Chip Row
-        item {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(subjectsList.size) { index ->
-                    val subj = subjectsList[index]
-                    val isSel = selectedSubjectFilter == subj
-                    val count = if (subj == "All Subjects") allQuestions.size else (subjectCountsMap[subj] ?: 0)
-                    val answeredCountSubj = if (subj == "All Subjects") selectedAnswers.size else (answeredCountsMap[subj] ?: 0)
-
-                    FilterChip(
-                        selected = isSel,
-                        onClick = {
-                            selectedSubjectFilter = subj
-                        },
-                        label = {
-                            Text(
-                                text = "$subj ($answeredCountSubj/$count)",
-                                fontSize = 11.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = brandTeal,
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-            }
-        }
-
-        // Search Keyword Field & Directory Grid Button
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search question keywords...", fontSize = 12.sp) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Button(
-                    onClick = { showGridDialog = true },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = brandTeal, contentColor = Color.White),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
-                ) {
-                    Icon(Icons.Default.GridView, contentDescription = "Question Directory Grid", modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Grid", fontSize = 12.sp)
-                }
-            }
-        }
-
-        // Progress & Quick Number Jump
-        item {
-            if (filteredQuestions.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Subject: ${activeQ?.subject ?: ""}",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = brandTeal
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Q ${currentQIndex + 1} of ${filteredQuestions.size}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            OutlinedTextField(
-                                value = jumpInputText,
-                                onValueChange = { input ->
-                                    if (input.all { it.isDigit() }) {
-                                        jumpInputText = input
-                                        val num = input.toIntOrNull()
-                                        if (num != null && num in 1..filteredQuestions.size) {
-                                            currentQIndex = num - 1
-                                        }
-                                    }
-                                },
-                                placeholder = { Text("#", fontSize = 10.sp) },
-                                modifier = Modifier.width(52.dp).height(40.dp),
-                                singleLine = true,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                        }
-                    }
-                    LinearProgressIndicator(
-                        progress = progress,
-                        color = brandTeal,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(CircleShape)
-                    )
-                }
-            } else {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
-                ) {
-                    Text(
-                        text = "No nursing questions match your current search or subject filter.",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-            }
-        }
-
-        // Active Question Display & Options
-        activeQ?.let { q ->
-            val userSelected = selectedAnswers[q.id]
-            val hasAnswered = userSelected != null
-
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = brandTeal.copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "Question #${q.id} • ${q.examCategory}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = brandTeal,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-                            }
-
-                            if (hasAnswered) {
-                                val isRight = userSelected == q.correctIndex
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isRight) getCorrectContainerColor() else getWrongContainerColor()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isRight) Icons.Default.CheckCircle else Icons.Default.Cancel,
-                                            contentDescription = null,
-                                            tint = if (isRight) getCorrectBorderColor() else getWrongBorderColor(),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = if (isRight) "CORRECT" else "INCORRECT",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isRight) getCorrectBorderColor() else getWrongBorderColor()
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Text(
-                            text = q.question,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            lineHeight = 22.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-
-            // Options List with Theme-Aware Highlighting
-            items(q.options.size) { index ->
-                val isThisOptionSelected = userSelected == index
-                val isThisCorrectOption = index == q.correctIndex
-
-                val showFeedbackColors = (instantLearnMode && hasAnswered) || examSubmitted
-
-                val containerColor = when {
-                    showFeedbackColors && isThisCorrectOption -> getCorrectContainerColor()
-                    showFeedbackColors && isThisOptionSelected && !isThisCorrectOption -> getWrongContainerColor()
-                    isThisOptionSelected -> brandTeal.copy(alpha = 0.15f)
-                    else -> MaterialTheme.colorScheme.surface
-                }
-
-                val borderColor = when {
-                    showFeedbackColors && isThisCorrectOption -> getCorrectBorderColor()
-                    showFeedbackColors && isThisOptionSelected && !isThisCorrectOption -> getWrongBorderColor()
-                    isThisOptionSelected -> brandTeal
-                    else -> MaterialTheme.colorScheme.outlineVariant
-                }
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            selectedAnswers[q.id] = index
-                            prefs.edit().putInt("ans_${q.id}", index).apply()
-                        },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = containerColor),
-                    border = BorderStroke(
-                        width = if (isThisOptionSelected || (showFeedbackColors && isThisCorrectOption)) 2.dp else 1.dp,
-                        color = borderColor
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        when {
-                                            showFeedbackColors && isThisCorrectOption -> getCorrectBorderColor()
-                                            showFeedbackColors && isThisOptionSelected -> getWrongBorderColor()
-                                            isThisOptionSelected -> brandTeal
-                                            else -> MaterialTheme.colorScheme.surfaceVariant
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = ('A'.code + index).toChar().toString(),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isThisOptionSelected || (showFeedbackColors && isThisCorrectOption)) Color.White else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = q.options[index],
-                                fontSize = 13.sp,
-                                fontWeight = if (showFeedbackColors && isThisCorrectOption) FontWeight.Bold else FontWeight.Normal,
-                                color = when {
-                                    showFeedbackColors && isThisCorrectOption -> getCorrectTextColor()
-                                    showFeedbackColors && isThisOptionSelected && !isThisCorrectOption -> getWrongTextColor()
-                                    else -> MaterialTheme.colorScheme.onSurface
-                                }
-                            )
-                        }
-
-                        if (showFeedbackColors) {
-                            if (isThisCorrectOption) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("✓ Correct", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = getCorrectBorderColor())
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(Icons.Default.CheckCircle, contentDescription = "Correct", tint = getCorrectBorderColor(), modifier = Modifier.size(20.dp))
-                                }
-                            } else if (isThisOptionSelected) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("✗ Wrong", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = getWrongBorderColor())
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(Icons.Default.Cancel, contentDescription = "Wrong", tint = getWrongBorderColor(), modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Rationale & Reference Box
-            if ((instantLearnMode && hasAnswered) || examSubmitted) {
-                item {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDark) Color(0xFF1B2826) else Color(0xFFE0F2F1).copy(alpha = 0.5f)
-                        ),
-                        border = BorderStroke(1.dp, brandTeal.copy(alpha = 0.3f))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Lightbulb, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Exam Rationale & Detailed Explanation:",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = brandTeal
-                                )
-                            }
-                            Text(
-                                text = q.explanation,
-                                fontSize = 13.sp,
-                                lineHeight = 19.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Divider(modifier = Modifier.padding(vertical = 4.dp), color = brandTeal.copy(alpha = 0.2f))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Bookmark, contentDescription = null, tint = brandTeal, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Reference: ${q.reference}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = brandTeal
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Next / Prev Nav Buttons & Reset Action
-            item {
+                // Row 1: Mode Switch (All MCQs vs Single Q) & Quick Stats
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(
-                        onClick = { if (currentQIndex > 0) currentQIndex-- },
-                        enabled = currentQIndex > 0,
-                        shape = RoundedCornerShape(12.dp)
+                    // View Mode Switcher
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isDark) Color(0xFF263238) else Color(0xFFE0F2F1))
+                            .padding(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Previous Q", fontSize = 12.sp)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (viewMode == 0) brandTeal else Color.Transparent,
+                            modifier = Modifier.clickable { viewMode = 0 }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.List,
+                                    contentDescription = null,
+                                    tint = if (viewMode == 0) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "All MCQs List",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (viewMode == 0) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (viewMode == 0) Color.White else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (viewMode == 1) brandTeal else Color.Transparent,
+                            modifier = Modifier.clickable { viewMode = 1 }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.School,
+                                    contentDescription = null,
+                                    tint = if (viewMode == 1) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Single Exam Q",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (viewMode == 1) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (viewMode == 1) Color.White else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
                     }
 
-                    IconButton(
-                        onClick = { showResetConfirmDialog = true }
+                    // Action Buttons: Analytics & Grid & Reset
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reset Progress", tint = MaterialTheme.colorScheme.error)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isDark) Color(0xFF1E3A20) else Color(0xFF2E7D32).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "$completedCountInFilter/$totalInFilter Qs",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showSubjectAnalyticsDialog = true },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Assessment, contentDescription = "Subject Analytics", tint = brandTeal, modifier = Modifier.size(18.dp))
+                        }
+
+                        IconButton(
+                            onClick = { showGridDialog = true },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.GridView, contentDescription = "Question Directory Grid", tint = brandTeal, modifier = Modifier.size(18.dp))
+                        }
+
+                        IconButton(
+                            onClick = { showResetConfirmDialog = true },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Reset Progress", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+
+                // Row 2: Search Box & Clear
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search question keywords or topics...", fontSize = 11.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    // Learn Mode Pill
+                    FilterChip(
+                        selected = instantLearnMode,
+                        onClick = { instantLearnMode = !instantLearnMode },
+                        label = { Text("Instant Answers", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
+                        leadingIcon = {
+                            Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(12.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = brandTeal,
+                            selectedLabelColor = Color.White
+                        ),
+                        modifier = Modifier.height(36.dp)
+                    )
+                }
+
+                // Row 3: Subject Filter Chips
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(subjectsList.size) { index ->
+                        val subj = subjectsList[index]
+                        val isSel = selectedSubjectFilter == subj
+                        val count = if (subj == "All Subjects") allQuestions.size else (subjectCountsMap[subj] ?: 0)
+                        val answeredCountSubj = if (subj == "All Subjects") selectedAnswers.size else (answeredCountsMap[subj] ?: 0)
+
+                        FilterChip(
+                            selected = isSel,
+                            onClick = { selectedSubjectFilter = subj },
+                            label = {
+                                Text(
+                                    text = "$subj ($answeredCountSubj/$count)",
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = brandTeal,
+                                selectedLabelColor = Color.White
+                            ),
+                            modifier = Modifier.height(30.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // --- VIEW MODE 0: ALL MCQS LIST VIEW (SCROLL THROUGH ALL MCQS) ---
+        if (viewMode == 0) {
+            if (filteredQuestions.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.SearchOff, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp))
+                        Text(
+                            text = "No questions match your current search/filter.",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Button(
+                            onClick = {
+                                searchQuery = ""
+                                selectedSubjectFilter = "All Subjects"
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = brandTeal)
+                        ) {
+                            Text("Reset Filters & Show All", fontSize = 12.sp)
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    items(
+                        count = filteredQuestions.size,
+                        key = { idx -> filteredQuestions[idx].id }
+                    ) { index ->
+                        val q = filteredQuestions[index]
+                        val userSelected = selectedAnswers[q.id]
+                        val hasAnswered = userSelected != null
+
+                        NursingMcqCard(
+                            question = q,
+                            questionIndex = index + 1,
+                            totalQuestions = filteredQuestions.size,
+                            userSelectedOption = userSelected,
+                            onOptionSelected = { optIdx ->
+                                selectedAnswers[q.id] = optIdx
+                                prefs.edit().putInt("ans_${q.id}", optIdx).apply()
+                            },
+                            instantLearnMode = instantLearnMode,
+                            brandTeal = brandTeal,
+                            isDark = isDark
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- VIEW MODE 1: SINGLE QUESTION EXAM MODE ---
+        if (viewMode == 1) {
+            if (filteredQuestions.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f))
+                ) {
+                    Text(
+                        text = "No questions available in this filter.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    // Question Navigation Header & Progress
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Question ${currentQIndex + 1} of ${filteredQuestions.size}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = brandTeal
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = brandTeal.copy(alpha = 0.12f)
+                                ) {
+                                    Text(
+                                        text = activeQ?.subject ?: "",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = brandTeal,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            // Quick Jump Input
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Jump:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                OutlinedTextField(
+                                    value = jumpInputText,
+                                    onValueChange = { input: String ->
+                                        if (input.all { it.isDigit() }) {
+                                            jumpInputText = input
+                                            val num = input.toIntOrNull()
+                                            if (num != null && num in 1..filteredQuestions.size) {
+                                                currentQIndex = num - 1
+                                            }
+                                        }
+                                    },
+                                    placeholder = { Text("#", fontSize = 10.sp) },
+                                    modifier = Modifier
+                                        .width(60.dp)
+                                        .height(48.dp),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = progress,
+                            color = brandTeal,
+                            trackColor = brandTeal.copy(alpha = 0.2f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(CircleShape)
+                        )
                     }
 
-                    Button(
-                        onClick = { if (currentQIndex + 1 < filteredQuestions.size) currentQIndex++ },
-                        enabled = currentQIndex + 1 < filteredQuestions.size,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = brandTeal, contentColor = Color.White)
-                    ) {
-                        Text("Next Q", fontSize = 12.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                    // Active Single Question Card
+                    activeQ?.let { q ->
+                        val userSelected = selectedAnswers[q.id]
+                        val hasAnswered = userSelected != null
+
+                        item {
+                            NursingMcqCard(
+                                question = q,
+                                questionIndex = currentQIndex + 1,
+                                totalQuestions = filteredQuestions.size,
+                                userSelectedOption = userSelected,
+                                onOptionSelected = { optIdx ->
+                                    selectedAnswers[q.id] = optIdx
+                                    prefs.edit().putInt("ans_${q.id}", optIdx).apply()
+                                },
+                                instantLearnMode = instantLearnMode,
+                                brandTeal = brandTeal,
+                                isDark = isDark
+                            )
+                        }
+
+                        // Next / Prev Nav Buttons
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedButton(
+                                    onClick = { if (currentQIndex > 0) currentQIndex-- },
+                                    enabled = currentQIndex > 0,
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Previous", fontSize = 12.sp)
+                                }
+
+                                Button(
+                                    onClick = { if (currentQIndex + 1 < filteredQuestions.size) currentQIndex++ },
+                                    enabled = currentQIndex + 1 < filteredQuestions.size,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = brandTeal, contentColor = Color.White)
+                                ) {
+                                    Text("Next Question", fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -967,6 +824,7 @@ fun NursingQuizBankView() {
                                         .background(gridColor)
                                         .clickable {
                                             currentQIndex = index
+                                            viewMode = 1
                                             showGridDialog = false
                                         },
                                     contentAlignment = Alignment.Center
@@ -1078,7 +936,7 @@ fun NursingQuizBankView() {
                                         colors = ButtonDefaults.buttonColors(containerColor = brandTeal),
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
-                                        Text("Resume", fontSize = 11.sp)
+                                        Text("Select", fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -1135,6 +993,309 @@ fun NursingQuizBankView() {
         )
     }
 }
+
+/**
+ * REUSABLE NURSING MCQ CARD COMPONENT
+ */
+@Composable
+fun NursingMcqCard(
+    question: NursingExamQuestion,
+    questionIndex: Int,
+    totalQuestions: Int,
+    userSelectedOption: Int?,
+    onOptionSelected: (Int) -> Unit,
+    instantLearnMode: Boolean,
+    brandTeal: Color,
+    isDark: Boolean
+) {
+    var showRationaleExpanded by remember { mutableStateOf(false) }
+    val hasAnswered = userSelectedOption != null
+    val isAnswerCorrect = userSelectedOption == question.correctIndex
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            width = if (hasAnswered && instantLearnMode) 1.5.dp else 1.dp,
+            color = if (hasAnswered && instantLearnMode) {
+                if (isAnswerCorrect) getCorrectBorderColor() else getWrongBorderColor()
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Header: Q# • Subject • Exam Badge • Result Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = brandTeal.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "Q#$questionIndex",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = brandTeal,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = question.subject,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    if (question.examCategory.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = brandTeal.copy(alpha = 0.08f)
+                        ) {
+                            Text(
+                                text = question.examCategory,
+                                fontSize = 9.sp,
+                                color = brandTeal,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (hasAnswered && instantLearnMode) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isAnswerCorrect) getCorrectContainerColor() else getWrongContainerColor()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isAnswerCorrect) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                contentDescription = null,
+                                tint = if (isAnswerCorrect) getCorrectBorderColor() else getWrongBorderColor(),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (isAnswerCorrect) "CORRECT" else "INCORRECT",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isAnswerCorrect) getCorrectBorderColor() else getWrongBorderColor()
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Question Statement
+            Text(
+                text = question.question,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            // Options List
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                question.options.forEachIndexed { index, optionText ->
+                    val isOptionSelected = userSelectedOption == index
+                    val isOptionCorrect = index == question.correctIndex
+                    val showColors = hasAnswered && instantLearnMode
+
+                    val optionContainerColor = when {
+                        showColors && isOptionCorrect -> getCorrectContainerColor()
+                        showColors && isOptionSelected && !isOptionCorrect -> getWrongContainerColor()
+                        isOptionSelected -> brandTeal.copy(alpha = 0.12f)
+                        else -> MaterialTheme.colorScheme.surface
+                    }
+
+                    val optionBorderColor = when {
+                        showColors && isOptionCorrect -> getCorrectBorderColor()
+                        showColors && isOptionSelected && !isOptionCorrect -> getWrongBorderColor()
+                        isOptionSelected -> brandTeal
+                        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = optionContainerColor,
+                        border = BorderStroke(
+                            width = if (isOptionSelected || (showColors && isOptionCorrect)) 1.5.dp else 1.dp,
+                            color = optionBorderColor
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOptionSelected(index) }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            when {
+                                                showColors && isOptionCorrect -> getCorrectBorderColor()
+                                                showColors && isOptionSelected -> getWrongBorderColor()
+                                                isOptionSelected -> brandTeal
+                                                else -> MaterialTheme.colorScheme.surfaceVariant
+                                            }
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = ('A'.code + index).toChar().toString(),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isOptionSelected || (showColors && isOptionCorrect)) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = optionText,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp,
+                                    fontWeight = if (showColors && isOptionCorrect) FontWeight.Bold else FontWeight.Normal,
+                                    color = when {
+                                        showColors && isOptionCorrect -> getCorrectTextColor()
+                                        showColors && isOptionSelected && !isOptionCorrect -> getWrongTextColor()
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+
+                            if (showColors) {
+                                if (isOptionCorrect) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Correct",
+                                        tint = getCorrectBorderColor(),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                } else if (isOptionSelected) {
+                                    Icon(
+                                        Icons.Default.Cancel,
+                                        contentDescription = "Wrong",
+                                        tint = getWrongBorderColor(),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Rationale Section (Visible automatically if answered in Learn Mode, or toggleable)
+            val shouldShowRationale = (hasAnswered && instantLearnMode) || showRationaleExpanded
+            if (question.explanation.isNotEmpty()) {
+                if (shouldShowRationale) {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDark) Color(0xFF1B2826) else Color(0xFFE0F2F1).copy(alpha = 0.4f)
+                        ),
+                        border = BorderStroke(1.dp, brandTeal.copy(alpha = 0.25f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Lightbulb, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Exam Rationale & Explanation:",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = brandTeal
+                                    )
+                                }
+
+                                if (!hasAnswered) {
+                                    TextButton(
+                                        onClick = { showRationaleExpanded = false },
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("Hide", fontSize = 10.sp, color = brandTeal)
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = question.explanation,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            if (question.reference.isNotEmpty()) {
+                                Divider(modifier = Modifier.padding(vertical = 2.dp), color = brandTeal.copy(alpha = 0.2f))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = brandTeal, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Ref: ${question.reference}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = brandTeal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (!hasAnswered) {
+                    TextButton(
+                        onClick = { showRationaleExpanded = true },
+                        modifier = Modifier.align(Alignment.End),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.HelpOutline, contentDescription = null, tint = brandTeal, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Show Rationale & Answer", fontSize = 11.sp, color = brandTeal)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 
 
