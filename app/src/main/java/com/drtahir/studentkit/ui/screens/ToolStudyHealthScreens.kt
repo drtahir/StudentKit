@@ -70,6 +70,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -5383,6 +5385,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
     var lastScannedEngine by remember { mutableStateOf("Dual Engine") }
     var isScanningActive by remember { mutableStateOf(true) }
     var isDecodingGalleryImage by remember { mutableStateOf(false) }
+    var isFullScreenResultVisible by remember { mutableStateOf(false) }
 
     // Camera control references and states
     var cameraControlRef by remember { mutableStateOf<CameraControl?>(null) }
@@ -5485,17 +5488,17 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                     ) {
                         Icon(
                             imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "Scanner engine active",
+                            contentDescription = "QR Scanner",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(32.dp)
                         )
                         Column {
-                            Text("High-Density QR & Barcode Lens", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("QR & Barcode Scanner", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text(
                                 if (cameraPermissionState.status.isGranted)
-                                    "1080p HD + Dual Engine (ML-Kit & ZXing) active"
+                                    "HD + Powerful Dual Engine"
                                 else
-                                    "Scan with camera or select QR image from gallery",
+                                    "Scan with camera or select image from gallery",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -5504,7 +5507,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                     
                     if (gmsScannerClient != null) {
                         IconButton(onClick = { triggerRealCameraScanner() }) {
-                            Icon(Icons.Default.FlipCameraAndroid, contentDescription = "Use GMS Overlay", tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.FlipCameraAndroid, contentDescription = "Scan with Google Lens", tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -5522,7 +5525,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         if (isDecodingGalleryImage) {
                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Decoding...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Scanning Image...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         } else {
                             Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
@@ -5536,7 +5539,9 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .then(
+                    if (isScanResultActive) Modifier.height(140.dp) else Modifier.weight(1f)
+                )
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF0F172A))
                 .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
@@ -5746,46 +5751,68 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         )
                     }
 
-                    // Quick Zoom Selector Pills
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 54.dp)
-                            .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf(1.0f, 1.5f, 2.0f, 3.0f).forEach { zoomLevel ->
-                            val isSelected = (currentZoomRatio == zoomLevel)
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    .clickable {
-                                        currentZoomRatio = zoomLevel
-                                        cameraControlRef?.setZoomRatio(zoomLevel)
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    if (isScanResultActive) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.Black.copy(alpha = 0.75f),
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .clickable {
+                                    isScanResultActive = false
+                                    isScanningActive = true
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    text = "${zoomLevel}x",
-                                    color = if (isSelected) Color.White else Color.LightGray,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.size(16.dp))
+                                Text("Tap viewfinder to scan again", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
                         }
-                    }
+                    } else {
+                        // Quick Zoom Selector Pills
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 54.dp)
+                                .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf(1.0f, 1.5f, 2.0f, 3.0f).forEach { zoomLevel ->
+                                val isSelected = (currentZoomRatio == zoomLevel)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable {
+                                            currentZoomRatio = zoomLevel
+                                            cameraControlRef?.setZoomRatio(zoomLevel)
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "${zoomLevel}x",
+                                        color = if (isSelected) Color.White else Color.LightGray,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
 
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(12.dp)
-                            .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text("Tap to focus • Select 2x/3x for dense codes", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(12.dp)
+                                .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Tap to focus • Zoom for small codes", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
 
                     // Decoding spinner overlay
@@ -5801,8 +5828,8 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             ) {
                                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp))
                                 Spacer(modifier = Modifier.height(14.dp))
-                                Text("Analyzing Dense QR Code...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("Running multi-pass & ROI scan across bill segments", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+                                Text("Scanning Image...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("Reading QR code details...", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
                             }
                         }
                     }
@@ -5815,19 +5842,19 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                 ) {
                     Icon(
                         imageVector = Icons.Default.Camera,
-                        contentDescription = "Viewfinder icon",
+                        contentDescription = "Camera icon",
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
                         modifier = Modifier.size(72.dp)
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        "Interactive QR / Barcode Scan Area",
+                        "Camera Scanner",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
                     Text(
-                        "Activate your back camera to interactively target, scan, and parse custom QR and Barcode items in real-time.",
+                        "Point your camera at a QR code or barcode to scan, or choose an image from your gallery.",
                         color = Color.White.copy(alpha = 0.6f),
                         fontSize = 11.sp,
                         textAlign = TextAlign.Center,
@@ -5864,94 +5891,325 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
         if (isScanResultActive) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Header Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text("Scanned Decrypted Result ($lastScannedType)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Engine: $lastScannedEngine", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Scanned Result",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            val lineCount = scannedBarcodeText.lines().size
+                            val charCount = scannedBarcodeText.length
+                            Text(
+                                text = "$lineCount ${if (lineCount == 1) "line" else "lines"} • $charCount characters",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+                            )
                         }
-                        IconButton(onClick = { 
-                            isScanResultActive = false 
-                            isScanningActive = true // Resume
-                        }) {
-                            Icon(Icons.Default.Close, "Dismiss Result", modifier = Modifier.size(16.dp))
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Quick copy button in header
+                            IconButton(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("scanned_result", scannedBarcodeText)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = "Copy to clipboard",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // Full screen expand button
+                            IconButton(onClick = {
+                                isFullScreenResultVisible = true
+                            }) {
+                                Icon(
+                                    Icons.Default.Fullscreen,
+                                    contentDescription = "Full screen view",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            // Dismiss and scan again
+                            IconButton(onClick = {
+                                isScanResultActive = false
+                                isScanningActive = true
+                            }) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Scan again",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
-                    }
-                    
-                    SelectionContainer {
-                        Text(
-                            text = scannedBarcodeText,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                                .padding(8.dp)
-                        )
                     }
 
+                    // Monospace text box with internal vertical scrolling all the way to the end!
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Black.copy(alpha = 0.25f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(12.dp)
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = scannedBarcodeText,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 18.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+
+                    // Persistent Action Buttons (NEVER pushed off-screen)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Button(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("scanned_barcode_result", scannedBarcodeText)
+                                val clip = ClipData.newPlainText("scanned_result", scannedBarcodeText)
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Copied content to clipboard!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .height(44.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
-                            Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Copy", fontSize = 11.sp)
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
-                        Button(
+                        FilledTonalButton(
                             onClick = {
                                 try {
-                                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
-                                        putExtra(android.content.Intent.EXTRA_TEXT, scannedBarcodeText)
+                                        putExtra(Intent.EXTRA_TEXT, scannedBarcodeText)
                                     }
-                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Scanned Code"))
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Scanned Text"))
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Unable to share: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                                 }
                             },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
                         ) {
-                            Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Share", fontSize = 11.sp)
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        
-                        if (scannedBarcodeText.startsWith("http://") || scannedBarcodeText.startsWith("https://") || scannedBarcodeText.startsWith("market://")) {
-                            Button(
+
+                        if (scannedBarcodeText.startsWith("http://", ignoreCase = true) || 
+                            scannedBarcodeText.startsWith("https://", ignoreCase = true)) {
+                            FilledTonalButton(
                                 onClick = {
                                     try {
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(scannedBarcodeText))
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(scannedBarcodeText))
                                         context.startActivity(intent)
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "No app found to resolve this portal link", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Cannot open link: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                                     }
-                                    isScanResultActive = false
                                 },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
                             ) {
-                                Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Open Link", fontSize = 11.sp)
+                                Text("Open", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isScanResultActive = false
+                                isScanningActive = true
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                        ) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Scan", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isFullScreenResultVisible) {
+        Dialog(
+            onDismissRequest = { isFullScreenResultVisible = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                ) {
+                    // Top App Bar
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 3.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { isFullScreenResultVisible = false }) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Close full screen view")
+                                }
+                                Column(modifier = Modifier.padding(start = 4.dp)) {
+                                    Text("Scanned Details", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text(
+                                        "${scannedBarcodeText.lines().size} lines • ${scannedBarcodeText.length} characters",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Row {
+                                IconButton(onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("scanned_result", scannedBarcodeText)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Copied all text to clipboard!", Toast.LENGTH_SHORT).show()
+                                }) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy all")
+                                }
+                                IconButton(onClick = {
+                                    try {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, scannedBarcodeText)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Scanned Text"))
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Unable to share: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Share, contentDescription = "Share")
+                                }
+                            }
+                        }
+                    }
+
+                    // Full Screen Scrollable Content
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                    ) {
+                        SelectionContainer {
+                            Text(
+                                text = scannedBarcodeText,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(14.dp)
+                            )
+                        }
+                    }
+
+                    // Bottom Buttons
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("scanned_result", scannedBarcodeText)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Copied all text to clipboard!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Copy All Text", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            Button(
+                                onClick = { isFullScreenResultVisible = false },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                            ) {
+                                Text("Done", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }

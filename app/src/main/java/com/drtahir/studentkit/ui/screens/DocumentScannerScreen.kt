@@ -88,6 +88,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -102,6 +103,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -2859,12 +2862,16 @@ fun LiveCameraViewfinderView(
                         .background(Color.White)
                         .testTag("camera_shutter_button")
                         .clickable {
-                            val activeCorners = DocCorners(
-                                topLeft = PointF(tlX, tlY),
-                                topRight = PointF(trX, trY),
-                                bottomRight = PointF(brX, brY),
-                                bottomLeft = PointF(blX, blY)
-                            )
+                            val activeCorners = if (hasUserManuallyAdjusted) {
+                                DocCorners(
+                                    topLeft = PointF(tlX, tlY),
+                                    topRight = PointF(trX, trY),
+                                    bottomRight = PointF(brX, brY),
+                                    bottomLeft = PointF(blX, blY)
+                                )
+                            } else {
+                                null
+                            }
                             val imgCap = imageCapture
                             if (hasCameraPermission && imgCap != null) {
                                 val file = File(context.cacheDir, "scan_raw_${System.currentTimeMillis()}.jpg")
@@ -2989,400 +2996,727 @@ fun CornerCropAdjusterView(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(12.dp),
             contentAlignment = Alignment.Center
         ) {
-            val boxW = maxWidth.value
-            val boxH = maxHeight.value
+            val availableW = maxWidth
+            val availableH = maxHeight
             val density = LocalDensity.current
-            val boxWPx = with(density) { maxWidth.toPx() }
-            val boxHPx = with(density) { maxHeight.toPx() }
+            val availableWPx = with(density) { availableW.toPx() }
+            val availableHPx = with(density) { availableH.toPx() }
 
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Document photo",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
-            )
+            val bmpAspect = (bitmap.width.toFloat() / bitmap.height.toFloat().coerceAtLeast(1f)).coerceIn(0.1f, 10f)
+            val availAspect = availableWPx / availableHPx.coerceAtLeast(1f)
 
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-
-                val pTl = Offset(tlX * w, tlY * h)
-                val pTr = Offset(trX * w, trY * h)
-                val pBr = Offset(brX * w, brY * h)
-                val pBl = Offset(blX * w, blY * h)
-
-                // Darken outside the quad
-                val path = Path().apply {
-                    moveTo(0f, 0f)
-                    lineTo(w, 0f)
-                    lineTo(w, h)
-                    lineTo(0f, h)
-                    close()
-
-                    moveTo(pTl.x, pTl.y)
-                    lineTo(pBl.x, pBl.y)
-                    lineTo(pBr.x, pBr.y)
-                    lineTo(pTr.x, pTr.y)
-                    close()
-
-                    fillType = PathFillType.EvenOdd
-                }
-                drawPath(path, color = Color.Black.copy(alpha = 0.35f))
-
-                val stroke = 3.5f
-                val quadColor = Color(0xFF00FFA3)
-
-                drawLine(color = quadColor, start = pTl, end = pTr, strokeWidth = stroke)
-                drawLine(color = quadColor, start = pTr, end = pBr, strokeWidth = stroke)
-                drawLine(color = quadColor, start = pBr, end = pBl, strokeWidth = stroke)
-                drawLine(color = quadColor, start = pBl, end = pTl, strokeWidth = stroke)
+            val (dispWPx, dispHPx) = if (bmpAspect > availAspect) {
+                availableWPx to (availableWPx / bmpAspect)
+            } else {
+                (availableHPx * bmpAspect) to availableHPx
             }
 
-            // ==========================================
-            // 4 CORNER PINS (Precise 1:1 Pixel Dragging)
-            // ==========================================
+            val dispWDp = with(density) { dispWPx.toDp() }
+            val dispHDp = with(density) { dispHPx.toDp() }
 
-            // Top-Left Pin
+            // Document Photo with 1:1 Pixel-Matched Quad Overlay
             Box(
                 modifier = Modifier
-                    .offset(x = (tlX * boxW).dp - 22.dp, y = (tlY * boxH).dp - 22.dp)
-                    .size(44.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { activeAdjustHandle = "TL" },
-                            onDragEnd = { activeAdjustHandle = null }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            tlX = (tlX + dragAmount.x / boxWPx).coerceIn(0.01f, trX - 0.04f)
-                            tlY = (tlY + dragAmount.y / boxHPx).coerceIn(0.01f, blY - 0.04f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
+                    .size(dispWDp, dispHDp)
+                    .clipToBounds()
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (activeAdjustHandle == "TL") 42.dp else 34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3).copy(alpha = 0.28f))
+                // 1. Scaled Photo Image
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Document photo",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds
                 )
+
+                // 2. Crop Overlay & Border Lines
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+
+                    val pTl = Offset(tlX * w, tlY * h)
+                    val pTr = Offset(trX * w, trY * h)
+                    val pBr = Offset(brX * w, brY * h)
+                    val pBl = Offset(blX * w, blY * h)
+
+                    // Scrim dark mask outside crop quadrilateral
+                    val path = Path().apply {
+                        moveTo(0f, 0f)
+                        lineTo(w, 0f)
+                        lineTo(w, h)
+                        lineTo(0f, h)
+                        close()
+
+                        moveTo(pTl.x, pTl.y)
+                        lineTo(pBl.x, pBl.y)
+                        lineTo(pBr.x, pBr.y)
+                        lineTo(pTr.x, pTr.y)
+                        close()
+
+                        fillType = PathFillType.EvenOdd
+                    }
+                    drawPath(path, color = Color.Black.copy(alpha = 0.42f))
+
+                    // Alignment Rule-of-Thirds Grid Lines
+                    val gridColor = Color(0xFF00FFA3).copy(alpha = 0.22f)
+                    for (step in 1..2) {
+                        val frac = step / 3f
+                        val leftInterp = Offset(
+                            pTl.x + (pBl.x - pTl.x) * frac,
+                            pTl.y + (pBl.y - pTl.y) * frac
+                        )
+                        val rightInterp = Offset(
+                            pTr.x + (pBr.x - pTr.x) * frac,
+                            pTr.y + (pBr.y - pTr.y) * frac
+                        )
+                        drawLine(color = gridColor, start = leftInterp, end = rightInterp, strokeWidth = 1f)
+
+                        val topInterp = Offset(
+                            pTl.x + (pTr.x - pTl.x) * frac,
+                            pTl.y + (pTr.y - pTl.y) * frac
+                        )
+                        val botInterp = Offset(
+                            pBl.x + (pBr.x - pBl.x) * frac,
+                            pBl.y + (pBr.y - pBl.y) * frac
+                        )
+                        drawLine(color = gridColor, start = topInterp, end = botInterp, strokeWidth = 1f)
+                    }
+
+                    // Bold Outer Crop Borders
+                    val stroke = 3.5f
+                    val quadColor = Color(0xFF00FFA3)
+                    drawLine(color = quadColor, start = pTl, end = pTr, strokeWidth = stroke)
+                    drawLine(color = quadColor, start = pTr, end = pBr, strokeWidth = stroke)
+                    drawLine(color = quadColor, start = pBr, end = pBl, strokeWidth = stroke)
+                    drawLine(color = quadColor, start = pBl, end = pTl, strokeWidth = stroke)
+                }
+
+                // ==========================================
+                // CENTER MOVE HANDLE (Translate Entire Frame)
+                // ==========================================
+                val cCenterX = (tlX + trX + brX + blX) / 4f
+                val cCenterY = (tlY + trY + brY + blY) / 4f
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3))
-                        .border(2.dp, Color.White, CircleShape),
+                        .offset(
+                            x = with(density) { (cCenterX * dispWPx).toDp() } - 22.dp,
+                            y = with(density) { (cCenterY * dispHPx).toDp() } - 22.dp
+                        )
+                        .size(44.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "CENTER" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dx = dragAmount.x / dispWPx
+                                val dy = dragAmount.y / dispHPx
+                                val minX = minOf(tlX, trX, brX, blX)
+                                val maxX = maxOf(tlX, trX, brX, blX)
+                                val minY = minOf(tlY, trY, brY, blY)
+                                val maxY = maxOf(tlY, trY, brY, blY)
+
+                                val clampedDx = dx.coerceIn(-minX, 1f - maxX)
+                                val clampedDy = dy.coerceIn(-minY, 1f - maxY)
+
+                                tlX = (tlX + clampedDx).coerceIn(0f, 1f)
+                                trX = (trX + clampedDx).coerceIn(0f, 1f)
+                                brX = (brX + clampedDx).coerceIn(0f, 1f)
+                                blX = (blX + clampedDx).coerceIn(0f, 1f)
+
+                                tlY = (tlY + clampedDy).coerceIn(0f, 1f)
+                                trY = (trY + clampedDy).coerceIn(0f, 1f)
+                                brY = (brY + clampedDy).coerceIn(0f, 1f)
+                                blY = (blY + clampedDy).coerceIn(0f, 1f)
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
-                }
-            }
-
-            // Top-Right Pin
-            Box(
-                modifier = Modifier
-                    .offset(x = (trX * boxW).dp - 22.dp, y = (trY * boxH).dp - 22.dp)
-                    .size(44.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { activeAdjustHandle = "TR" },
-                            onDragEnd = { activeAdjustHandle = null }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            trX = (trX + dragAmount.x / boxWPx).coerceIn(tlX + 0.04f, 0.99f)
-                            trY = (trY + dragAmount.y / boxHPx).coerceIn(0.01f, brY - 0.04f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (activeAdjustHandle == "TR") 42.dp else 34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3).copy(alpha = 0.28f))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3))
-                        .border(2.dp, Color.White, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
-                }
-            }
-
-            // Bottom-Right Pin
-            Box(
-                modifier = Modifier
-                    .offset(x = (brX * boxW).dp - 22.dp, y = (brY * boxH).dp - 22.dp)
-                    .size(44.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { activeAdjustHandle = "BR" },
-                            onDragEnd = { activeAdjustHandle = null }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            brX = (brX + dragAmount.x / boxWPx).coerceIn(blX + 0.04f, 0.99f)
-                            brY = (brY + dragAmount.y / boxHPx).coerceIn(trY + 0.04f, 0.99f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (activeAdjustHandle == "BR") 42.dp else 34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3).copy(alpha = 0.28f))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3))
-                        .border(2.dp, Color.White, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
-                }
-            }
-
-            // Bottom-Left Pin
-            Box(
-                modifier = Modifier
-                    .offset(x = (blX * boxW).dp - 22.dp, y = (blY * boxH).dp - 22.dp)
-                    .size(44.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { activeAdjustHandle = "BL" },
-                            onDragEnd = { activeAdjustHandle = null }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            blX = (blX + dragAmount.x / boxWPx).coerceIn(0.01f, brX - 0.04f)
-                            blY = (blY + dragAmount.y / boxHPx).coerceIn(tlY + 0.04f, 0.99f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (activeAdjustHandle == "BL") 42.dp else 34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3).copy(alpha = 0.28f))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00FFA3))
-                        .border(2.dp, Color.White, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
-                }
-            }
-
-            // ==========================================
-            // 4 EDGE MIDPOINT HANDLES IN CROP ADJUSTER
-            // ==========================================
-
-            // Top Edge Midpoint Handle
-            val cMidTopX = (tlX + trX) / 2f
-            val cMidTopY = (tlY + trY) / 2f
-            Box(
-                modifier = Modifier
-                    .offset(x = (cMidTopX * boxW).dp - 22.dp, y = (cMidTopY * boxH).dp - 14.dp)
-                    .size(width = 44.dp, height = 28.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val dy = dragAmount.y / boxHPx
-                            tlY = (tlY + dy).coerceIn(0.01f, blY - 0.04f)
-                            trY = (trY + dy).coerceIn(0.01f, brY - 0.04f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF1E293B),
-                    border = BorderStroke(1.5.dp, Color(0xFF00B4D8)),
-                    modifier = Modifier.size(width = 30.dp, height = 16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF0F172A).copy(alpha = 0.82f),
+                        border = BorderStroke(2.dp, Color(0xFF00FFA3)),
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
+                        Icon(
+                            Icons.Default.OpenWith,
+                            contentDescription = "Move Whole Crop Frame",
+                            tint = Color.White,
+                            modifier = Modifier.padding(6.dp)
+                        )
+                    }
+                }
+
+                // ==========================================
+                // 4 FULLY DRAGGABLE EDGE HANDLES
+                // ==========================================
+
+                // Top Edge Handle (drag up or down across full height)
+                val cMidTopX = (tlX + trX) / 2f
+                val cMidTopY = (tlY + trY) / 2f
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (cMidTopX * dispWPx).toDp() } - 32.dp,
+                            y = with(density) { (cMidTopY * dispHPx).toDp() } - 18.dp
+                        )
+                        .size(width = 64.dp, height = 36.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "EDGE_TOP" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dy = dragAmount.y / dispHPx
+                                val dx = dragAmount.x / dispWPx
+                                val maxTlY = blY - 0.015f
+                                val maxTrY = brY - 0.015f
+                                tlY = (tlY + dy).coerceIn(0f, maxTlY)
+                                trY = (trY + dy).coerceIn(0f, maxTrY)
+                                if (dx != 0f) {
+                                    tlX = (tlX + dx).coerceIn(0f, trX - 0.015f)
+                                    trX = (trX + dx).coerceIn(tlX + 0.015f, 1f)
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_TOP") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
+                        modifier = Modifier.size(width = 46.dp, height = 20.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("▲", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("▼", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Bottom Edge Handle (drag up or down across full height)
+                val cMidBotX = (blX + brX) / 2f
+                val cMidBotY = (blY + brY) / 2f
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (cMidBotX * dispWPx).toDp() } - 32.dp,
+                            y = with(density) { (cMidBotY * dispHPx).toDp() } - 18.dp
+                        )
+                        .size(width = 64.dp, height = 36.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "EDGE_BOTTOM" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dy = dragAmount.y / dispHPx
+                                val dx = dragAmount.x / dispWPx
+                                val minBlY = tlY + 0.015f
+                                val minBrY = trY + 0.015f
+                                blY = (blY + dy).coerceIn(minBlY, 1f)
+                                brY = (brY + dy).coerceIn(minBrY, 1f)
+                                if (dx != 0f) {
+                                    blX = (blX + dx).coerceIn(0f, brX - 0.015f)
+                                    brX = (brX + dx).coerceIn(blX + 0.015f, 1f)
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_BOTTOM") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
+                        modifier = Modifier.size(width = 46.dp, height = 20.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("▲", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("▼", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Left Edge Handle (drag left or right across full width)
+                val cMidLeftX = (tlX + blX) / 2f
+                val cMidLeftY = (tlY + blY) / 2f
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (cMidLeftX * dispWPx).toDp() } - 18.dp,
+                            y = with(density) { (cMidLeftY * dispHPx).toDp() } - 32.dp
+                        )
+                        .size(width = 36.dp, height = 64.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "EDGE_LEFT" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dx = dragAmount.x / dispWPx
+                                val dy = dragAmount.y / dispHPx
+                                val maxTlX = trX - 0.015f
+                                val maxBlX = brX - 0.015f
+                                tlX = (tlX + dx).coerceIn(0f, maxTlX)
+                                blX = (blX + dx).coerceIn(0f, maxBlX)
+                                if (dy != 0f) {
+                                    tlY = (tlY + dy).coerceIn(0f, blY - 0.015f)
+                                    blY = (blY + dy).coerceIn(tlY + 0.015f, 1f)
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_LEFT") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
+                        modifier = Modifier.size(width = 20.dp, height = 46.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("◀", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("▶", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Right Edge Handle (drag left or right across full width)
+                val cMidRightX = (trX + brX) / 2f
+                val cMidRightY = (trY + brY) / 2f
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (cMidRightX * dispWPx).toDp() } - 18.dp,
+                            y = with(density) { (cMidRightY * dispHPx).toDp() } - 32.dp
+                        )
+                        .size(width = 36.dp, height = 64.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "EDGE_RIGHT" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dx = dragAmount.x / dispWPx
+                                val dy = dragAmount.y / dispHPx
+                                val minTrX = tlX + 0.015f
+                                val minBrX = blX + 0.015f
+                                trX = (trX + dx).coerceIn(minTrX, 1f)
+                                brX = (brX + dx).coerceIn(minBrX, 1f)
+                                if (dy != 0f) {
+                                    trY = (trY + dy).coerceIn(0f, brY - 0.015f)
+                                    brY = (brY + dy).coerceIn(trY + 0.015f, 1f)
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_RIGHT") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
+                        modifier = Modifier.size(width = 20.dp, height = 46.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("◀", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("▶", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 4 CORNER PINS (High-Precision Dragging)
+                // ==========================================
+
+                // Top-Left Pin
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (tlX * dispWPx).toDp() } - 26.dp,
+                            y = with(density) { (tlY * dispHPx).toDp() } - 26.dp
+                        )
+                        .size(52.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "TL" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dx = dragAmount.x / dispWPx
+                                val dy = dragAmount.y / dispHPx
+                                tlX = (tlX + dx).coerceIn(0f, trX - 0.015f)
+                                tlY = (tlY + dy).coerceIn(0f, blY - 0.015f)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (activeAdjustHandle == "TL") 46.dp else 36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "TL") 0.38f else 0.20f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3))
+                            .border(2.5.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
+                    }
+                }
+
+                // Top-Right Pin
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (trX * dispWPx).toDp() } - 26.dp,
+                            y = with(density) { (trY * dispHPx).toDp() } - 26.dp
+                        )
+                        .size(52.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "TR" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dx = dragAmount.x / dispWPx
+                                val dy = dragAmount.y / dispHPx
+                                trX = (trX + dx).coerceIn(tlX + 0.015f, 1f)
+                                trY = (trY + dy).coerceIn(0f, brY - 0.015f)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (activeAdjustHandle == "TR") 46.dp else 36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "TR") 0.38f else 0.20f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3))
+                            .border(2.5.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
+                    }
+                }
+
+                // Bottom-Right Pin
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (brX * dispWPx).toDp() } - 26.dp,
+                            y = with(density) { (brY * dispHPx).toDp() } - 26.dp
+                        )
+                        .size(52.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "BR" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dx = dragAmount.x / dispWPx
+                                val dy = dragAmount.y / dispHPx
+                                brX = (brX + dx).coerceIn(blX + 0.015f, 1f)
+                                brY = (brY + dy).coerceIn(trY + 0.015f, 1f)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (activeAdjustHandle == "BR") 46.dp else 36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "BR") 0.38f else 0.20f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3))
+                            .border(2.5.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
+                    }
+                }
+
+                // Bottom-Left Pin
+                Box(
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (blX * dispWPx).toDp() } - 26.dp,
+                            y = with(density) { (blY * dispHPx).toDp() } - 26.dp
+                        )
+                        .size(52.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { activeAdjustHandle = "BL" },
+                                onDragEnd = { activeAdjustHandle = null },
+                                onDragCancel = { activeAdjustHandle = null }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val dx = dragAmount.x / dispWPx
+                                val dy = dragAmount.y / dispHPx
+                                blX = (blX + dx).coerceIn(0f, brX - 0.015f)
+                                blY = (blY + dy).coerceIn(tlY + 0.015f, 1f)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (activeAdjustHandle == "BL") 46.dp else 36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "BL") 0.38f else 0.20f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFA3))
+                            .border(2.5.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
                     }
                 }
             }
 
-            // Bottom Edge Midpoint Handle
-            val cMidBotX = (blX + brX) / 2f
-            val cMidBotY = (blY + brY) / 2f
-            Box(
-                modifier = Modifier
-                    .offset(x = (cMidBotX * boxW).dp - 22.dp, y = (cMidBotY * boxH).dp - 14.dp)
-                    .size(width = 44.dp, height = 28.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val dy = dragAmount.y / boxHPx
-                            blY = (blY + dy).coerceIn(tlY + 0.04f, 0.99f)
-                            brY = (brY + dy).coerceIn(trY + 0.04f, 0.99f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF1E293B),
-                    border = BorderStroke(1.5.dp, Color(0xFF00B4D8)),
-                    modifier = Modifier.size(width = 30.dp, height = 16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
-                    }
-                }
+            // ==========================================
+            // FLOATING MAGNIFIER LOUPE (Real-Time Zoom)
+            // ==========================================
+            val activeNormPoint = when (activeAdjustHandle) {
+                "TL" -> PointF(tlX, tlY)
+                "TR" -> PointF(trX, trY)
+                "BR" -> PointF(brX, brY)
+                "BL" -> PointF(blX, blY)
+                "EDGE_TOP" -> PointF((tlX + trX) / 2f, (tlY + trY) / 2f)
+                "EDGE_BOTTOM" -> PointF((blX + brX) / 2f, (blY + brY) / 2f)
+                "EDGE_LEFT" -> PointF((tlX + blX) / 2f, (tlY + blY) / 2f)
+                "EDGE_RIGHT" -> PointF((trX + brX) / 2f, (trY + brY) / 2f)
+                else -> null
             }
 
-            // Left Edge Midpoint Handle
-            val cMidLeftX = (tlX + blX) / 2f
-            val cMidLeftY = (tlY + blY) / 2f
-            Box(
-                modifier = Modifier
-                    .offset(x = (cMidLeftX * boxW).dp - 14.dp, y = (cMidLeftY * boxH).dp - 22.dp)
-                    .size(width = 28.dp, height = 44.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val dx = dragAmount.x / boxWPx
-                            tlX = (tlX + dx).coerceIn(0.01f, trX - 0.04f)
-                            blX = (blX + dx).coerceIn(0.01f, brX - 0.04f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF1E293B),
-                    border = BorderStroke(1.5.dp, Color(0xFF00B4D8)),
-                    modifier = Modifier.size(width = 16.dp, height = 30.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
-                    }
-                }
-            }
+            if (activeNormPoint != null) {
+                val isTopHalf = activeNormPoint.y < 0.48f
+                val loupeAlign = if (isTopHalf) Alignment.BottomCenter else Alignment.TopCenter
 
-            // Right Edge Midpoint Handle
-            val cMidRightX = (trX + brX) / 2f
-            val cMidRightY = (trY + brY) / 2f
-            Box(
-                modifier = Modifier
-                    .offset(x = (cMidRightX * boxW).dp - 14.dp, y = (cMidRightY * boxH).dp - 22.dp)
-                    .size(width = 28.dp, height = 44.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val dx = dragAmount.x / boxWPx
-                            trX = (trX + dx).coerceIn(tlX + 0.04f, 0.99f)
-                            brX = (brX + dx).coerceIn(blX + 0.04f, 0.99f)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF1E293B),
-                    border = BorderStroke(1.5.dp, Color(0xFF00B4D8)),
-                    modifier = Modifier.size(width = 16.dp, height = 30.dp)
+                Box(
+                    modifier = Modifier
+                        .align(loupeAlign)
+                        .padding(12.dp)
+                        .size(116.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black)
+                        .border(3.dp, Color(0xFF00FFA3), CircleShape)
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val lw = size.width
+                        val lh = size.height
+                        val normX = activeNormPoint.x.coerceIn(0f, 1f)
+                        val normY = activeNormPoint.y.coerceIn(0f, 1f)
+
+                        val sampleFraction = 0.18f
+                        val srcW = (bitmap.width * sampleFraction).toInt().coerceIn(20, bitmap.width)
+                        val srcH = (bitmap.height * sampleFraction).toInt().coerceIn(20, bitmap.height)
+                        val srcX = (normX * bitmap.width - srcW / 2).toInt().coerceIn(0, (bitmap.width - srcW).coerceAtLeast(0))
+                        val srcY = (normY * bitmap.height - srcH / 2).toInt().coerceIn(0, (bitmap.height - srcH).coerceAtLeast(0))
+
+                        drawImage(
+                            image = bitmap.asImageBitmap(),
+                            srcOffset = IntOffset(srcX, srcY),
+                            srcSize = IntSize(srcW, srcH),
+                            dstSize = IntSize(lw.toInt(), lh.toInt())
+                        )
+
+                        // Center Crosshair
+                        val cx = lw / 2f
+                        val cy = lh / 2f
+                        drawLine(Color(0xFF00FFA3), Offset(cx - 20f, cy), Offset(cx + 20f, cy), strokeWidth = 2.5f)
+                        drawLine(Color(0xFF00FFA3), Offset(cx, cy - 20f), Offset(cx, cy + 20f), strokeWidth = 2.5f)
+                        drawCircle(Color(0xFF00FFA3), radius = 4f)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.82f))
+                            .padding(vertical = 3.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White))
+                        Text(
+                            text = when (activeAdjustHandle) {
+                                "TL" -> "Top-Left Pin"
+                                "TR" -> "Top-Right Pin"
+                                "BR" -> "Bottom-Right Pin"
+                                "BL" -> "Bottom-Left Pin"
+                                "EDGE_TOP" -> "Top Edge"
+                                "EDGE_BOTTOM" -> "Bottom Edge"
+                                "EDGE_LEFT" -> "Left Edge"
+                                "EDGE_RIGHT" -> "Right Edge"
+                                else -> "Adjusting"
+                            },
+                            color = Color(0xFF00FFA3),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
         }
 
+        // ==========================================
+        // BOTTOM TOOLBAR & PRESETS
+        // ==========================================
         Surface(
-            color = Color.Black,
+            color = Color(0xFF0B1120),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
-                AssistChip(
-                    onClick = {
-                        val auto = DocumentEdgeProcessor.detectDocument(bitmap)
-                        tlX = auto.corners.topLeft.x
-                        tlY = auto.corners.topLeft.y
-                        trX = auto.corners.topRight.x
-                        trY = auto.corners.topRight.y
-                        brX = auto.corners.bottomRight.x
-                        brY = auto.corners.bottomRight.y
-                        blX = auto.corners.bottomLeft.x
-                        blY = auto.corners.bottomLeft.y
-                    },
-                    label = { Text("🪄 Auto Edge", color = Color.White, fontSize = 11.sp) },
-                    colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
-                )
-
-                AssistChip(
-                    onClick = {
-                        tlX = 0.02f; tlY = 0.02f
-                        trX = 0.98f; trY = 0.02f
-                        brX = 0.98f; brY = 0.98f
-                        blX = 0.02f; blY = 0.98f
-                    },
-                    label = { Text("🔲 Full Page", color = Color.White, fontSize = 11.sp) },
-                    colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
-                )
-
-                Button(
-                    onClick = {
-                        onCornersConfirmed(
-                            DocCorners(
-                                topLeft = PointF(tlX, tlY),
-                                topRight = PointF(trX, trY),
-                                bottomRight = PointF(brX, brY),
-                                bottomLeft = PointF(blX, blY)
-                            )
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFA3)),
-                    shape = RoundedCornerShape(8.dp)
+                // Quick preset buttons
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Next ➔", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    AssistChip(
+                        onClick = {
+                            val auto = DocumentEdgeProcessor.detectDocument(bitmap)
+                            tlX = auto.corners.topLeft.x
+                            tlY = auto.corners.topLeft.y
+                            trX = auto.corners.topRight.x
+                            trY = auto.corners.topRight.y
+                            brX = auto.corners.bottomRight.x
+                            brY = auto.corners.bottomRight.y
+                            blX = auto.corners.bottomLeft.x
+                            blY = auto.corners.bottomLeft.y
+                        },
+                        label = { Text("🪄 Auto Edge", color = Color.White, fontSize = 11.sp) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
+                    )
+
+                    AssistChip(
+                        onClick = {
+                            // Center receipt / business card preset
+                            tlX = 0.18f; tlY = 0.16f
+                            trX = 0.82f; trY = 0.16f
+                            brX = 0.82f; brY = 0.84f
+                            blX = 0.18f; blY = 0.84f
+                        },
+                        label = { Text("🧾 Center / Receipt", color = Color.White, fontSize = 11.sp) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
+                    )
+
+                    AssistChip(
+                        onClick = {
+                            tlX = 0.01f; tlY = 0.01f
+                            trX = 0.99f; trY = 0.01f
+                            brX = 0.99f; brY = 0.99f
+                            blX = 0.01f; blY = 0.99f
+                        },
+                        label = { Text("🔲 Full Page", color = Color.White, fontSize = 11.sp) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
+                    )
+
+                    AssistChip(
+                        onClick = {
+                            tlX = initialCorners.topLeft.x
+                            tlY = initialCorners.topLeft.y
+                            trX = initialCorners.topRight.x
+                            trY = initialCorners.topRight.y
+                            brX = initialCorners.bottomRight.x
+                            brY = initialCorners.bottomRight.y
+                            blX = initialCorners.bottomLeft.x
+                            blY = initialCorners.bottomLeft.y
+                        },
+                        label = { Text("↺ Reset", color = Color.LightGray, fontSize = 11.sp) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Touch edges, pins, or center to fit paper",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp
+                    )
+
+                    Button(
+                        onClick = {
+                            onCornersConfirmed(
+                                DocCorners(
+                                    topLeft = PointF(tlX, tlY),
+                                    topRight = PointF(trX, trY),
+                                    bottomRight = PointF(brX, brY),
+                                    bottomLeft = PointF(blX, blY)
+                                )
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFA3)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Next ➔", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             }
         }
