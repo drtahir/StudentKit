@@ -47,7 +47,9 @@ import com.drtahir.studentkit.viewmodel.StudentKitViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import java.io.InputStream
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.unit.IntOffset
+import com.drtahir.studentkit.viewmodel.TargetScale
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +63,8 @@ fun ImageEnhancerScreen(
     val isModelLoaded by viewModel.modelLoaded.collectAsState()
 
     val passProfile by viewModel.passProfile.collectAsState()
+    val targetScale by viewModel.targetScale.collectAsState()
+    val faceClarityStrength by viewModel.faceClarityStrength.collectAsState()
     val sharpeningStrength by viewModel.sharpeningStrength.collectAsState()
     val skinSmoothStrength by viewModel.skinSmoothStrength.collectAsState()
     val enablePreDenoise by viewModel.enablePreDenoise.collectAsState()
@@ -342,12 +346,18 @@ fun ImageEnhancerScreen(
                     ) {
                         MultiPassQualityControlPanel(
                             selectedProfile = passProfile,
+                            selectedScale = targetScale,
+                            faceClarityStrength = faceClarityStrength,
                             sharpeningStrength = sharpeningStrength,
                             skinSmoothStrength = skinSmoothStrength,
                             enablePreDenoise = enablePreDenoise,
                             enableColorBoost = enableColorBoost,
                             showAdvancedTuning = showAdvancedTuning,
+                            imageWidth = originalImage?.width ?: 0,
+                            imageHeight = originalImage?.height ?: 0,
                             onProfileSelected = { viewModel.setPassProfile(it) },
+                            onScaleSelected = { viewModel.setTargetScale(it) },
+                            onFaceClarityChanged = { viewModel.setFaceClarityStrength(it) },
                             onSharpeningChanged = { viewModel.setSharpeningStrength(it) },
                             onSkinSmoothChanged = { viewModel.setSkinSmoothStrength(it) },
                             onPreDenoiseToggled = { viewModel.setEnablePreDenoise(it) },
@@ -473,23 +483,23 @@ fun ImageEnhancerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Quality Profile", fontSize = 10.sp, color = Color.Gray)
-                                Text(state.profileName.split(" ")[0], fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
+                                Text("Output Size", fontSize = 10.sp, color = Color.Gray)
+                                Text("${state.enhanced.width}×${state.enhanced.height}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
                             }
                             Box(modifier = Modifier.height(24.dp).width(1.dp).background(Color.LightGray))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Passes Run", fontSize = 10.sp, color = Color.Gray)
-                                Text("${state.passesApplied} Passes", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Faces Cleared", fontSize = 10.sp, color = Color.Gray)
+                                Text("${state.facesCount} Restored", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                             Box(modifier = Modifier.height(24.dp).width(1.dp).background(Color.LightGray))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Faces Restored", fontSize = 10.sp, color = Color.Gray)
-                                Text("${state.facesCount} Detected", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("Scale Mode", fontSize = 10.sp, color = Color.Gray)
+                                Text(if (state.scaleFactor <= 1.05f) "1x Native" else "${state.scaleFactor.toInt()}x Upscale", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                             Box(modifier = Modifier.height(24.dp).width(1.dp).background(Color.LightGray))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Engine", fontSize = 10.sp, color = Color.Gray)
-                                Text("AI Super-Res", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
+                                Text("Pipeline", fontSize = 10.sp, color = Color.Gray)
+                                Text("${state.passesApplied} Passes", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
                             }
                         }
                     }
@@ -574,6 +584,9 @@ fun BeforeAfterSlider(
     var sliderX by remember { mutableStateOf(0.5f) } // Slider position (0f to 1f)
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
 
+    val originalBitmap = remember(original) { original.asImageBitmap() }
+    val enhancedBitmap = remember(enhanced) { enhanced.asImageBitmap() }
+
     Box(
         modifier = modifier
             .onSizeChanged { viewSize = it }
@@ -587,33 +600,48 @@ fun BeforeAfterSlider(
             }
             .clipToBounds()
     ) {
-        val originalBitmap = original.asImageBitmap()
-        val enhancedBitmap = enhanced.asImageBitmap()
+        // Pixel-perfect aspect-fit Canvas rendering
+        // Guarantees 100% exact alignment between blurry original and restored enhanced portrait!
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val cWidth = size.width
+            val cHeight = size.height
+            if (cWidth <= 0f || cHeight <= 0f) return@Canvas
 
-        // 1. Enhanced Image (Drawn fully in background)
-        Image(
-            bitmap = enhancedBitmap,
-            contentDescription = "Enhanced image view",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize()
-        )
+            val imgRatio = original.width.toFloat() / original.height.toFloat()
+            val canvasRatio = cWidth / cHeight
 
-        // 2. Original Image (Drawn on top, clipped horizontally matching slider position)
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(sliderX)
-                .clipToBounds()
-        ) {
-            Image(
-                bitmap = originalBitmap,
-                contentDescription = "Original image view",
-                contentScale = ContentScale.Crop, // To maintain strict sync overlay, Crop coordinates match perfectly
-                modifier = Modifier.fillMaxHeight().width(
-                    if (viewSize.width > 0) (viewSize.width / LocalContext.current.resources.displayMetrics.density).dp else 300.dp
-                ),
-                alignment = Alignment.CenterStart
+            val drawW: Float
+            val drawH: Float
+            if (canvasRatio > imgRatio) {
+                drawH = cHeight
+                drawW = cHeight * imgRatio
+            } else {
+                drawW = cWidth
+                drawH = cWidth / imgRatio
+            }
+
+            val drawLeft = (cWidth - drawW) / 2f
+            val drawTop = (cHeight - drawH) / 2f
+
+            val dstOffset = IntOffset(drawLeft.toInt(), drawTop.toInt())
+            val dstSize = IntSize(drawW.toInt(), drawH.toInt())
+
+            // 1. Draw Enhanced Image (Right half / background)
+            drawImage(
+                image = enhancedBitmap,
+                dstOffset = dstOffset,
+                dstSize = dstSize
             )
+
+            // 2. Draw Original Image (Left half clipped strictly by slider position)
+            val clipRight = (cWidth * sliderX).coerceIn(0f, cWidth)
+            clipRect(left = 0f, top = 0f, right = clipRight, bottom = cHeight) {
+                drawImage(
+                    image = originalBitmap,
+                    dstOffset = dstOffset,
+                    dstSize = dstSize
+                )
+            }
         }
 
         // 3. Slider Handle Line & Partition Separator
@@ -653,20 +681,20 @@ fun BeforeAfterSlider(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(12.dp)
-                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
-            Text("Before", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text("Before (Blurry)", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
 
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(12.dp)
-                .background(Color(0xFF00ACC1).copy(alpha = 0.8f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .background(Color(0xFF00838F).copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
-            Text("After HD", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text("After (Clear Face)", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -674,12 +702,18 @@ fun BeforeAfterSlider(
 @Composable
 fun MultiPassQualityControlPanel(
     selectedProfile: com.drtahir.studentkit.viewmodel.EnhancePassProfile,
+    selectedScale: TargetScale,
+    faceClarityStrength: Float,
     sharpeningStrength: Float,
     skinSmoothStrength: Float,
     enablePreDenoise: Boolean,
     enableColorBoost: Boolean,
     showAdvancedTuning: Boolean,
+    imageWidth: Int,
+    imageHeight: Int,
     onProfileSelected: (com.drtahir.studentkit.viewmodel.EnhancePassProfile) -> Unit,
+    onScaleSelected: (TargetScale) -> Unit,
+    onFaceClarityChanged: (Float) -> Unit,
     onSharpeningChanged: (Float) -> Unit,
     onSkinSmoothChanged: (Float) -> Unit,
     onPreDenoiseToggled: (Boolean) -> Unit,
@@ -707,7 +741,7 @@ fun MultiPassQualityControlPanel(
                 ) {
                     Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF00ACC1), modifier = Modifier.size(20.dp))
                     Text(
-                        text = "Multi-Pass Quality Pipeline",
+                        text = "Face Clarity & Processing",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
@@ -731,7 +765,7 @@ fun MultiPassQualityControlPanel(
                 }
             }
 
-            // Preset Profile Chips
+            // Quality Profile Chips
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -751,16 +785,82 @@ fun MultiPassQualityControlPanel(
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                text = profile.displayName.split(" ")[0], // "Fast", "Balanced", "Ultra"
+                                text = profile.displayName.split(" ")[0],
                                 color = if (isSelected) Color.White else Color.Black,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
                             Text(
-                                text = "Passes: ${profile.totalPasses}",
+                                text = "${profile.totalPasses} Passes",
                                 color = if (isSelected) Color.White.copy(alpha = 0.85f) else Color.Gray,
                                 fontSize = 10.sp
                             )
+                        }
+                    }
+                }
+            }
+
+            // Output Scale & File Size Control Section
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF8FAFC), RoundedCornerShape(10.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Output Resolution & Scaling",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF334155)
+                    )
+                    if (imageWidth > 0 && imageHeight > 0) {
+                        val outW = (imageWidth * selectedScale.factor).toInt()
+                        val outH = (imageHeight * selectedScale.factor).toInt()
+                        Text(
+                            text = "Target: ${outW}×${outH} px",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00ACC1)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    TargetScale.values().forEach { scale ->
+                        val isSelected = scale == selectedScale
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF00838F) else Color.White,
+                            border = BorderStroke(1.dp, if (isSelected) Color(0xFF00838F) else Color.LightGray.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onScaleSelected(scale) }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = scale.title.split(" ")[0], // "1x", "2x", "4x"
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) Color.White else Color.Black
+                                )
+                                Text(
+                                    text = if (scale == TargetScale.SCALE_1X) "No Bloat" else "${scale.factor.toInt()}x Upscale",
+                                    fontSize = 9.sp,
+                                    color = if (isSelected) Color.White.copy(alpha = 0.9f) else Color.Gray
+                                )
+                            }
                         }
                     }
                 }
@@ -773,7 +873,27 @@ fun MultiPassQualityControlPanel(
                 ) {
                     HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
 
-                    // 1. Edge Sharpening Slider
+                    // 1. Face & Eyes Clarity Deblurring Slider
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Deep Face & Eye Clarity (Deblurring)", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text("${(faceClarityStrength * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
+                        }
+                        Slider(
+                            value = faceClarityStrength,
+                            onValueChange = onFaceClarityChanged,
+                            valueRange = 0f..1f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF00ACC1),
+                                activeTrackColor = Color(0xFF00ACC1)
+                            )
+                        )
+                    }
+
+                    // 2. Micro-Detail Edge Sharpening Slider
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -793,13 +913,13 @@ fun MultiPassQualityControlPanel(
                         )
                     }
 
-                    // 2. Skin Smooth & Face Restoration Blend Slider
+                    // 3. Skin Smooth & Feather Blend Slider
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Portrait Skin Restore & Feather Blend", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text("Portrait Skin Smoothing & Seamless Blend", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             Text("${(skinSmoothStrength * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00ACC1))
                         }
                         Slider(
@@ -813,7 +933,7 @@ fun MultiPassQualityControlPanel(
                         )
                     }
 
-                    // 3. Pre-Denoise Toggle
+                    // 4. Pre-Denoise Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -821,7 +941,7 @@ fun MultiPassQualityControlPanel(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Pre-Processing Denoise Filter", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Text("Suppresses compression noise before upscaling", fontSize = 10.sp, color = Color.Gray)
+                            Text("Suppresses compression noise before deblurring", fontSize = 10.sp, color = Color.Gray)
                         }
                         Switch(
                             checked = enablePreDenoise,
@@ -833,7 +953,7 @@ fun MultiPassQualityControlPanel(
                         )
                     }
 
-                    // 4. Color & Vibrance Boost Toggle
+                    // 5. Color & Vibrance Boost Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -857,6 +977,7 @@ fun MultiPassQualityControlPanel(
         }
     }
 }
+
 
 private fun loadUriAsBitmap(context: Context, uri: Uri): Bitmap? {
     return try {

@@ -15,6 +15,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.drtahir.studentkit.data.RobustQrDecoder
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -145,60 +149,30 @@ fun TypeCardItem(id: String, category: String, isSelected: Boolean, onClick: () 
         Icon(
             imageVector = when (id) {
                 "URL" -> Icons.Default.Link
-                "PDF" -> Icons.Default.Attachment
-                "Image" -> Icons.Default.Image
-                "App Markets" -> Icons.Default.Shop
                 "Text" -> Icons.Default.TextFields
-                "Maps" -> Icons.Default.Map
                 "Wi-Fi" -> Icons.Default.Wifi
-                "Audio" -> Icons.Default.MusicNote
-                "WhatsApp" -> Icons.Default.Mail
+                "vCard" -> Icons.Default.ContactPage
+                "WhatsApp" -> Icons.Default.Chat
+                "Email" -> Icons.Default.Email
+                "Phone Call" -> Icons.Default.Phone
+                "SMS" -> Icons.Default.Sms
+                "Google Maps" -> Icons.Default.Map
+                "Calendar" -> Icons.Default.DateRange
+                "UPI" -> Icons.Default.QrCodeScanner
+                "PayPal" -> Icons.Default.MonetizationOn
                 "YouTube" -> Icons.Default.PlayArrow
-                "Booking" -> Icons.Default.Book
                 "Instagram" -> Icons.Default.CameraAlt
                 "Facebook" -> Icons.Default.Groups
                 "Telegram" -> Icons.Default.Send
-                "vCard" -> Icons.Default.ContactPage
-                "E-mail" -> Icons.Default.Email
-                "List of Links" -> Icons.Default.List
-                "PPTX" -> Icons.Default.PresentToAll
-                "Phone Call" -> Icons.Default.Phone
-                "Custom URL" -> Icons.Default.OpenInNew
-                "TikTok" -> Icons.Default.Videocam
-                "Video File" -> Icons.Default.VideoFile
-                "Forms" -> Icons.Default.Feed
-                "PCR" -> Icons.Default.MedicalServices
-                "X (Twitter)" -> Icons.Default.Tag
-                "Snapchat" -> Icons.Default.PhotoCamera
-                "Spotify" -> Icons.Default.MusicVideo
-                "Google Doc" -> Icons.Default.Description
-                "Review" -> Icons.Default.StarRate
-                "Sheets" -> Icons.Default.TableChart
-                "Payment" -> Icons.Default.Payment
-                "SMS" -> Icons.Default.Sms
-                "Logotype" -> Icons.Default.Domain
-                "Office 365" -> Icons.Default.Cloud
-                "Shaped" -> Icons.Default.Brush
-                "PayPal" -> Icons.Default.MonetizationOn
-                "Etsy" -> Icons.Default.Store
-                "PNG" -> Icons.Default.FilePresent
                 "LinkedIn" -> Icons.Default.WorkspacePremium
-                "Crypto Pay" -> Icons.Default.AccountBalanceWallet
-                "Calendar" -> Icons.Default.DateRange
-                "Social Media" -> Icons.Default.Share
-                "Reddit" -> Icons.Default.Forum
-                "Menu" -> Icons.Default.RestaurantMenu
-                "File" -> Icons.Default.FolderZip
-                "Tickets" -> Icons.Default.ConfirmationNumber
-                "Excel" -> Icons.Default.GridOn
-                "Venmo" -> Icons.Default.Paid
-                "Amazon" -> Icons.Default.ShoppingBag
-                "2D-Barcode" -> Icons.Default.QrCode
-                "UPI" -> Icons.Default.QrCodeScanner
-                "Attendance" -> Icons.Default.AssignmentInd
-                "WeChat" -> Icons.Default.ChatBubble
-                "Line" -> Icons.Default.CallMade
-                else -> Icons.Default.ContactMail
+                "X (Twitter)" -> Icons.Default.Tag
+                "TikTok" -> Icons.Default.Videocam
+                "GitHub" -> Icons.Default.Code
+                "App Store" -> Icons.Default.Shop
+                "PDF Link" -> Icons.Default.PictureAsPdf
+                "Drive File" -> Icons.Default.Cloud
+                "Cloud Storage" -> Icons.Default.FolderZip
+                else -> Icons.Default.Link
             },
             contentDescription = null,
             tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray,
@@ -2214,7 +2188,8 @@ fun generateQrCodeBitmap(
     logoBlendOpacity: Float = 1.0f,
     qrFusionMode: String = "Centered Badge",
     contrastBoost: Boolean = true,
-    useImageAsTexture: Boolean = true
+    useImageAsTexture: Boolean = true,
+    selectedEccLevel: String = "Level H"
 ): android.graphics.Bitmap {
     val size = resolutionPx.coerceIn(256, 4096)
     val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
@@ -2226,8 +2201,14 @@ fun generateQrCodeBitmap(
     val payload = qrContentText.ifEmpty { "https://google.com" }
     
     val hints = java.util.HashMap<com.google.zxing.EncodeHintType, Any>()
-    hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
-    hints[com.google.zxing.EncodeHintType.MARGIN] = if (includeQuietZone) 2 else 1
+    val ecc = when {
+        selectedEccLevel.contains("Level L") -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.L
+        selectedEccLevel.contains("Level M") -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.M
+        selectedEccLevel.contains("Level Q") -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.Q
+        else -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
+    }
+    hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = ecc
+    hints[com.google.zxing.EncodeHintType.MARGIN] = 0
     hints[com.google.zxing.EncodeHintType.CHARACTER_SET] = "UTF-8"
     
     val bitMatrix = try {
@@ -2251,10 +2232,12 @@ fun generateQrCodeBitmap(
     val qrAreaWidth = size - (frameSidePadding * 2f)
     val qrAreaHeight = size - frameTopPadding - frameBottomPadding
     val qrAreaSize = minOf(qrAreaWidth, qrAreaHeight)
-    val qrLeft = (size - qrAreaSize) / 2f
-    val qrTop = frameTopPadding + ((size - frameTopPadding - frameBottomPadding) - qrAreaSize) / 2f
     
-    val cellSize = qrAreaSize / matrixWidth.toFloat()
+    val quietZoneModules = if (includeQuietZone) 3.0f else 1.0f
+    val totalModules = matrixWidth + quietZoneModules * 2f
+    val cellSize = qrAreaSize / totalModules
+    val qrLeft = ((size - qrAreaSize) / 2f) + quietZoneModules * cellSize
+    val qrTop = (frameTopPadding + ((size - frameTopPadding - frameBottomPadding) - qrAreaSize) / 2f) + quietZoneModules * cellSize
     
     val primaryColorInt = try { android.graphics.Color.parseColor(selectedPalette.startColor) } catch (e: Exception) { android.graphics.Color.parseColor("#1565C0") }
     val endColorInt = try { android.graphics.Color.parseColor(selectedPalette.endColor) } catch (e: Exception) { primaryColorInt }
@@ -2621,7 +2604,8 @@ fun QrCodePreviewEngine(
     qrFusionMode: String = "Centered Badge",
     contrastBoost: Boolean = true,
     customQrDensity: Int = 29,
-    useImageAsTexture: Boolean = true
+    useImageAsTexture: Boolean = true,
+    selectedEccLevel: String = "Level H"
 ) {
     val hasLogo = selectedLogo != "None" || imageBitmap != null
 
@@ -2684,12 +2668,18 @@ fun QrCodePreviewEngine(
 
     val payload = qrContentText.ifEmpty { "https://google.com" }
 
-    // Real ZXing QR Code BitMatrix Generation with Level H Error Correction
-    val bitMatrix = remember(payload, includeQuietZone) {
+    // Real ZXing QR Code BitMatrix Generation with dynamic error correction
+    val bitMatrix = remember(payload, selectedEccLevel) {
         try {
             val hints = java.util.HashMap<com.google.zxing.EncodeHintType, Any>()
-            hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
-            hints[com.google.zxing.EncodeHintType.MARGIN] = if (includeQuietZone) 2 else 1
+            val ecc = when {
+                selectedEccLevel.contains("Level L") -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.L
+                selectedEccLevel.contains("Level M") -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.M
+                selectedEccLevel.contains("Level Q") -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.Q
+                else -> com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.H
+            }
+            hints[com.google.zxing.EncodeHintType.ERROR_CORRECTION] = ecc
+            hints[com.google.zxing.EncodeHintType.MARGIN] = 0
             hints[com.google.zxing.EncodeHintType.CHARACTER_SET] = "UTF-8"
             val writer = com.google.zxing.qrcode.QRCodeWriter()
             writer.encode(payload, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0, hints)
@@ -2721,7 +2711,11 @@ fun QrCodePreviewEngine(
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val boxSize = size.width / matrixWidth.toFloat()
+            val paddingModules = if (includeQuietZone) 3.0f else 1.0f
+            val totalModules = matrixWidth + paddingModules * 2f
+            val boxSize = size.width / totalModules
+            val qrOffsetX = paddingModules * boxSize
+            val qrOffsetY = paddingModules * boxSize
 
             // Draw Finder Eyes (7x7 modules standard 1:1:3:1:1 geometric ratio)
             fun drawFinder(ofX: Float, ofY: Float) {
@@ -2756,9 +2750,9 @@ fun QrCodePreviewEngine(
                 }
             }
 
-            drawFinder(0f, 0f)
-            drawFinder((matrixWidth - 7) * boxSize, 0f)
-            drawFinder(0f, (matrixHeight - 7) * boxSize)
+            drawFinder(qrOffsetX + 0f, qrOffsetY + 0f)
+            drawFinder(qrOffsetX + (matrixWidth - 7) * boxSize, qrOffsetY + 0f)
+            drawFinder(qrOffsetX + 0f, qrOffsetY + (matrixHeight - 7) * boxSize)
 
             // Draw matrix cell patterns (Solid, scannable)
             fun drawCellPattern(cx: Float, cy: Float) {
@@ -2788,7 +2782,7 @@ fun QrCodePreviewEngine(
                         if (isInsideCenter(x, y)) continue
                         
                         if (bitMatrix.get(x, y)) {
-                            drawCellPattern(x * boxSize, y * boxSize)
+                            drawCellPattern(qrOffsetX + x * boxSize, qrOffsetY + y * boxSize)
                         }
                     }
                 }
@@ -2815,16 +2809,34 @@ fun QrCodePreviewEngine(
 fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
     
-    // Parse all 55 custom QR types on-the-fly to conserve memory/tokens
+    // 100% Real, Standard QR Service Protocols and Web URL Formats
     val qrTypeList = remember {
-        "URL;Web;https://google.com|PDF;Files;https://site.com/doc.pdf|Image;Files;https://site.com/img.png|App Markets;Business;market://details?id=com.drtahir.studentkit|Text;Web;Hello Classmate!|Maps;Web;geo:40.71,-74.00|Wi-Fi;Web;WIFI:S:AcademicNet;T:WPA;P:pass;;|Audio;Files;https://site.com/audio.mp3|WhatsApp;Social;https://wa.me/92300|YouTube;Social;https://youtube.com/watch?v=|Booking;Business;https://booking.edu|Instagram;Social;https://instagram.com|Facebook;Social;https://facebook.com|Telegram;Social;https://t.me|vCard;Social;BEGIN:VCARD|E-mail;Social;mailto:dean@edu.pk|List of Links;Web;https://local-collection.app/links|PPTX;Files;https://site.com/slides.pptx|Phone Call;Web;tel:+923|Custom URL;Web;academic://portal|TikTok;Social;https://tiktok.com/@|Video File;Files;https://site.com/video.mp4|Forms;Business;https://forms.gle|PCR;Business;pcr://report|X (Twitter);Social;https://x.com|Snapchat;Social;https://snapchat.com|Spotify;Social;https://spotify.com|Google Doc;Files;https://docs.google.com|Review;Business;https://g.page|Sheets;Files;https://docs.google.com/sheets|Payment;Business;https://stripe.com|SMS;Social;smsto:+923|Logotype;Business;https://brand.com|Office 365;Files;https://onedrive.live.com|Shaped;Web;https://google.com?shaped|PayPal;Business;https://paypal.me|Etsy;Business;https://etsy.com|PNG;Files;https://site.com/qr.png|LinkedIn;Social;https://linkedin.com|Crypto Pay;Business;ethereum:0x|Calendar;Social;BEGIN:VEVENT|Social Media;Social;https://linktr.ee|Reddit;Social;https://reddit.com|Menu;Web;https://menu.com|File;Files;https://dropbox.com|Tickets;Business;ticket://pass|Excel;Files;https://onedrive.live.com|Venmo;Business;https://venmo.com|Amazon;Business;https://amazon.com|2D-Barcode;Web;Barcode_Payload|UPI;Business;upi://pay?pa=|Attendance;Business;attend://student|WeChat;Social;wechat://user|Line;Social;line://ti/p|KakaoTalk;Social;kakaotalk://user".split("|").mapNotNull {
-            val parts = it.split(";")
-            if (parts.size >= 3) {
-                Triple(parts[0], parts[1], parts[2])
-            } else {
-                null
-            }
-        }
+        listOf(
+            Triple("URL", "Web", "https://google.com"),
+            Triple("Text", "Web", "Hello World!"),
+            Triple("Wi-Fi", "Communication", "WIFI:S:HomeNet;T:WPA;P:password;;"),
+            Triple("vCard", "Communication", "BEGIN:VCARD"),
+            Triple("WhatsApp", "Social", "https://wa.me/"),
+            Triple("Email", "Communication", "mailto:contact@example.com"),
+            Triple("Phone Call", "Communication", "tel:+15551234567"),
+            Triple("SMS", "Communication", "smsto:+15551234567:"),
+            Triple("Google Maps", "Web", "https://maps.google.com/?q=40.71,-74.00"),
+            Triple("Calendar", "Communication", "BEGIN:VCALENDAR"),
+            Triple("UPI", "Business", "upi://pay?pa=merchant@upi"),
+            Triple("PayPal", "Business", "https://paypal.me/"),
+            Triple("YouTube", "Social", "https://youtube.com/"),
+            Triple("Instagram", "Social", "https://instagram.com/"),
+            Triple("Facebook", "Social", "https://facebook.com/"),
+            Triple("Telegram", "Social", "https://t.me/"),
+            Triple("LinkedIn", "Social", "https://linkedin.com/in/"),
+            Triple("X (Twitter)", "Social", "https://x.com/"),
+            Triple("TikTok", "Social", "https://tiktok.com/@"),
+            Triple("GitHub", "Social", "https://github.com/"),
+            Triple("App Store", "Business", "https://apps.apple.com/app/"),
+            Triple("PDF Link", "Files", "https://example.com/document.pdf"),
+            Triple("Drive File", "Files", "https://drive.google.com/file/"),
+            Triple("Cloud Storage", "Files", "https://dropbox.com/s/")
+        )
     }
 
     var selectedType by remember { mutableStateOf("URL") }
@@ -2841,32 +2853,116 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
 
     val fieldValues = remember { mutableStateMapOf<String, String>() }
 
-    val qrContentText = remember(selectedType, fieldValues) {
+    // Evaluated reactively on every change to fieldValues or selectedType
+    val qrContentText = run {
         val f0 = fieldValues["$selectedType-0"] ?: ""
         val f1 = fieldValues["$selectedType-1"] ?: ""
         val f2 = fieldValues["$selectedType-2"] ?: ""
         
         when (selectedType) {
-            "Wi-Fi" -> "WIFI:S:${f0.ifEmpty { "AcademicNet" }};T:${f2.ifEmpty { "WPA" }};P:$f1;;"
-            "vCard" -> "BEGIN:VCARD\nVERSION:3.0\nN:${f0.ifEmpty { "Smith" }}\nTEL:$f1\nEMAIL:$f2\nEND:VCARD"
-            "WhatsApp" -> "https://wa.me/${f0.ifEmpty { "92300" }}?text=${java.net.URLEncoder.encode(f1, "UTF-8")}"
-            "SMS" -> "smsto:${f0.ifEmpty { "92" }}:$f1"
-            "PayPal" -> "https://paypal.me/${f0.ifEmpty { "tuition" }}/${f1}?item_name=${java.net.URLEncoder.encode(f2, "UTF-8")}"
-            "Venmo" -> "https://venmo.com/${f0.ifEmpty { "fee" }}?amt=$f1&note=${java.net.URLEncoder.encode(f2, "UTF-8")}"
-            "UPI" -> "upi://pay?pa=${f0.ifEmpty { "campus@upi" }}&am=$f1&tn=${java.net.URLEncoder.encode(f2, "UTF-8")}"
-            "Crypto Pay" -> "${f1.ifEmpty { "ethereum" }}:${f0.ifEmpty { "0x932" }}?amount=$f2"
-            "App Markets" -> if (f1.contains("iOS", true)) "https://apps.apple.com/app/id$f0" else "market://details?id=$f0"
-            "Calendar" -> "BEGIN:VEVENT\nSUMMARY:${f0.ifEmpty { "Orientation" }}\nLOCATION:$f1\nEND:VEVENT"
-            "PCR" -> "pcr://lab/report/${f0.ifEmpty { "992" }}?lab=${java.net.URLEncoder.encode(f1, "UTF-8")}&status=$f2"
-            "List of Links" -> "https://local-collection.app/links?title=${java.net.URLEncoder.encode(f0, "UTF-8")}&url=${java.net.URLEncoder.encode(f1, "UTF-8")}"
-            else -> f0.ifEmpty {
-                qrTypeList.find { it.first == selectedType }?.third ?: "https://google.com"
+            "Wi-Fi" -> {
+                val ssid = f0.ifEmpty { "HomeNet" }
+                val pass = f1
+                val type = f2.ifEmpty { "WPA" }
+                "WIFI:S:$ssid;T:$type;P:$pass;;"
+            }
+            "vCard" -> {
+                val name = f0.ifEmpty { "John Doe" }
+                val phone = f1
+                val email = f2
+                "BEGIN:VCARD\nVERSION:3.0\nFN:$name\nTEL:$phone\nEMAIL:$email\nEND:VCARD"
+            }
+            "WhatsApp" -> {
+                val phone = f0.filter { it.isDigit() || it == '+' }.ifEmpty { "15551234567" }
+                val msg = if (f1.isNotEmpty()) "?text=" + java.net.URLEncoder.encode(f1, "UTF-8") else ""
+                "https://wa.me/$phone$msg"
+            }
+            "Email" -> {
+                val email = f0.ifEmpty { "contact@example.com" }
+                val subject = if (f1.isNotEmpty()) "?subject=" + java.net.URLEncoder.encode(f1, "UTF-8") else ""
+                val body = if (f2.isNotEmpty()) (if (subject.isEmpty()) "?body=" else "&body=") + java.net.URLEncoder.encode(f2, "UTF-8") else ""
+                "mailto:$email$subject$body"
+            }
+            "Phone Call" -> {
+                "tel:${f0.ifEmpty { "+15551234567" }}"
+            }
+            "SMS" -> {
+                val phone = f0.ifEmpty { "+15551234567" }
+                val msg = f1
+                "smsto:$phone:$msg"
+            }
+            "Google Maps" -> {
+                val loc = f0.ifEmpty { "Times Square, New York" }
+                if (loc.startsWith("http://") || loc.startsWith("https://")) loc
+                else "https://maps.google.com/?q=" + java.net.URLEncoder.encode(loc, "UTF-8")
+            }
+            "Calendar" -> {
+                val title = f0.ifEmpty { "Important Meeting" }
+                val loc = f1.ifEmpty { "Main Conference Room" }
+                val desc = f2
+                "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:$title\nLOCATION:$loc\nDESCRIPTION:$desc\nEND:VEVENT\nEND:VCALENDAR"
+            }
+            "UPI" -> {
+                val vpa = f0.ifEmpty { "merchant@upi" }
+                val pn = if (f1.isNotEmpty()) "&pn=" + java.net.URLEncoder.encode(f1, "UTF-8") else ""
+                val am = if (f2.isNotEmpty()) "&am=$f2" else ""
+                "upi://pay?pa=$vpa$pn$am"
+            }
+            "PayPal" -> {
+                val user = f0.removePrefix("@").removePrefix("https://paypal.me/").ifEmpty { "username" }
+                val amt = if (f1.isNotEmpty()) "/$f1" else ""
+                "https://paypal.me/$user$amt"
+            }
+            "YouTube" -> {
+                val link = f0.ifEmpty { "https://youtube.com" }
+                if (link.startsWith("http://") || link.startsWith("https://")) link else "https://youtube.com/results?search_query=" + java.net.URLEncoder.encode(link, "UTF-8")
+            }
+            "Instagram" -> {
+                val handle = f0.removePrefix("@").removePrefix("https://instagram.com/").ifEmpty { "instagram" }
+                if (handle.startsWith("http://") || handle.startsWith("https://")) handle else "https://instagram.com/$handle"
+            }
+            "Facebook" -> {
+                val link = f0.ifEmpty { "https://facebook.com" }
+                if (link.startsWith("http://") || link.startsWith("https://")) link else "https://facebook.com/$link"
+            }
+            "Telegram" -> {
+                val handle = f0.removePrefix("@").removePrefix("https://t.me/").ifEmpty { "telegram" }
+                if (handle.startsWith("http://") || handle.startsWith("https://")) handle else "https://t.me/$handle"
+            }
+            "LinkedIn" -> {
+                val link = f0.ifEmpty { "https://linkedin.com" }
+                if (link.startsWith("http://") || link.startsWith("https://")) link else "https://linkedin.com/in/$link"
+            }
+            "X (Twitter)" -> {
+                val handle = f0.removePrefix("@").removePrefix("https://x.com/").removePrefix("https://twitter.com/").ifEmpty { "twitter" }
+                if (handle.startsWith("http://") || handle.startsWith("https://")) handle else "https://x.com/$handle"
+            }
+            "TikTok" -> {
+                val handle = f0.removePrefix("@").removePrefix("https://tiktok.com/@").ifEmpty { "tiktok" }
+                if (handle.startsWith("http://") || handle.startsWith("https://")) handle else "https://tiktok.com/@$handle"
+            }
+            "GitHub" -> {
+                val link = f0.removePrefix("@").removePrefix("https://github.com/").ifEmpty { "torvalds" }
+                if (link.startsWith("http://") || link.startsWith("https://")) link else "https://github.com/$link"
+            }
+            "App Store" -> {
+                f0.ifEmpty { "https://apps.apple.com" }
+            }
+            "PDF Link", "Drive File", "Cloud Storage" -> {
+                f0.ifEmpty { qrTypeList.find { it.first == selectedType }?.third ?: "https://example.com" }
+            }
+            "Text" -> {
+                f0.ifEmpty { "Hello World!" }
+            }
+            else -> {
+                f0.ifEmpty { qrTypeList.find { it.first == selectedType }?.third ?: "https://google.com" }
             }
         }
     }
 
     val qrPalettes = remember {
         listOf(
+            QrPalette("Pure Obsidian", "#000000", "#000000", false),
             QrPalette("Ocean Depth", "#1565C0", "#00E5FF", true),
             QrPalette("Sunset Horizon", "#E91E63", "#FF9100", true),
             QrPalette("Emerald Jade", "#004D40", "#00E676", true),
@@ -2875,7 +2971,6 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
             QrPalette("Carbon Matte", "#121212", "#2D2D2D", true),
             QrPalette("Imperial Gold", "#D4AF37", "#9A7B1C", true),
             QrPalette("Cosmic Purple", "#4A148C", "#4A148C", false),
-            QrPalette("Pure Obsidian", "#000000", "#000000", false),
             QrPalette("Deep Amber", "#FF6F00", "#FF6F00", false),
             QrPalette("Slate Charcoal", "#37474F", "#37474F", false),
             QrPalette("Sakura Pink", "#FF69B4", "#FF1493", true)
@@ -2922,7 +3017,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
     var qrEyeStyle by remember { mutableStateOf("Classic Edge") }
     var selectedLogo by remember { mutableStateOf("None") }
     var isAutoLogoEnabled by remember { mutableStateOf(true) }
-    var qrFrameStyle by remember { mutableStateOf("Top Banner Tag") }
+    var qrFrameStyle by remember { mutableStateOf("None") }
     var customBannerText by remember { mutableStateOf("SCAN ME") }
     var frameBgColorHex by remember { mutableStateOf("#1565C0") }
     var frameTextColorHex by remember { mutableStateOf("#FFFFFF") }
@@ -2930,14 +3025,9 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
     var downloadFormat by remember { mutableStateOf("PNG Image") }
     var exportResolution by remember { mutableStateOf("High HD (2048 x 2048 px)") }
     var includeQuietZone by remember { mutableStateOf(true) }
-    var isDynamicQrMode by remember { mutableStateOf(false) }
-    var dynamicUrlSlug by remember { mutableStateOf("local-tracker.app/v/student_portal") }
     
     var mockupMode by remember { mutableStateOf("Direct Vector") }
     var isPreviewExpanded by remember { mutableStateOf(true) }
-    var isPasswordProtected by remember { mutableStateOf(false) }
-    var qrPasswordText by remember { mutableStateOf("") }
-    var selectedExpiry by remember { mutableStateOf("Never (Permanent)") }
     var selectedEccLevel by remember { mutableStateOf("Level H (30% Best for Logos)") }
     var showBatchGeneratorDialog by remember { mutableStateOf(false) }
 
@@ -3024,12 +3114,13 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
             }
             if (detected != null) {
                 selectedLogo = detected
+            } else if (selectedLogo != "Custom Upload") {
+                selectedLogo = "None"
             }
         }
     }
     
     var showDownloadCompleteDialog by remember { mutableStateOf(false) }
-    var showAnalyticsDialog by remember { mutableStateOf(false) }
     var showVerifyDialog by remember { mutableStateOf(false) }
     var compileStatusMessage by remember { mutableStateOf("") }
     var isCompiling by remember { mutableStateOf(false) }
@@ -3114,7 +3205,8 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                 logoBlendOpacity = logoBlendOpacity,
                 qrFusionMode = qrFusionMode,
                 contrastBoost = contrastBoost,
-                useImageAsTexture = useImageAsTexture
+                useImageAsTexture = useImageAsTexture,
+                selectedEccLevel = selectedEccLevel
             )
             val path = saveBitmapToDeviceGallery(context, generatedBitmap, "QR_${selectedType.replace(" ", "_")}", downloadFormat)
             savedGalleryPath = path
@@ -3333,7 +3425,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                                     }
                                 }
 
-                                val previewEngineSize = if (mockupMode == "Direct Vector") 130 else 100
+                                val previewEngineSize = if (mockupMode == "Direct Vector") 160 else 100
                                 val parsedFrameBgColor = remember(frameBgColorHex) {
                                     try { Color(android.graphics.Color.parseColor(frameBgColorHex)) } catch (e: Exception) { Color(0xFF1565C0) }
                                 }
@@ -3368,7 +3460,8 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                                         qrFusionMode = qrFusionMode,
                                         contrastBoost = contrastBoost,
                                         customQrDensity = customQrDensity,
-                                        useImageAsTexture = useImageAsTexture
+                                        useImageAsTexture = useImageAsTexture,
+                                        selectedEccLevel = selectedEccLevel
                                     )
                                 }
                             }
@@ -3536,7 +3629,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                     }
 
                     // Quick Helper Chips for URL / Link type
-                    if (selectedType in listOf("URL", "Custom URL", "Web Link", "Shaped", "Social Media")) {
+                    if (selectedType in listOf("URL", "YouTube", "Instagram", "Facebook", "Telegram", "LinkedIn", "X (Twitter)", "TikTok", "GitHub", "App Store", "PDF Link", "Drive File", "Cloud Storage")) {
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -3584,18 +3677,32 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                         }
                     }
 
-                    // Dynamic Fields based on selectedType
+                    // Dynamic Fields based on 100% Real Selected Service
                     val currentFields = when (selectedType) {
-                        "Wi-Fi" -> listOf("Wi-Fi SSID Network Name", "Wi-Fi Password", "Encryption Type (WPA/WEP/nopass)")
+                        "Wi-Fi" -> listOf("Wi-Fi SSID Network Name", "Wi-Fi Password", "Security Type (WPA/WEP/nopass)")
                         "vCard" -> listOf("Full Contact Name", "Phone Number", "Email Address")
-                        "WhatsApp", "SMS" -> listOf("Phone Number (with Country Code e.g. 92300)", "Pre-filled Message Body")
-                        "PayPal", "Venmo", "UPI" -> listOf("Username / Pay ID / UPI ID", "Amount ($/INR)", "Memo / Note")
-                        "Crypto Pay" -> listOf("Wallet Address", "Coin (ethereum/bitcoin/solana)", "Amount")
-                        "App Markets" -> listOf("App Package Name / ID", "Platform (Android / iOS)")
-                        "Calendar" -> listOf("Event Title", "Event Date & Location")
-                        "PCR" -> listOf("Report Reference ID", "Laboratory Name", "Status (Negative/Positive)")
-                        "List of Links" -> listOf("Collection Title", "Destination Link URL")
-                        else -> listOf("Destination URL / Web Link / Text Payload")
+                        "WhatsApp" -> listOf("Phone Number (with Country Code e.g. 15551234567)", "Pre-filled Message Body")
+                        "Email" -> listOf("Recipient Email Address", "Subject Line", "Email Message Body")
+                        "Phone Call" -> listOf("Phone Number (e.g. +15551234567)")
+                        "SMS" -> listOf("Recipient Phone Number", "Pre-filled SMS Message")
+                        "Google Maps" -> listOf("Location Name, Address or Coordinates")
+                        "Calendar" -> listOf("Event Title", "Event Location", "Event Description")
+                        "UPI" -> listOf("Virtual Payment Address (UPI ID)", "Payee Name", "Amount (Optional)")
+                        "PayPal" -> listOf("PayPal Username or PayPal.Me Handle", "Requested Amount (Optional)")
+                        "YouTube" -> listOf("YouTube Video URL or Channel Name")
+                        "Instagram" -> listOf("Instagram Username or Profile Link")
+                        "Facebook" -> listOf("Facebook Profile, Page or Post URL")
+                        "Telegram" -> listOf("Telegram Username or Channel Link")
+                        "LinkedIn" -> listOf("LinkedIn Profile or Company URL")
+                        "X (Twitter)" -> listOf("X / Twitter Username or Post URL")
+                        "TikTok" -> listOf("TikTok Username or Video Link")
+                        "GitHub" -> listOf("GitHub Username or Repository Link")
+                        "App Store" -> listOf("App Store / Play Store App URL")
+                        "PDF Link" -> listOf("Direct PDF Document URL")
+                        "Drive File" -> listOf("Google Drive Share Link")
+                        "Cloud Storage" -> listOf("Dropbox / Cloud File Link")
+                        "Text" -> listOf("Plain Text Message or Note")
+                        else -> listOf("Destination URL / Web Link")
                     }
 
                     currentFields.forEachIndexed { idx, fieldName ->
@@ -3609,9 +3716,25 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                             label = { Text(fieldName, fontSize = 12.sp) },
                             placeholder = {
                                 val defHint = when {
-                                    idx == 0 && (selectedType == "URL" || selectedType == "Web") -> "https://yourwebsite.com"
-                                    idx == 0 && selectedType == "Wi-Fi" -> "Campus-WiFi"
-                                    idx == 0 && selectedType == "WhatsApp" -> "923001234567"
+                                    selectedType == "URL" -> "https://yourwebsite.com"
+                                    selectedType == "Wi-Fi" && idx == 0 -> "Home-WiFi-5G"
+                                    selectedType == "Wi-Fi" && idx == 1 -> "Network Password"
+                                    selectedType == "Wi-Fi" && idx == 2 -> "WPA"
+                                    selectedType == "vCard" && idx == 0 -> "John Doe"
+                                    selectedType == "vCard" && idx == 1 -> "+15551234567"
+                                    selectedType == "vCard" && idx == 2 -> "john@example.com"
+                                    selectedType == "WhatsApp" && idx == 0 -> "15551234567"
+                                    selectedType == "WhatsApp" && idx == 1 -> "Hello! Reaching out via QR"
+                                    selectedType == "Email" && idx == 0 -> "contact@example.com"
+                                    selectedType == "Email" && idx == 1 -> "Subject"
+                                    selectedType == "Phone Call" -> "+15551234567"
+                                    selectedType == "SMS" && idx == 0 -> "+15551234567"
+                                    selectedType == "Google Maps" -> "Times Square, New York"
+                                    selectedType == "UPI" && idx == 0 -> "merchant@upi"
+                                    selectedType == "PayPal" && idx == 0 -> "username"
+                                    selectedType == "Instagram" -> "username"
+                                    selectedType == "YouTube" -> "https://youtube.com/watch?v=..."
+                                    selectedType == "Text" -> "Enter your text note here..."
                                     else -> "Enter $fieldName..."
                                 }
                                 Text(defHint, fontSize = 11.sp, color = Color.Gray)
@@ -3627,7 +3750,7 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                                 .fillMaxWidth()
                                 .testTag("qr_dynamic_top_input_$idx"),
                             shape = RoundedCornerShape(10.dp),
-                            singleLine = (idx != 1 || selectedType !in listOf("WhatsApp", "SMS"))
+                            singleLine = (idx != 1 || selectedType !in listOf("WhatsApp", "SMS", "Text", "Email", "Calendar"))
                         )
                     }
 
@@ -4003,19 +4126,19 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("💼 Deep-Tech QR Workspace", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                Text("Suite of 55 highly customizable dynamic & static QR content designs matching business & academic layouts.", fontSize = 11.sp, color = Color.DarkGray)
+                Text("Suite of 100% real, standard QR types (URL, Wi-Fi, WhatsApp, vCard, Maps, Email, Social & more).", fontSize = 11.sp, color = Color.DarkGray)
                 
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search from 55 QR types (e.g. PDF, PayPal, Wi-Fi)...") },
+                    placeholder = { Text("Search real QR types (e.g. URL, Wi-Fi, WhatsApp, vCard)...") },
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(listOf("All", "Web", "Files", "Social", "Business")) { category ->
+                    items(listOf("All", "Web", "Social", "Communication", "Business", "Files")) { category ->
                         val isSelected = selectedCategory == category
                         Box(
                             modifier = Modifier
@@ -4780,8 +4903,8 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Default.Security, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                    Text("🔒 Advanced QR Security, Expiry & ECC Parity", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Verified, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    Text("📐 QR Standards & Scannability Specifications", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                 }
 
                 Row(
@@ -4789,47 +4912,18 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column {
-                        Text("PIN Password Lock Protected Payload", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                        Text("Requires PIN verification before showing content", fontSize = 9.sp, color = Color.Gray)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Standard Quiet Zone Margin (Padding)", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                        Text("Adds ISO/IEC margin around eyes for 100% scannability", fontSize = 9.sp, color = Color.Gray)
                     }
                     Switch(
-                        checked = isPasswordProtected,
-                        onCheckedChange = { isPasswordProtected = it },
-                        modifier = Modifier.testTag("password_protection_switch")
+                        checked = includeQuietZone,
+                        onCheckedChange = { includeQuietZone = it },
+                        modifier = Modifier.testTag("quiet_zone_switch")
                     )
                 }
 
-                if (isPasswordProtected) {
-                    OutlinedTextField(
-                        value = qrPasswordText,
-                        onValueChange = { qrPasswordText = it },
-                        label = { Text("4-Digit Security Passcode / Key") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-
-                Text("Automatic Link Expiry Schedule:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    listOf("Never (Permanent)", "In 24 Hours", "In 7 Days", "In 30 Days").forEach { expiry ->
-                        val isSel = selectedExpiry == expiry
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .clickable { selectedExpiry = expiry }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(expiry, fontSize = 9.sp, color = if (isSel) Color.White else Color.Black, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-
-                Text("Error Correction Level (ECC Parity Boost):", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                Text("Error Correction Level (Reed-Solomon ECC):", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -4845,48 +4939,6 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                         ) {
                             Text(ecc, fontSize = 9.sp, color = if (isSel) Color.White else Color.Black, fontWeight = FontWeight.SemiBold)
                         }
-                    }
-                }
-            }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.05f))
-        ) {
-            Column(
-                modifier = Modifier.padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Default.CloudQueue, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
-                    Text("⚡ Safe-Link Dynamic Local Redirect & Analytics Mapping", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Enable Live Dynamic Redirects?", fontSize = 11.sp)
-                    Switch(checked = isDynamicQrMode, onCheckedChange = { isDynamicQrMode = it }, modifier = Modifier.testTag("dynamic_qr_switch"))
-                }
-
-                if (isDynamicQrMode) {
-                    OutlinedTextField(
-                        value = dynamicUrlSlug,
-                        onValueChange = { dynamicUrlSlug = it },
-                        label = { Text("Local Tracking Index Slug") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Button(
-                        onClick = { showAnalyticsDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Leaderboard, null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("View Local Studio Scan Map & Hits", fontSize = 11.sp)
                     }
                 }
             }
@@ -5100,28 +5152,6 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                         Text("Save Copy to Gallery & Close")
                     }
                 }
-            }
-        )
-    }
-
-    if (showAnalyticsDialog) {
-        AlertDialog(
-            onDismissRequest = { showAnalyticsDialog = false },
-            title = { Text("📊 Cloud Redirect Analytics Heatmap") },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Live analytics tracker: $dynamicUrlSlug", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-                    Divider()
-                    Text("Total Successful Scans: 1,489 times")
-                    Text("Unique Users scanned: 914 devices")
-                    Text("Success Ratio (DPI Recovery): 100%")
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text("Top Countries Heatmap:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                    Text("• USA: 650 scans, PK: 410 scans, IN: 220 scans")
-                }
-            },
-            confirmButton = {
-                Button(onClick = { showAnalyticsDialog = false }) { Text("Close Dashboard") }
             }
         )
     }
@@ -5343,56 +5373,48 @@ fun BatchQrGeneratorDialog(
 fun QrScannerScreen(viewModel: StudentKitViewModel) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
 
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
 
     var scannedBarcodeText by remember { mutableStateOf("") }
     var isScanResultActive by remember { mutableStateOf(false) }
     var lastScannedType by remember { mutableStateOf("QR Code") }
+    var lastScannedEngine by remember { mutableStateOf("Dual Engine") }
     var isScanningActive by remember { mutableStateOf(true) }
+    var isDecodingGalleryImage by remember { mutableStateOf(false) }
+
+    // Camera control references and states
+    var cameraControlRef by remember { mutableStateOf<CameraControl?>(null) }
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+    var isTorchEnabled by remember { mutableStateOf(false) }
+    var currentZoomRatio by remember { mutableStateOf(1f) }
+    var focusIndicatorOffset by remember { mutableStateOf<Offset?>(null) }
 
     // Launcher to select QR code image from phone gallery
     val galleryPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                val image = InputImage.fromFilePath(context, uri)
-                val barcodeScanner = BarcodeScanning.getClient(
-                    BarcodeScannerOptions.Builder()
-                        .setBarcodeFormats(
-                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
-                        )
-                        .build()
-                )
-                barcodeScanner.process(image)
-                    .addOnSuccessListener { barcodes ->
-                        var found = false
-                        for (barcode in barcodes) {
-                            val value = barcode.rawValue
-                            if (!value.isNullOrBlank()) {
-                                scannedBarcodeText = value
-                                lastScannedType = when (barcode.valueType) {
-                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_URL -> "Website Link"
-                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_WIFI -> "Wi-Fi Config"
-                                    else -> "Scanned Code"
-                                }
-                                isScanResultActive = true
-                                isScanningActive = false
-                                found = true
-                                Toast.makeText(context, "QR / Barcode detected from Gallery image!", Toast.LENGTH_SHORT).show()
-                                break
-                            }
-                        }
-                        if (!found) {
-                            Toast.makeText(context, "No readable QR code or barcode found in the selected image.", Toast.LENGTH_LONG).show()
-                        }
+            isDecodingGalleryImage = true
+            coroutineScope.launch {
+                try {
+                    val result = RobustQrDecoder.decodeFromUri(context, uri)
+                    if (result != null) {
+                        scannedBarcodeText = result.text
+                        lastScannedType = result.format
+                        lastScannedEngine = result.engine
+                        isScanResultActive = true
+                        isScanningActive = false
+                        Toast.makeText(context, "${result.format} detected successfully!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "No readable QR code found. If dense, try zooming or cropping closer.", Toast.LENGTH_LONG).show()
                     }
-                    .addOnFailureListener { exception ->
-                        Toast.makeText(context, "Scanning gallery image failed: ${exception.localizedMessage}", Toast.LENGTH_SHORT).show()
-                    }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Error opening image: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Error scanning image: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                } finally {
+                    isDecodingGalleryImage = false
+                }
             }
         }
     }
@@ -5427,6 +5449,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                 if (!scannedValue.isNullOrBlank()) {
                     scannedBarcodeText = scannedValue
                     lastScannedType = formatType
+                    lastScannedEngine = "Google Play Services"
                     isScanResultActive = true
                     Toast.makeText(context, "Scanned $scannedValue successfully!", Toast.LENGTH_SHORT).show()
                 }
@@ -5467,8 +5490,15 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             modifier = Modifier.size(32.dp)
                         )
                         Column {
-                            Text("Dual-Engine Barcode & QR Lens", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text(if (cameraPermissionState.status.isGranted) "In-app camera active or scan gallery image" else "Scan with camera or pick QR image from gallery", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("High-Density QR & Barcode Lens", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                if (cameraPermissionState.status.isGranted)
+                                    "1080p HD + Dual Engine (ML-Kit & ZXing) active"
+                                else
+                                    "Scan with camera or select QR image from gallery",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                     
@@ -5486,11 +5516,18 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                     Button(
                         onClick = { galleryPickerLauncher.launch("image/*") },
                         modifier = Modifier.weight(1f).height(44.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        enabled = !isDecodingGalleryImage
                     ) {
-                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Scan from Gallery", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        if (isDecodingGalleryImage) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Decoding...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        } else {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Scan from Gallery", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
                     }
                 }
             }
@@ -5512,24 +5549,30 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             val previewView = PreviewView(ctx).apply {
                                 scaleType = PreviewView.ScaleType.FILL_CENTER
                             }
+                            previewViewRef = previewView
                             
                             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                             cameraProviderFuture.addListener({
                                 val cameraProvider = cameraProviderFuture.get()
-                                val preview = Preview.Builder().setTargetResolution(android.util.Size(1280, 720)).build().also {
-                                    it.setSurfaceProvider(previewView.surfaceProvider)
-                                }
+                                val preview = Preview.Builder()
+                                    .setTargetResolution(android.util.Size(1920, 1080))
+                                    .build().also {
+                                        it.setSurfaceProvider(previewView.surfaceProvider)
+                                    }
                                 
                                 val barcodeScanner = BarcodeScanning.getClient(
-                                    com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder()
+                                    BarcodeScannerOptions.Builder()
                                         .setBarcodeFormats(
-                                            com.google.mlkit.vision.barcode.common.Barcode.FORMAT_ALL_FORMATS
+                                            Barcode.FORMAT_QR_CODE,
+                                            Barcode.FORMAT_DATA_MATRIX,
+                                            Barcode.FORMAT_AZTEC,
+                                            Barcode.FORMAT_ALL_FORMATS
                                         )
                                         .build()
                                 )
                                 
                                 val imageAnalysis = ImageAnalysis.Builder()
-                                    .setTargetResolution(android.util.Size(1280, 720))
+                                    .setTargetResolution(android.util.Size(1920, 1080))
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
                                     .also { analysis ->
@@ -5539,19 +5582,50 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                                 val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                                                 barcodeScanner.process(image)
                                                     .addOnSuccessListener { barcodes ->
+                                                        var found = false
                                                         for (barcode in barcodes) {
                                                             val value = barcode.rawValue
                                                             if (!value.isNullOrBlank()) {
                                                                 scannedBarcodeText = value
                                                                 lastScannedType = when (barcode.valueType) {
-                                                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_URL -> "Website Link"
-                                                                    com.google.mlkit.vision.barcode.common.Barcode.TYPE_WIFI -> "Wi-Fi Config"
-                                                                    else -> "Scanned Code"
+                                                                    Barcode.TYPE_URL -> "Website Link"
+                                                                    Barcode.TYPE_WIFI -> "Wi-Fi Config"
+                                                                    else -> "QR Code"
                                                                 }
+                                                                lastScannedEngine = "Google ML-Kit (Realtime)"
                                                                 isScanResultActive = true
                                                                 isScanningActive = false
-                                                                Toast.makeText(ctx, "Barcode Detected Successfully!", Toast.LENGTH_SHORT).show()
+                                                                found = true
+                                                                Toast.makeText(ctx, "QR Code Detected Successfully!", Toast.LENGTH_SHORT).show()
                                                                 break
+                                                            }
+                                                        }
+                                                        // Dual-Engine Fallback: Try ZXing on the center region of frame
+                                                        if (!found && isScanningActive && !isScanResultActive) {
+                                                            try {
+                                                                val frameBmp = imageProxy.toBitmap()
+                                                                val fw = frameBmp.width
+                                                                val fh = frameBmp.height
+                                                                val cropSize = (minOf(fw, fh) * 0.65f).toInt()
+                                                                if (cropSize in 100 until minOf(fw, fh)) {
+                                                                    val startX = (fw - cropSize) / 2
+                                                                    val startY = (fh - cropSize) / 2
+                                                                    val centerCrop = Bitmap.createBitmap(frameBmp, startX, startY, cropSize, cropSize)
+                                                                    val zxingRes = RobustQrDecoder.decodeWithZxing(centerCrop, useGlobalHistogram = false, invert = false)
+                                                                    if (centerCrop != frameBmp && !centerCrop.isRecycled) {
+                                                                        centerCrop.recycle()
+                                                                    }
+                                                                    if (zxingRes != null) {
+                                                                        scannedBarcodeText = zxingRes.text
+                                                                        lastScannedType = zxingRes.format
+                                                                        lastScannedEngine = "ZXing High-Density Engine"
+                                                                        isScanResultActive = true
+                                                                        isScanningActive = false
+                                                                        Toast.makeText(ctx, "Dense QR Code Detected!", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                }
+                                                            } catch (e: Exception) {
+                                                                // Frame processing exception ignored
                                                             }
                                                         }
                                                     }
@@ -5566,12 +5640,13 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                     
                                 try {
                                     cameraProvider.unbindAll()
-                                    cameraProvider.bindToLifecycle(
+                                    val camera = cameraProvider.bindToLifecycle(
                                         lifecycleOwner,
                                         CameraSelector.DEFAULT_BACK_CAMERA,
                                         preview,
                                         imageAnalysis
                                     )
+                                    cameraControlRef = camera.cameraControl
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 }
@@ -5620,14 +5695,116 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         drawLine(neonColor, Offset(endX, endY), Offset(endX, endY - len), strokeW)
                     }
 
+                    // Tap-to-Focus Overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures { offset ->
+                                    focusIndicatorOffset = offset
+                                    previewViewRef?.let { pv ->
+                                        try {
+                                            val factory = pv.meteringPointFactory
+                                            val point = factory.createPoint(offset.x, offset.y)
+                                            val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+                                                .setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS)
+                                                .build()
+                                            cameraControlRef?.startFocusAndMetering(action)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
+                                }
+                            }
+                    )
+
+                    // Focus reticle indicator
+                    focusIndicatorOffset?.let { offset ->
+                        Box(
+                            modifier = Modifier
+                                .offset { IntOffset(offset.x.toInt() - 28, offset.y.toInt() - 28) }
+                                .size(56.dp)
+                                .border(2.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+                        )
+                    }
+
+                    // Torch Toggle button in Top-End corner
+                    IconButton(
+                        onClick = {
+                            isTorchEnabled = !isTorchEnabled
+                            cameraControlRef?.enableTorch(isTorchEnabled)
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (isTorchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                            contentDescription = "Torch Toggle",
+                            tint = if (isTorchEnabled) Color(0xFFFFD600) else Color.White
+                        )
+                    }
+
+                    // Quick Zoom Selector Pills
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 54.dp)
+                            .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(1.0f, 1.5f, 2.0f, 3.0f).forEach { zoomLevel ->
+                            val isSelected = (currentZoomRatio == zoomLevel)
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                    .clickable {
+                                        currentZoomRatio = zoomLevel
+                                        cameraControlRef?.setZoomRatio(zoomLevel)
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "${zoomLevel}x",
+                                    color = if (isSelected) Color.White else Color.LightGray,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(16.dp)
-                            .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                            .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Text("Center QR code inside targeting frame", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Tap to focus • Select 2x/3x for dense codes", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    // Decoding spinner overlay
+                    if (isDecodingGalleryImage) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = Color.Black.copy(alpha = 0.75f)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text("Analyzing Dense QR Code...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("Running multi-pass & ROI scan across bill segments", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             } else {
@@ -5695,7 +5872,10 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Scanned Decrypted Result ($lastScannedType):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Column {
+                            Text("Scanned Decrypted Result ($lastScannedType)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Engine: $lastScannedEngine", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
+                        }
                         IconButton(onClick = { 
                             isScanResultActive = false 
                             isScanningActive = true // Resume
@@ -5709,7 +5889,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             text = scannedBarcodeText,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -5733,7 +5913,27 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         ) {
                             Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Copy Content", fontSize = 11.sp)
+                            Text("Copy", fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                try {
+                                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(android.content.Intent.EXTRA_TEXT, scannedBarcodeText)
+                                    }
+                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Scanned Code"))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Unable to share: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                        ) {
+                            Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Share", fontSize = 11.sp)
                         }
                         
                         if (scannedBarcodeText.startsWith("http://") || scannedBarcodeText.startsWith("https://") || scannedBarcodeText.startsWith("market://")) {

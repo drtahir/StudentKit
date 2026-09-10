@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -261,18 +262,24 @@ fun InvoiceGeneratorScreen(viewModel: StudentKitViewModel) {
                             val orderId = "INV-${System.currentTimeMillis() % 1000000}"
                             val dateStr = SimpleDateFormat("dd-MMM-yyyy hh:mm a", Locale.getDefault()).format(Date())
 
-                            val itemsList = activeCart.mapNotNull { (prodId, qty) ->
+                            val itemsList = activeCart.map { (prodId, qty) ->
                                 val prod = allProducts.firstOrNull { it.id == prodId }
-                                prod?.let {
-                                    PosOrderItem(
-                                        id = UUID.randomUUID().toString(),
-                                        orderId = orderId,
-                                        productId = it.id,
-                                        name = it.name,
-                                        quantity = qty,
-                                        price = it.price
+                                    ?: PosProduct(
+                                        id = prodId,
+                                        name = "Item $prodId",
+                                        category = "General",
+                                        price = 0.0,
+                                        stock = 100,
+                                        unit = "Unit"
                                     )
-                                }
+                                PosOrderItem(
+                                    id = UUID.randomUUID().toString(),
+                                    orderId = orderId,
+                                    productId = prod.id,
+                                    name = prod.name,
+                                    quantity = qty,
+                                    price = prod.price
+                                )
                             }
 
                             val subtotal = itemsList.sumOf { it.price * it.quantity }
@@ -731,7 +738,7 @@ fun FullscreenInvoicePreviewModal(
 fun PosTerminalSection(
     allProducts: List<PosProduct>,
     allClients: List<PosClient>,
-    activeCart: Map<String, Int>,
+    activeCart: SnapshotStateMap<String, Int>,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     selectedCategory: String,
@@ -763,11 +770,18 @@ fun PosTerminalSection(
         }
     }
 
-    val cartItemsList = remember(activeCart, allProducts) {
-        activeCart.mapNotNull { (prodId, qty) ->
-            val prod = allProducts.firstOrNull { it.id == prodId }
-            prod?.let { it to qty }
-        }
+    // Direct reactive mapping from activeCart so updates always trigger UI recomposition
+    val cartItemsList = activeCart.mapNotNull { (prodId, qty) ->
+        val prod = allProducts.firstOrNull { it.id == prodId }
+            ?: PosProduct(
+                id = prodId,
+                name = "Item $prodId",
+                category = "General",
+                price = 0.0,
+                stock = 100,
+                unit = "Unit"
+            )
+        prod to qty
     }
 
     val subtotal = cartItemsList.sumOf { (prod, qty) -> prod.price * qty }
@@ -1083,14 +1097,25 @@ fun PosTerminalSection(
                             }
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("GRAND TOTAL", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Rs ${String.format("%.2f", grandTotal)}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("TOTAL", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(
+                                "Rs ${String.format("%.2f", grandTotal)}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1
+                            )
                         }
                     }
                 }
 
                 // Instant Checkout Button -> Launches Fullscreen Invoice & Print Preview
+                val totalQtyInCart = cartItemsList.sumOf { it.second }
                 Button(
                     onClick = onCheckout,
                     modifier = Modifier.fillMaxWidth().height(46.dp),
@@ -1099,7 +1124,12 @@ fun PosTerminalSection(
                 ) {
                     Icon(Icons.Default.ReceiptLong, null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Checkout & Print Preview", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        if (totalQtyInCart > 0) "Checkout ($totalQtyInCart)" else "Checkout",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        maxLines = 1
+                    )
                 }
             }
         }

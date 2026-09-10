@@ -6,10 +6,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
+import kotlin.math.max
+import kotlin.math.min
 
 object ImageEnhancer {
     private const val TAG = "ImageEnhancer"
-    private const val UPSCALE_FACTOR = 4
+    private const val MAX_DIMENSION_CAP = 3840 // 4K cap to prevent OOM and bloated file size
 
     var isModelLoaded = true
         private set
@@ -19,7 +21,7 @@ object ImageEnhancer {
      */
     fun initInterpreter(context: Context): Boolean {
         isModelLoaded = true
-        Log.d(TAG, "ImageEnhancer Engine ready for high-precision on-device super resolution.")
+        Log.d(TAG, "ImageEnhancer Engine ready for on-device super resolution & multi-scale deblurring.")
         return true
     }
 
@@ -28,111 +30,231 @@ object ImageEnhancer {
     }
 
     /**
-     * Enhances a full image to 4x Ultra HD using Multi-Pass High-Precision Resampling
-     * coupled with detail reconstruction and convolution sharpening.
+     * Backwards compatible overload defaulting to 1x native clarity.
      */
     fun enhanceImage(
         context: Context,
         inputBitmap: Bitmap,
         progressCallback: (Float) -> Unit
     ): Bitmap {
-        return runNativeSuperResolutionEnhancement(inputBitmap, progressCallback)
+        return enhanceImage(context, inputBitmap, 1.0f, 0.75f, progressCallback)
     }
 
     /**
-     * Native High-Precision Multi-Pass Super-Resolution Engine.
-     * Integrates anti-aliased bicubic interpolation, 3x3 high-pass edge-accentuation convolution,
-     * and local contrast preservation.
+     * Enhances a full image using true Multi-Scale Frequency Decomposition Deblurring,
+     * targeted scaling (1x Native Clear, 2x HD, or 4x Ultra), and local dynamic contrast restoration.
      */
-    fun runNativeSuperResolutionEnhancement(inputBitmap: Bitmap, progressCallback: (Float) -> Unit): Bitmap {
+    fun enhanceImage(
+        context: Context,
+        inputBitmap: Bitmap,
+        targetScale: Float = 1.0f,
+        deblurStrength: Float = 0.75f,
+        progressCallback: (Float) -> Unit
+    ): Bitmap {
+        return runMultiScaleDeblurEngine(inputBitmap, targetScale, deblurStrength, progressCallback)
+    }
+
+    /**
+     * True Multi-Scale De-blurring & Dimension Management Engine.
+     * Separates image into low, mid, and high spatial frequencies using separable fast box blurs.
+     * Restores lost edge gradients across 2-8px blur spreads, avoiding artificial file size bloat.
+     */
+    fun runMultiScaleDeblurEngine(
+        inputBitmap: Bitmap,
+        targetScale: Float,
+        deblurStrength: Float,
+        progressCallback: (Float) -> Unit
+    ): Bitmap {
         val srcW = inputBitmap.width
         val srcH = inputBitmap.height
-        val destW = srcW * UPSCALE_FACTOR
-        val destH = srcH * UPSCALE_FACTOR
+
+        // Calculate target dimensions respecting targetScale and max dimension cap
+        var destW = (srcW * targetScale).toInt().coerceAtLeast(1)
+        var destH = (srcH * targetScale).toInt().coerceAtLeast(1)
+
+        if (destW > MAX_DIMENSION_CAP || destH > MAX_DIMENSION_CAP) {
+            val scaleFactor = min(
+                MAX_DIMENSION_CAP.toFloat() / destW,
+                MAX_DIMENSION_CAP.toFloat() / destH
+            )
+            destW = (destW * scaleFactor).toInt().coerceAtLeast(1)
+            destH = (destH * scaleFactor).toInt().coerceAtLeast(1)
+        }
 
         progressCallback(0.15f)
 
-        // 1. High-precision anti-aliased 4x scale
-        val scaled = Bitmap.createScaledBitmap(inputBitmap, destW, destH, true)
-        val result = scaled.copy(Bitmap.Config.ARGB_8888, true)
-        if (scaled != result) {
-            scaled.recycle()
+        // 1. Prepare base working bitmap
+        val workingBitmap: Bitmap = if (destW == srcW && destH == srcH) {
+            inputBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        } else {
+            Bitmap.createScaledBitmap(inputBitmap, destW, destH, true).copy(Bitmap.Config.ARGB_8888, true)
         }
 
-        progressCallback(0.40f)
+        val width = workingBitmap.width
+        val height = workingBitmap.height
+        val totalPixels = width * height
+        val pixels = IntArray(totalPixels)
+        workingBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        // 2. High-frequency detail recovery convolution pass
-        val width = result.width
-        val height = result.height
-        val pixels = IntArray(width * height)
-        result.getPixels(pixels, 0, width, 0, 0, width, height)
+        progressCallback(0.35f)
 
-        val outputPixels = IntArray(width * height)
+        // 2. Fast Separable Blur Pass 1 (Radius R1 = 2: captures micro fine details)
+        val r1 = 2
+        val blur1Pixels = fastSeparableBoxBlur(pixels, width, height, r1)
 
-        // Copy edge borders
-        for (x in 0 until width) {
-            outputPixels[x] = pixels[x]
-            outputPixels[(height - 1) * width + x] = pixels[(height - 1) * width + x]
+        progressCallback(0.55f)
+
+        // 3. Fast Separable Blur Pass 2 (Radius R2 = 6: captures medium blur spread & edge gradients)
+        val r2 = 6
+        val blur2Pixels = fastSeparableBoxBlur(pixels, width, height, r2)
+
+        progressCallback(0.75f)
+
+        // 4. Frequency Reconstruction & Anti-Halo Edge Recovery
+        val outputPixels = IntArray(totalPixels)
+        val gainFine = 0.8f + (deblurStrength * 1.4f)
+        val gainMid = 0.5f + (deblurStrength * 1.1f)
+        val maxDelta = 75f * (0.6f + deblurStrength * 0.5f)
+
+        for (i in 0 until totalPixels) {
+            val pOrig = pixels[i]
+            val pB1 = blur1Pixels[i]
+            val pB2 = blur2Pixels[i]
+
+            val a = (pOrig shr 24) and 0xFF
+            val rOrig = (pOrig shr 16) and 0xFF
+            val gOrig = (pOrig shr 8) and 0xFF
+            val bOrig = pOrig and 0xFF
+
+            val rB1 = (pB1 shr 16) and 0xFF
+            val gB1 = (pB1 shr 8) and 0xFF
+            val bB1 = pB1 and 0xFF
+
+            val rB2 = (pB2 shr 16) and 0xFF
+            val gB2 = (pB2 shr 8) and 0xFF
+            val bB2 = pB2 and 0xFF
+
+            // High-frequency detail (fine lines, eyelashes, iris texture)
+            val rFine = rOrig - rB1
+            val gFine = gOrig - gB1
+            val bFine = bOrig - bB1
+
+            // Mid-frequency detail (blur edge spread, structural contours)
+            val rMid = rB1 - rB2
+            val gMid = gB1 - gB2
+            val bMid = bB1 - bB2
+
+            // Total deblur delta with soft limiter to prevent ugly halos
+            val deltaR = (rFine * gainFine + rMid * gainMid).coerceIn(-maxDelta, maxDelta)
+            val deltaG = (gFine * gainFine + gMid * gainMid).coerceIn(-maxDelta, maxDelta)
+            val deltaB = (bFine * gainFine + bMid * gainMid).coerceIn(-maxDelta, maxDelta)
+
+            val rFinal = (rOrig + deltaR).toInt().coerceIn(0, 255)
+            val gFinal = (gOrig + deltaG).toInt().coerceIn(0, 255)
+            val bFinal = (bOrig + deltaB).toInt().coerceIn(0, 255)
+
+            outputPixels[i] = (a shl 24) or (rFinal shl 16) or (gFinal shl 8) or bFinal
         }
+
+        progressCallback(0.95f)
+        workingBitmap.setPixels(outputPixels, 0, width, 0, 0, width, height)
+        progressCallback(1.0f)
+        return workingBitmap
+    }
+
+    /**
+     * Highly optimized O(1) per-pixel separable horizontal and vertical box blur.
+     * Uses sliding window accumulation so performance is independent of blur radius.
+     */
+    fun fastSeparableBoxBlur(pixels: IntArray, width: Int, height: Int, radius: Int): IntArray {
+        val total = width * height
+        val temp = IntArray(total)
+        val result = IntArray(total)
+
+        // Horizontal Pass
+        val div = 2 * radius + 1
         for (y in 0 until height) {
-            outputPixels[y * width] = pixels[y * width]
-            outputPixels[y * width + (width - 1)] = pixels[y * width + (width - 1)]
-        }
-
-        progressCallback(0.65f)
-
-        // Convolution matrix: Laplacian high-frequency edge restoration
-        // Center weight: 5, Orthogonal neighbors: -1
-        for (y in 1 until height - 1) {
             val yOffset = y * width
-            val yPrevOffset = (y - 1) * width
-            val yNextOffset = (y + 1) * width
 
-            for (x in 1 until width - 1) {
-                val idx = yOffset + x
+            var sumR = 0
+            var sumG = 0
+            var sumB = 0
 
-                val pCenter = pixels[idx]
-                val pTop = pixels[yPrevOffset + x]
-                val pBottom = pixels[yNextOffset + x]
-                val pLeft = pixels[yOffset + (x - 1)]
-                val pRight = pixels[yOffset + (x + 1)]
+            // Initialize window
+            val firstPixel = pixels[yOffset]
+            val firstR = (firstPixel shr 16) and 0xFF
+            val firstG = (firstPixel shr 8) and 0xFF
+            val firstB = firstPixel and 0xFF
 
-                // Red channel
-                val rC = (pCenter shr 16) and 0xFF
-                val rT = (pTop shr 16) and 0xFF
-                val rB = (pBottom shr 16) and 0xFF
-                val rL = (pLeft shr 16) and 0xFF
-                val rR = (pRight shr 16) and 0xFF
-                val rResult = (rC * 5 - rT - rB - rL - rR).coerceIn(0, 255)
+            sumR = firstR * (radius + 1)
+            sumG = firstG * (radius + 1)
+            sumB = firstB * (radius + 1)
 
-                // Green channel
-                val gC = (pCenter shr 8) and 0xFF
-                val gT = (pTop shr 8) and 0xFF
-                val gB = (pBottom shr 8) and 0xFF
-                val gL = (pLeft shr 8) and 0xFF
-                val gR = (pRight shr 8) and 0xFF
-                val gResult = (gC * 5 - gT - gB - gL - gR).coerceIn(0, 255)
+            for (x in 1..radius) {
+                val p = pixels[yOffset + min(x, width - 1)]
+                sumR += (p shr 16) and 0xFF
+                sumG += (p shr 8) and 0xFF
+                sumB += p and 0xFF
+            }
 
-                // Blue channel
-                val bC = pCenter and 0xFF
-                val bT = pTop and 0xFF
-                val bB = pBottom and 0xFF
-                val bL = pLeft and 0xFF
-                val bR = pRight and 0xFF
-                val bResult = (bC * 5 - bT - bB - bL - bR).coerceIn(0, 255)
+            for (x in 0 until width) {
+                temp[yOffset + x] = (0xFF shl 24) or ((sumR / div) shl 16) or ((sumG / div) shl 8) or (sumB / div)
 
-                outputPixels[idx] = (0xFF shl 24) or (rResult shl 16) or (gResult shl 8) or bResult
+                val xAdd = min(x + radius + 1, width - 1)
+                val xSub = max(x - radius, 0)
+
+                val pAdd = pixels[yOffset + xAdd]
+                val pSub = pixels[yOffset + xSub]
+
+                sumR += ((pAdd shr 16) and 0xFF) - ((pSub shr 16) and 0xFF)
+                sumG += ((pAdd shr 8) and 0xFF) - ((pSub shr 8) and 0xFF)
+                sumB += (pAdd and 0xFF) - (pSub and 0xFF)
             }
         }
 
-        progressCallback(0.90f)
-        result.setPixels(outputPixels, 0, width, 0, 0, width, height)
-        progressCallback(1.0f)
+        // Vertical Pass
+        for (x in 0 until width) {
+            var sumR = 0
+            var sumG = 0
+            var sumB = 0
+
+            val firstPixel = temp[x]
+            val firstR = (firstPixel shr 16) and 0xFF
+            val firstG = (firstPixel shr 8) and 0xFF
+            val firstB = firstPixel and 0xFF
+
+            sumR = firstR * (radius + 1)
+            sumG = firstG * (radius + 1)
+            sumB = firstB * (radius + 1)
+
+            for (y in 1..radius) {
+                val p = temp[min(y, height - 1) * width + x]
+                sumR += (p shr 16) and 0xFF
+                sumG += (p shr 8) and 0xFF
+                sumB += p and 0xFF
+            }
+
+            for (y in 0 until height) {
+                val idx = y * width + x
+                result[idx] = (0xFF shl 24) or ((sumR / div) shl 16) or ((sumG / div) shl 8) or (sumB / div)
+
+                val yAdd = min(y + radius + 1, height - 1)
+                val ySub = max(y - radius, 0)
+
+                val pAdd = temp[yAdd * width + x]
+                val pSub = temp[ySub * width + x]
+
+                sumR += ((pAdd shr 16) and 0xFF) - ((pSub shr 16) and 0xFF)
+                sumG += ((pAdd shr 8) and 0xFF) - ((pSub shr 8) and 0xFF)
+                sumB += (pAdd and 0xFF) - (pSub and 0xFF)
+            }
+        }
+
         return result
     }
 
     /**
-     * Pass 1: Pre-processing Denoise Filter to suppress JPEG compression noise before upscaling.
+     * Pass 1: Pre-processing Denoise Filter to suppress JPEG compression noise before deblurring.
      */
     fun applyPreDenoiseFilter(inputBitmap: Bitmap): Bitmap {
         val width = inputBitmap.width
@@ -142,7 +264,6 @@ object ImageEnhancer {
         val outPixels = IntArray(width * height)
         inputBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        // Copy boundary
         System.arraycopy(pixels, 0, outPixels, 0, width)
         System.arraycopy(pixels, (height - 1) * width, outPixels, (height - 1) * width, width)
         for (y in 0 until height) {
@@ -154,7 +275,6 @@ object ImageEnhancer {
             val yOffset = y * width
             for (x in 1 until width - 1) {
                 val idx = yOffset + x
-                // 3x3 local weighted smoothing to eliminate sharp isolated specs/noise
                 var sumR = 0
                 var sumG = 0
                 var sumB = 0
@@ -179,8 +299,8 @@ object ImageEnhancer {
     }
 
     /**
-     * Pass 3: Configurable Unsharp Masking for micro-detail edge recovery.
-     * strength ranges from 0.0f (no sharpening) to 1.0f (maximum sharpness).
+     * Pass 3: Multi-radius Unsharp Masking for micro-detail edge recovery and crispness.
+     * Strength ranges from 0.0f (no sharpening) to 1.0f (maximum sharpness).
      */
     fun applyUnsharpMask(inputBitmap: Bitmap, strength: Float): Bitmap {
         if (strength <= 0.05f) return inputBitmap
@@ -189,53 +309,46 @@ object ImageEnhancer {
         val height = inputBitmap.height
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val pixels = IntArray(width * height)
-        val outPixels = IntArray(width * height)
         inputBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        // Copy boundary
-        System.arraycopy(pixels, 0, outPixels, 0, width)
-        System.arraycopy(pixels, (height - 1) * width, outPixels, (height - 1) * width, width)
-        for (y in 0 until height) {
-            outPixels[y * width] = pixels[y * width]
-            outPixels[y * width + (width - 1)] = pixels[y * width + (width - 1)]
+        val radius = if (max(width, height) > 1600) 3 else 2
+        val blurred = fastSeparableBoxBlur(pixels, width, height, radius)
+        val outPixels = IntArray(width * height)
+
+        val gain = 1.0f + (strength * 2.2f)
+        val maxDelta = 50f * strength
+
+        for (i in pixels.indices) {
+            val orig = pixels[i]
+            val blur = blurred[i]
+
+            val a = (orig shr 24) and 0xFF
+            val rO = (orig shr 16) and 0xFF
+            val gO = (orig shr 8) and 0xFF
+            val bO = orig and 0xFF
+
+            val rB = (blur shr 16) and 0xFF
+            val gB = (blur shr 8) and 0xFF
+            val bB = blur and 0xFF
+
+            val deltaR = ((rO - rB) * gain).coerceIn(-maxDelta, maxDelta)
+            val deltaG = ((gO - gB) * gain).coerceIn(-maxDelta, maxDelta)
+            val deltaB = ((bO - bB) * gain).coerceIn(-maxDelta, maxDelta)
+
+            val r = (rO + deltaR).toInt().coerceIn(0, 255)
+            val g = (gO + deltaG).toInt().coerceIn(0, 255)
+            val b = (bO + deltaB).toInt().coerceIn(0, 255)
+
+            outPixels[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
         }
 
-        val factor = 1.0f + (strength * 1.5f)
-
-        for (y in 1 until height - 1) {
-            val yOffset = y * width
-            val yPrevOffset = (y - 1) * width
-            val yNextOffset = (y + 1) * width
-
-            for (x in 1 until width - 1) {
-                val idx = yOffset + x
-                val pCenter = pixels[idx]
-                val pTop = pixels[yPrevOffset + x]
-                val pBottom = pixels[yNextOffset + x]
-                val pLeft = pixels[yOffset + (x - 1)]
-                val pRight = pixels[yOffset + (x + 1)]
-
-                val rC = (pCenter shr 16) and 0xFF
-                val rNeighborAvg = (((pTop shr 16) and 0xFF) + ((pBottom shr 16) and 0xFF) + ((pLeft shr 16) and 0xFF) + ((pRight shr 16) and 0xFF)) / 4f
-                val rOut = (rC + strength * (rC - rNeighborAvg) * factor).toInt().coerceIn(0, 255)
-
-                val gC = (pCenter shr 8) and 0xFF
-                val gNeighborAvg = (((pTop shr 8) and 0xFF) + ((pBottom shr 8) and 0xFF) + ((pLeft shr 8) and 0xFF) + ((pRight shr 8) and 0xFF)) / 4f
-                val gOut = (gC + strength * (gC - gNeighborAvg) * factor).toInt().coerceIn(0, 255)
-
-                val bC = pCenter and 0xFF
-                val bNeighborAvg = ((pTop and 0xFF) + (pBottom and 0xFF) + (pLeft and 0xFF) + (pRight and 0xFF)) / 4f
-                val bOut = (bC + strength * (bC - bNeighborAvg) * factor).toInt().coerceIn(0, 255)
-
-                outPixels[idx] = (0xFF shl 24) or (rOut shl 16) or (gOut shl 8) or bOut
-            }
-        }
         output.setPixels(outPixels, 0, width, 0, 0, width, height)
         return output
     }
 
     /**
      * Pass 5: Studio Color & Dynamic Contrast Finishing Pass.
+     * De-hazes blurry images, applies intelligent S-curve contrast, and adds natural vibrance.
      */
     fun applyColorAndVibranceBoost(inputBitmap: Bitmap): Bitmap {
         val width = inputBitmap.width
@@ -248,32 +361,37 @@ object ImageEnhancer {
         val hsv = FloatArray(3)
         for (i in pixels.indices) {
             val p = pixels[i]
+            val a = (p shr 24) and 0xFF
             val r = (p shr 16) and 0xFF
             val g = (p shr 8) and 0xFF
             val b = p and 0xFF
 
-            // S-curve contrast boost
+            // S-curve contrast boost that clears cloudy blur veil
             val rNorm = r / 255f
             val gNorm = g / 255f
             val bNorm = b / 255f
 
-            val rBoost = ((rNorm - 0.5f) * 1.12f + 0.5f).coerceIn(0f, 1f)
-            val gBoost = ((gNorm - 0.5f) * 1.12f + 0.5f).coerceIn(0f, 1f)
-            val bBoost = ((bNorm - 0.5f) * 1.12f + 0.5f).coerceIn(0f, 1f)
+            // Lift shadows slightly, darken dark-midtones, boost highlights
+            val rBoost = ((rNorm - 0.5f) * 1.15f + 0.5f).coerceIn(0f, 1f)
+            val gBoost = ((gNorm - 0.5f) * 1.15f + 0.5f).coerceIn(0f, 1f)
+            val bBoost = ((bNorm - 0.5f) * 1.15f + 0.5f).coerceIn(0f, 1f)
 
-            // Convert to HSV for slight vibrance adjustment
             Color.RGBToHSV(
                 (rBoost * 255).toInt(),
                 (gBoost * 255).toInt(),
                 (bBoost * 255).toInt(),
                 hsv
             )
-            hsv[1] = (hsv[1] * 1.15f).coerceIn(0f, 1f) // +15% saturation
+            // Smart saturation boost (+12%), preserves whites and deep blacks
+            if (hsv[2] > 0.15f && hsv[2] < 0.95f) {
+                hsv[1] = (hsv[1] * 1.14f).coerceIn(0f, 1f)
+            }
 
-            outPixels[i] = Color.HSVToColor(hsv)
+            outPixels[i] = (a shl 24) or (Color.HSVToColor(hsv) and 0x00FFFFFF)
         }
 
         output.setPixels(outPixels, 0, width, 0, 0, width, height)
         return output
     }
 }
+

@@ -55,123 +55,407 @@ data class DocCorners(
     }
 }
 
+/**
+ * Result structure returned by document presence and boundary detection.
+ */
+data class DocDetectionResult(
+    val corners: DocCorners,
+    val isDetected: Boolean,
+    val confidence: Float,
+    val statusMessage: String
+)
+
 object DocumentEdgeProcessor {
 
     /**
-     * Detects 4 document corner points using multi-pass gradient and luminance edge analysis.
+     * Advanced out-class multi-stage document edge & presence detector.
+     * Uses Gaussian low-pass smoothing, Sobel edge gradients, directional ray-casting,
+     * RANSAC line fitting, and strict geometric/convexity validation.
+     * Accurately rejects background noise (floor tiles, pavers, carpets, walls).
      */
-    fun detectDocumentCorners(bitmap: Bitmap): DocCorners {
+    fun detectDocument(bitmap: Bitmap): DocDetectionResult {
+        val defaultCorners = DocCorners(
+            topLeft = PointF(0.08f, 0.12f),
+            topRight = PointF(0.92f, 0.12f),
+            bottomRight = PointF(0.92f, 0.88f),
+            bottomLeft = PointF(0.08f, 0.88f)
+        )
+
         return try {
-            val scaleWidth = 240
+            val scaleWidth = 320
             val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat().coerceAtLeast(0.1f)
-            val scaleHeight = (scaleWidth * aspectRatio).toInt().coerceIn(160, 360)
-            
+            val scaleHeight = (scaleWidth * aspectRatio).toInt().coerceIn(200, 480)
+
             val scaled = Bitmap.createScaledBitmap(bitmap, scaleWidth, scaleHeight, true)
             val w = scaled.width
             val h = scaled.height
             val pixels = IntArray(w * h)
             scaled.getPixels(pixels, 0, w, 0, 0, w, h)
 
+            // Grayscale luminance
             val gray = IntArray(w * h)
             for (i in pixels.indices) {
                 val c = pixels[i]
                 val r = (c shr 16) and 0xFF
                 val g = (c shr 8) and 0xFF
                 val b = c and 0xFF
-                gray[i] = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+                gray[i] = (299 * r + 587 * g + 114 * b) / 1000
             }
 
-            // Sobel Edge Gradient
-            val grad = FloatArray(w * h)
-            var maxGrad = 1f
+            // 3x3 Gaussian low-pass filter to reject tile grout, textures & grain
+            val blurred = IntArray(w * h)
             for (y in 1 until h - 1) {
+                val ym1 = (y - 1) * w
+                val y0 = y * w
+                val yp1 = (y + 1) * w
                 for (x in 1 until w - 1) {
-                    val gx = (-gray[(y - 1) * w + (x - 1)] + gray[(y - 1) * w + (x + 1)]
-                            - 2 * gray[y * w + (x - 1)] + 2 * gray[y * w + (x + 1)]
-                            - gray[(y + 1) * w + (x - 1)] + gray[(y + 1) * w + (x + 1)]).toFloat()
-
-                    val gy = (-gray[(y - 1) * w + (x - 1)] - 2 * gray[(y - 1) * w + x] - gray[(y - 1) * w + (x + 1)]
-                            + gray[(y + 1) * w + (x - 1)] + 2 * gray[(y + 1) * w + x] + gray[(y + 1) * w + (x + 1)]).toFloat()
-
-                    val gVal = sqrt(gx * gx + gy * gy)
-                    grad[y * w + x] = gVal
-                    if (gVal > maxGrad) maxGrad = gVal
+                    val v = (
+                        gray[ym1 + x - 1] + 2 * gray[ym1 + x] + gray[ym1 + x + 1] +
+                        2 * gray[y0 + x - 1] + 4 * gray[y0 + x] + 2 * gray[y0 + x + 1] +
+                        gray[yp1 + x - 1] + 2 * gray[yp1 + x] + gray[yp1 + x + 1]
+                    ) shr 4
+                    blurred[y0 + x] = v
                 }
             }
 
-            val threshold = maxGrad * 0.20f
+            // Sobel Edge Gradient Magnitude
+            val gradMag = FloatArray(w * h)
+            var sumGrad = 0.0
+            for (y in 2 until h - 2) {
+                val ym1 = (y - 1) * w
+                val y0 = y * w
+                val yp1 = (y + 1) * w
+                for (x in 2 until w - 2) {
+                    val gx = (-blurred[ym1 + x - 1] + blurred[ym1 + x + 1]
+                            - 2 * blurred[y0 + x - 1] + 2 * blurred[y0 + x + 1]
+                            - blurred[yp1 + x - 1] + blurred[yp1 + x + 1]).toFloat()
 
-            // Quadrant search with distance weighting towards outer bounds
-            var bestTl = PointF(0.08f, 0.08f)
-            var minTlScore = Float.MAX_VALUE
-            for (y in 4 until (h * 0.45f).toInt()) {
-                for (x in 4 until (w * 0.45f).toInt()) {
-                    if (grad[y * w + x] >= threshold) {
-                        val score = (x.toFloat() / w) + (y.toFloat() / h)
-                        if (score < minTlScore) {
-                            minTlScore = score
-                            bestTl = PointF(x.toFloat() / w, y.toFloat() / h)
+                    val gy = (-blurred[ym1 + x - 1] - 2 * blurred[ym1 + x] - blurred[ym1 + x + 1]
+                            + blurred[yp1 + x - 1] + 2 * blurred[yp1 + x] + blurred[yp1 + x + 1]).toFloat()
+
+                    val mag = sqrt(gx * gx + gy * gy)
+                    gradMag[y0 + x] = mag
+                    sumGrad += mag
+                }
+            }
+
+            val avgGrad = (sumGrad / ((w - 4) * (h - 4))).toFloat()
+            val edgeThreshold = max(24f, avgGrad * 2.2f)
+
+            // Inward Ray-Casting for Top, Bottom, Left, and Right candidate points
+            val topPoints = mutableListOf<PointF>()
+            val bottomPoints = mutableListOf<PointF>()
+            val leftPoints = mutableListOf<PointF>()
+            val rightPoints = mutableListOf<PointF>()
+
+            val colStart = (w * 0.12f).toInt()
+            val colEnd = (w * 0.88f).toInt()
+            val colStep = max(2, (colEnd - colStart) / 26)
+
+            // Top boundary search (downwards)
+            for (x in colStart..colEnd step colStep) {
+                var bestY = -1
+                var bestScore = 0f
+                val yMax = (h * 0.60f).toInt()
+                for (y in (h * 0.04f).toInt()..yMax) {
+                    val idx = y * w + x
+                    val mag = gradMag[idx]
+                    if (mag >= edgeThreshold) {
+                        val lumDiff = (blurred[min((y + 6) * w + x, w * h - 1)] - blurred[max((y - 6) * w + x, 0)]).toFloat()
+                        val score = mag + max(0f, lumDiff * 1.5f)
+                        if (score > bestScore) {
+                            bestScore = score
+                            bestY = y
                         }
                     }
                 }
+                if (bestY != -1) topPoints.add(PointF(x.toFloat(), bestY.toFloat()))
             }
 
-            var bestTr = PointF(0.92f, 0.08f)
-            var minTrScore = Float.MAX_VALUE
-            for (y in 4 until (h * 0.45f).toInt()) {
-                for (x in (w * 0.55f).toInt() until w - 4) {
-                    if (grad[y * w + x] >= threshold) {
-                        val score = ((w - x).toFloat() / w) + (y.toFloat() / h)
-                        if (score < minTrScore) {
-                            minTrScore = score
-                            bestTr = PointF(x.toFloat() / w, y.toFloat() / h)
+            // Bottom boundary search (upwards)
+            for (x in colStart..colEnd step colStep) {
+                var bestY = -1
+                var bestScore = 0f
+                val yMin = (h * 0.40f).toInt()
+                for (y in (h * 0.96f).toInt() downTo yMin) {
+                    val idx = y * w + x
+                    val mag = gradMag[idx]
+                    if (mag >= edgeThreshold) {
+                        val lumDiff = (blurred[max((y - 6) * w + x, 0)] - blurred[min((y + 6) * w + x, w * h - 1)]).toFloat()
+                        val score = mag + max(0f, lumDiff * 1.5f)
+                        if (score > bestScore) {
+                            bestScore = score
+                            bestY = y
                         }
                     }
                 }
+                if (bestY != -1) bottomPoints.add(PointF(x.toFloat(), bestY.toFloat()))
             }
 
-            var bestBr = PointF(0.92f, 0.92f)
-            var minBrScore = Float.MAX_VALUE
-            for (y in (h * 0.55f).toInt() until h - 4) {
-                for (x in (w * 0.55f).toInt() until w - 4) {
-                    if (grad[y * w + x] >= threshold) {
-                        val score = ((w - x).toFloat() / w) + ((h - y).toFloat() / h)
-                        if (score < minBrScore) {
-                            minBrScore = score
-                            bestBr = PointF(x.toFloat() / w, y.toFloat() / h)
+            val rowStart = (h * 0.12f).toInt()
+            val rowEnd = (h * 0.88f).toInt()
+            val rowStep = max(2, (rowEnd - rowStart) / 26)
+
+            // Left boundary search (rightwards)
+            for (y in rowStart..rowEnd step rowStep) {
+                var bestX = -1
+                var bestScore = 0f
+                val xMax = (w * 0.60f).toInt()
+                for (x in (w * 0.04f).toInt()..xMax) {
+                    val idx = y * w + x
+                    val mag = gradMag[idx]
+                    if (mag >= edgeThreshold) {
+                        val lumDiff = (blurred[y * w + min(x + 6, w - 1)] - blurred[y * w + max(x - 6, 0)]).toFloat()
+                        val score = mag + max(0f, lumDiff * 1.5f)
+                        if (score > bestScore) {
+                            bestScore = score
+                            bestX = x
                         }
                     }
                 }
+                if (bestX != -1) leftPoints.add(PointF(bestX.toFloat(), y.toFloat()))
             }
 
-            var bestBl = PointF(0.08f, 0.92f)
-            var minBlScore = Float.MAX_VALUE
-            for (y in (h * 0.55f).toInt() until h - 4) {
-                for (x in 4 until (w * 0.45f).toInt()) {
-                    if (grad[y * w + x] >= threshold) {
-                        val score = (x.toFloat() / w) + ((h - y).toFloat() / h)
-                        if (score < minBlScore) {
-                            minBlScore = score
-                            bestBl = PointF(x.toFloat() / w, y.toFloat() / h)
+            // Right boundary search (leftwards)
+            for (y in rowStart..rowEnd step rowStep) {
+                var bestX = -1
+                var bestScore = 0f
+                val xMin = (w * 0.40f).toInt()
+                for (x in (w * 0.96f).toInt() downTo xMin) {
+                    val idx = y * w + x
+                    val mag = gradMag[idx]
+                    if (mag >= edgeThreshold) {
+                        val lumDiff = (blurred[y * w + max(x - 6, 0)] - blurred[y * w + min(x + 6, w - 1)]).toFloat()
+                        val score = mag + max(0f, lumDiff * 1.5f)
+                        if (score > bestScore) {
+                            bestScore = score
+                            bestX = x
                         }
                     }
                 }
+                if (bestX != -1) rightPoints.add(PointF(bestX.toFloat(), y.toFloat()))
             }
 
-            DocCorners(
-                topLeft = PointF(bestTl.x.coerceIn(0.02f, 0.42f), bestTl.y.coerceIn(0.02f, 0.42f)),
-                topRight = PointF(bestTr.x.coerceIn(0.58f, 0.98f), bestTr.y.coerceIn(0.02f, 0.42f)),
-                bottomRight = PointF(bestBr.x.coerceIn(0.58f, 0.98f), bestBr.y.coerceIn(0.58f, 0.98f)),
-                bottomLeft = PointF(bestBl.x.coerceIn(0.02f, 0.42f), bestBl.y.coerceIn(0.58f, 0.98f))
+            // Fit robust boundary lines using RANSAC
+            val topLine = fitHorizontalLine(topPoints)
+            val bottomLine = fitHorizontalLine(bottomPoints)
+            val leftLine = fitVerticalLine(leftPoints)
+            val rightLine = fitVerticalLine(rightPoints)
+
+            if (topLine == null || bottomLine == null || leftLine == null || rightLine == null) {
+                return DocDetectionResult(
+                    corners = defaultCorners,
+                    isDetected = false,
+                    confidence = 0.20f,
+                    statusMessage = "Align document inside frame"
+                )
+            }
+
+            // Calculate corner intersections
+            val (mt, ct) = topLine
+            val (mb, cb) = bottomLine
+            val (ml, cl) = leftLine
+            val (mr, cr) = rightLine
+
+            val denomTl = 1f - mt * ml
+            val denomTr = 1f - mt * mr
+            val denomBr = 1f - mb * mr
+            val denomBl = 1f - mb * ml
+
+            if (abs(denomTl) < 0.1f || abs(denomTr) < 0.1f || abs(denomBr) < 0.1f || abs(denomBl) < 0.1f) {
+                return DocDetectionResult(
+                    corners = defaultCorners,
+                    isDetected = false,
+                    confidence = 0.20f,
+                    statusMessage = "Align document inside frame"
+                )
+            }
+
+            val yTl = (mt * cl + ct) / denomTl
+            val xTl = ml * yTl + cl
+
+            val yTr = (mt * cr + ct) / denomTr
+            val xTr = mr * yTr + cr
+
+            val yBr = (mb * cr + cb) / denomBr
+            val xBr = mr * yBr + cr
+
+            val yBl = (mb * cl + cb) / denomBl
+            val xBl = ml * yBl + cl
+
+            // Normalize coordinates
+            val pTl = PointF((xTl / w).coerceIn(0.02f, 0.48f), (yTl / h).coerceIn(0.02f, 0.48f))
+            val pTr = PointF((xTr / w).coerceIn(0.52f, 0.98f), (yTr / h).coerceIn(0.02f, 0.48f))
+            val pBr = PointF((xBr / w).coerceIn(0.52f, 0.98f), (yBr / h).coerceIn(0.52f, 0.98f))
+            val pBl = PointF((xBl / w).coerceIn(0.02f, 0.48f), (yBl / h).coerceIn(0.52f, 0.98f))
+
+            // Shoelace Polygon Area Validation
+            val area = 0.5f * abs(
+                (pTl.x * pTr.y - pTr.x * pTl.y) +
+                (pTr.x * pBr.y - pBr.x * pTr.y) +
+                (pBr.x * pBl.y - pBl.x * pBr.y) +
+                (pBl.x * pTl.y - pTl.x * pBl.y)
+            )
+
+            if (area < 0.12f || area > 0.92f) {
+                return DocDetectionResult(
+                    corners = defaultCorners,
+                    isDetected = false,
+                    confidence = 0.25f,
+                    statusMessage = "Align document inside frame"
+                )
+            }
+
+            // Cross product convexity check
+            val v0x = pTr.x - pTl.x; val v0y = pTr.y - pTl.y
+            val v1x = pBr.x - pTr.x; val v1y = pBr.y - pTr.y
+            val v2x = pBl.x - pBr.x; val v2y = pBl.y - pBr.y
+            val v3x = pTl.x - pBl.x; val v3y = pTl.y - pBl.y
+
+            val cp0 = v0x * v1y - v0y * v1x
+            val cp1 = v1x * v2y - v1y * v2x
+            val cp2 = v2x * v3y - v2y * v3x
+            val cp3 = v3x * v0y - v3y * v0x
+
+            val isConvex = (cp0 > 0 && cp1 > 0 && cp2 > 0 && cp3 > 0) || (cp0 < 0 && cp1 < 0 && cp2 < 0 && cp3 < 0)
+            if (!isConvex) {
+                return DocDetectionResult(
+                    corners = defaultCorners,
+                    isDetected = false,
+                    confidence = 0.20f,
+                    statusMessage = "Align document inside frame"
+                )
+            }
+
+            // Aspect ratio validation
+            val wTop = hypot((pTr.x - pTl.x).toDouble(), (pTr.y - pTl.y).toDouble()).toFloat()
+            val wBot = hypot((pBr.x - pBl.x).toDouble(), (pBr.y - pBl.y).toDouble()).toFloat()
+            val hLeft = hypot((pBl.x - pTl.x).toDouble(), (pBl.y - pTl.y).toDouble()).toFloat()
+            val hRight = hypot((pBr.x - pTr.x).toDouble(), (pBr.y - pTr.y).toDouble()).toFloat()
+
+            val avgW = (wTop + wBot) / 2f
+            val avgH = (hLeft + hRight) / 2f
+            val aspect = avgW / avgH.coerceAtLeast(0.01f)
+
+            if (aspect < 0.35f || aspect > 2.85f) {
+                return DocDetectionResult(
+                    corners = defaultCorners,
+                    isDetected = false,
+                    confidence = 0.30f,
+                    statusMessage = "Align document inside frame"
+                )
+            }
+
+            val docCorners = DocCorners(topLeft = pTl, topRight = pTr, bottomRight = pBr, bottomLeft = pBl)
+            DocDetectionResult(
+                corners = docCorners,
+                isDetected = true,
+                confidence = 0.88f,
+                statusMessage = "Document detected"
             )
         } catch (e: Exception) {
-            DocCorners(
-                PointF(0.05f, 0.05f),
-                PointF(0.95f, 0.05f),
-                PointF(0.95f, 0.95f),
-                PointF(0.05f, 0.95f)
+            DocDetectionResult(
+                corners = defaultCorners,
+                isDetected = false,
+                confidence = 0.10f,
+                statusMessage = "Align document inside frame"
             )
         }
+    }
+
+    private fun fitHorizontalLine(points: List<PointF>, distTolerance: Float = 4.5f): Pair<Float, Float>? {
+        if (points.size < 6) return null
+        var bestM = 0f
+        var bestC = 0f
+        var maxInliers = 0
+        val iterations = min(30, points.size * (points.size - 1) / 2)
+        val random = java.util.Random(42)
+
+        for (i in 0 until iterations) {
+            val p1 = points[random.nextInt(points.size)]
+            val p2 = points[random.nextInt(points.size)]
+            if (abs(p1.x - p2.x) < 25f) continue
+            val m = (p2.y - p1.y) / (p2.x - p1.x)
+            if (abs(m) > 0.65f) continue // Horizontal lines cannot be too tilted
+            val c = p1.y - m * p1.x
+            var inliers = 0
+            for (p in points) {
+                val dist = abs(m * p.x - p.y + c) / sqrt(m * m + 1f)
+                if (dist <= distTolerance) inliers++
+            }
+            if (inliers > maxInliers) {
+                maxInliers = inliers
+                bestM = m
+                bestC = c
+            }
+        }
+
+        if (maxInliers < 6 || maxInliers.toFloat() / points.size < 0.38f) return null
+
+        // Least-squares refinement on inliers
+        var sumX = 0.0; var sumY = 0.0; var sumXY = 0.0; var sumX2 = 0.0; var n = 0
+        for (p in points) {
+            val dist = abs(bestM * p.x - p.y + bestC) / sqrt(bestM * bestM + 1f)
+            if (dist <= distTolerance) {
+                sumX += p.x; sumY += p.y; sumXY += p.x * p.y; sumX2 += p.x * p.x; n++
+            }
+        }
+        val denom = n * sumX2 - sumX * sumX
+        if (abs(denom) < 1e-4) return Pair(bestM, bestC)
+        val refinedM = ((n * sumXY - sumX * sumY) / denom).toFloat()
+        val refinedC = ((sumY - refinedM * sumX) / n).toFloat()
+        return Pair(refinedM, refinedC)
+    }
+
+    private fun fitVerticalLine(points: List<PointF>, distTolerance: Float = 4.5f): Pair<Float, Float>? {
+        if (points.size < 6) return null
+        var bestM = 0f
+        var bestC = 0f
+        var maxInliers = 0
+        val iterations = min(30, points.size * (points.size - 1) / 2)
+        val random = java.util.Random(42)
+
+        for (i in 0 until iterations) {
+            val p1 = points[random.nextInt(points.size)]
+            val p2 = points[random.nextInt(points.size)]
+            if (abs(p1.y - p2.y) < 25f) continue
+            val m = (p2.x - p1.x) / (p2.y - p1.y)
+            if (abs(m) > 0.65f) continue // Vertical lines cannot be too tilted
+            val c = p1.x - m * p1.y
+            var inliers = 0
+            for (p in points) {
+                val dist = abs(m * p.y - p.x + c) / sqrt(m * m + 1f)
+                if (dist <= distTolerance) inliers++
+            }
+            if (inliers > maxInliers) {
+                maxInliers = inliers
+                bestM = m
+                bestC = c
+            }
+        }
+
+        if (maxInliers < 6 || maxInliers.toFloat() / points.size < 0.38f) return null
+
+        // Least-squares refinement on inliers
+        var sumY = 0.0; var sumX = 0.0; var sumYX = 0.0; var sumY2 = 0.0; var n = 0
+        for (p in points) {
+            val dist = abs(bestM * p.y - p.x + bestC) / sqrt(bestM * bestM + 1f)
+            if (dist <= distTolerance) {
+                sumY += p.y; sumX += p.x; sumYX += p.y * p.x; sumY2 += p.y * p.y; n++
+            }
+        }
+        val denom = n * sumY2 - sumY * sumY
+        if (abs(denom) < 1e-4) return Pair(bestM, bestC)
+        val refinedM = ((n * sumYX - sumY * sumX) / denom).toFloat()
+        val refinedC = ((sumX - refinedM * sumY) / n).toFloat()
+        return Pair(refinedM, refinedC)
+    }
+
+    /**
+     * Detects 4 document corner points using multi-pass gradient and luminance edge analysis.
+     */
+    fun detectDocumentCorners(bitmap: Bitmap): DocCorners {
+        return detectDocument(bitmap).corners
     }
 
     /**
