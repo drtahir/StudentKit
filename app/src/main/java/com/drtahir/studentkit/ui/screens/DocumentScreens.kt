@@ -6854,7 +6854,8 @@ data class ScannedDocument(
     val pdfUri: String? = null,
     val qualityScore: Int = 4,
     val classification: String = "General Document",
-    val summary: String = ""
+    val summary: String = "",
+    val imageUri: String? = null
 )
 
 // Helper SharedPreferences document database
@@ -6887,7 +6888,8 @@ private fun loadSavedDocuments(context: Context): List<ScannedDocument> {
                         pdfUri = if (fields.size > 9 && fields[9].isNotEmpty()) fields[9] else null,
                         qualityScore = if (fields.size > 10) fields[10].toIntOrNull() ?: 4 else 4,
                         classification = if (fields.size > 11) fields[11] else "General Document",
-                        summary = if (fields.size > 12) fields[12] else ""
+                        summary = if (fields.size > 12) fields[12] else "",
+                        imageUri = if (fields.size > 13 && fields[13].isNotEmpty()) fields[13] else null
                     )
                 )
             }
@@ -6915,7 +6917,8 @@ private fun saveDocuments(context: Context, documents: List<ScannedDocument>) {
         sb.append(doc.pdfUri ?: "").append("||")
         sb.append(doc.qualityScore.toString()).append("||")
         sb.append(doc.classification).append("||")
-        sb.append(doc.summary.replace("\n", " ").replace("|", " "))
+        sb.append(doc.summary.replace("\n", " ").replace("|", " ")).append("||")
+        sb.append(doc.imageUri ?: "")
         sb.append("##")
     }
     prefs.edit().putString("saved_scans", sb.toString()).apply()

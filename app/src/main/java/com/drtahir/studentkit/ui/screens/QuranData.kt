@@ -14,7 +14,9 @@ data class JuzMetadata(
     val number: Int,
     val englishName: String,
     val arabicName: String,
-    val startPage: Int
+    val startPage: Int,
+    val startSurah: Int = 1,
+    val startAyah: Int = 1
 )
 
 fun getSurahList(): List<SurahMetadata> {
@@ -138,36 +140,36 @@ fun getSurahList(): List<SurahMetadata> {
 
 fun getJuzList(): List<JuzMetadata> {
     return listOf(
-        JuzMetadata(1, "Alif Lam Meem", "آلم", 1),
-        JuzMetadata(2, "Sayaqool", "سيقول", 22),
-        JuzMetadata(3, "Tilkal Rusul", "تلك الرسل", 42),
-        JuzMetadata(4, "Lan Tanaloo", "لن تنالوا", 62),
-        JuzMetadata(5, "Wal Muhsanat", "والمحصنات", 82),
-        JuzMetadata(6, "La Yuhibbullah", "لا يحب الله", 102),
-        JuzMetadata(7, "Wa Iza Sami'oo", "وإذا سمعوا", 121),
-        JuzMetadata(8, "Wa Lau Annana", "ولو أننا", 142),
-        JuzMetadata(9, "Qal Al-Mala'u", "قال الملأ", 162),
-        JuzMetadata(10, "Wa'lamoo", "واعلموا", 182),
-        JuzMetadata(11, "Ya'tazirun", "يعتذرون", 201),
-        JuzMetadata(12, "Wa Ma Min Dabbah", "وما من دابة", 222),
-        JuzMetadata(13, "Wa Ma Ubarri'u", "وما أبرئ", 242),
-        JuzMetadata(14, "Rubama", "ربما", 262),
-        JuzMetadata(15, "Subhan Alladhi", "سبحان الذي", 282),
-        JuzMetadata(16, "Qala Alam", "قال ألم", 302),
-        JuzMetadata(17, "Aqtaraba", "اقترب", 322),
-        JuzMetadata(18, "Qad Aflaha", "قد أفلح", 342),
-        JuzMetadata(19, "Wa Qalalladhina", "وقال الذين", 362),
-        JuzMetadata(20, "Aman Khalaqa", "أمن خلق", 382),
-        JuzMetadata(21, "Utlu Ma Oohiya", "اتل ما أوحي", 402),
-        JuzMetadata(22, "Wa Man Yaqnut", "ومن يقنت", 422),
-        JuzMetadata(23, "Wa Maliya", "ومالي", 442),
-        JuzMetadata(24, "Faman Azlamu", "فمن أظلم", 462),
-        JuzMetadata(25, "Ilayhi Yuraddu", "إليه يرد", 482),
-        JuzMetadata(26, "Ha Meem", "حم", 502),
-        JuzMetadata(27, "Qala Fama Khatbukum", "قال فما خطبكم", 522),
-        JuzMetadata(28, "Qad Sami'allahu", "قد سمع الله", 542),
-        JuzMetadata(29, "Tabarakalladhi", "تبارك الذي", 562),
-        JuzMetadata(30, "Amma", "عم", 582)
+        JuzMetadata(1, "Alif Lam Meem", "آلم", 1, 1, 1),
+        JuzMetadata(2, "Sayaqool", "سَيَقُولُ", 22, 2, 142),
+        JuzMetadata(3, "Tilkal Rusul", "تِلْكَ الرُّسُلُ", 42, 2, 253),
+        JuzMetadata(4, "Lan Tanaloo", "لَنْ تَنَالُوا", 62, 3, 93),
+        JuzMetadata(5, "Wal Muhsanat", "وَالْمُحْصَنَاتُ", 82, 4, 24),
+        JuzMetadata(6, "La Yuhibbullah", "لَا يُحِبُّ اللَّهُ", 102, 4, 148),
+        JuzMetadata(7, "Wa Iza Sami'oo", "وَإِذَا سَمِعُوا", 121, 5, 82),
+        JuzMetadata(8, "Wa Lau Annana", "وَلَوْ أَنَّنَا", 142, 6, 111),
+        JuzMetadata(9, "Qal Al-Mala'u", "قَالَ الْمَلَأُ", 162, 7, 88),
+        JuzMetadata(10, "Wa'lamoo", "وَاعْلَمُوا", 182, 8, 41),
+        JuzMetadata(11, "Ya'tazirun", "يَعْتَذِرُونَ", 201, 9, 93),
+        JuzMetadata(12, "Wa Ma Min Dabbah", "وَمَا مِنْ دَابَّةٍ", 222, 11, 6),
+        JuzMetadata(13, "Wa Ma Ubarri'u", "وَمَا أُبَرِّئُ", 242, 12, 53),
+        JuzMetadata(14, "Rubama", "رُبَمَا", 262, 15, 1),
+        JuzMetadata(15, "Subhan Alladhi", "سُبْحَانَ الَّذِي", 282, 17, 1),
+        JuzMetadata(16, "Qala Alam", "قَالَ أَلَمْ", 302, 18, 75),
+        JuzMetadata(17, "Aqtaraba", "اقْتَرَبَ", 322, 21, 1),
+        JuzMetadata(18, "Qad Aflaha", "قَدْ أَفْلَحَ", 342, 23, 1),
+        JuzMetadata(19, "Wa Qalalladhina", "وَقَالَ الَّذِينَ", 362, 25, 21),
+        JuzMetadata(20, "Aman Khalaqa", "أَمَّنْ خَلَقَ", 382, 27, 56),
+        JuzMetadata(21, "Utlu Ma Oohiya", "اتْلُ مَا أُوحِيَ", 402, 29, 46),
+        JuzMetadata(22, "Wa Man Yaqnut", "وَمَنْ يَقْنُتْ", 422, 33, 31),
+        JuzMetadata(23, "Wa Maliya", "وَمَالِيَ", 442, 36, 28),
+        JuzMetadata(24, "Faman Azlamu", "فَمَنْ أَظْلَمُ", 462, 39, 32),
+        JuzMetadata(25, "Ilayhi Yuraddu", "إِلَيْهِ يُرَدُّ", 482, 41, 47),
+        JuzMetadata(26, "Ha Meem", "حم", 502, 46, 1),
+        JuzMetadata(27, "Qala Fama Khatbukum", "قَالَ فَمَا خَطْبُكُمْ", 522, 51, 31),
+        JuzMetadata(28, "Qad Sami'allahu", "قَدْ سَمِعَ اللَّهُ", 542, 58, 1),
+        JuzMetadata(29, "Tabarakalladhi", "تَبَارَكَ الَّذِي", 562, 67, 1),
+        JuzMetadata(30, "Amma Yatasa'aloon", "عَمَّ", 582, 78, 1)
     )
 }
 
@@ -179,6 +181,12 @@ fun getSurahForPage(pageNum: Int): Int {
     val surahs = getSurahList().sortedByDescending { it.startPage }
     val surah = surahs.firstOrNull { pageNum >= it.startPage }
     return surah?.number ?: 1
+}
+
+fun getJuzForPage(pageNum: Int): Int {
+    val juzs = getJuzList().sortedByDescending { it.startPage }
+    val juz = juzs.firstOrNull { pageNum >= it.startPage }
+    return juz?.number ?: 1
 }
 
 fun toArabicNumerals(num: Int): String {

@@ -598,7 +598,7 @@ fun compileIdCardToPdf(
         textPaint.textSize = 10f
         textPaint.color = android.graphics.Color.parseColor("#64748B")
         val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-        canvas.drawText("Captured on: $currentDate  |  Source: Hikmah Omni Suite CamScanner", 40f, 70f, textPaint)
+        canvas.drawText("Captured on: $currentDate  |  Source: Hikmah Omni Suite Hikmahscanner", 40f, 70f, textPaint)
 
         val linePaint = Paint().apply {
             color = android.graphics.Color.parseColor("#E2E8F0")
@@ -1089,7 +1089,7 @@ fun saveTextDocToDownloads(
         Additional Remarks:  $additionalNotes
         
         ============================================================
-        Generated via Hikmah Omni Suite CamScanner, All Rights Reserved.
+        Generated via Hikmah Omni Suite Hikmahscanner, All Rights Reserved.
         ============================================================
         """.trimIndent()
 

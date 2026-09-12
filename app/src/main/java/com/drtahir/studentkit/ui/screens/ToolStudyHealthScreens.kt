@@ -5495,10 +5495,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         Column {
                             Text("QR & Barcode Scanner", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text(
-                                if (cameraPermissionState.status.isGranted)
-                                    "HD + Powerful Dual Engine"
-                                else
-                                    "Scan with camera or select image from gallery",
+                                "HD + Powerful Dual Engine",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -5967,7 +5964,9 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         }
                     }
 
-                    // Monospace text box with internal vertical scrolling all the way to the end!
+                    // Monospace text box with smooth scrolling all the way to the end!
+                    val cardResultScrollState = rememberScrollState()
+                    val cardScrollScope = rememberCoroutineScope()
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color.Black.copy(alpha = 0.25f),
@@ -5976,22 +5975,63 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             .fillMaxWidth()
                             .weight(1f)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(12.dp)
-                        ) {
-                            SelectionContainer {
-                                Text(
-                                    text = scannedBarcodeText,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 12.5.sp,
-                                    lineHeight = 18.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(cardResultScrollState)
+                                    .padding(12.dp)
+                            ) {
+                                SelectionContainer {
+                                    Text(
+                                        text = scannedBarcodeText,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.sp,
+                                        lineHeight = 19.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                // Ensure full clearance so the last line of text is easily visible and selectable
+                                Spacer(modifier = Modifier.height(48.dp))
+                            }
+
+                            // Quick scroll-to-end / scroll-to-top floating controls if text is long
+                            if (scannedBarcodeText.length > 200 || scannedBarcodeText.lines().size > 6) {
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    FilledTonalIconButton(
+                                        onClick = {
+                                            cardScrollScope.launch {
+                                                cardResultScrollState.animateScrollTo(0)
+                                            }
+                                        },
+                                        modifier = Modifier.size(30.dp),
+                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                        )
+                                    ) {
+                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top", modifier = Modifier.size(18.dp))
+                                    }
+                                    FilledTonalIconButton(
+                                        onClick = {
+                                            cardScrollScope.launch {
+                                                cardResultScrollState.animateScrollTo(cardResultScrollState.maxValue)
+                                            }
+                                        },
+                                        modifier = Modifier.size(30.dp),
+                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                        )
+                                    ) {
+                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to end", modifier = Modifier.size(18.dp))
+                                    }
+                                }
                             }
                         }
                     }
@@ -6149,6 +6189,8 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                     }
 
                     // Full Screen Scrollable Content
+                    val fullScrollState = rememberScrollState()
+                    val fullScrollScope = rememberCoroutineScope()
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -6158,18 +6200,55 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                     ) {
-                        SelectionContainer {
-                            Text(
-                                text = scannedBarcodeText,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 13.sp,
-                                lineHeight = 19.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(fullScrollState)
+                                .padding(14.dp)
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = scannedBarcodeText,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 20.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            // Bottom clearance spacer so the last lines are fully scrollable past any navigation bar or border
+                            Spacer(modifier = Modifier.height(72.dp))
+                        }
+
+                        // Floating scroll controls
+                        if (scannedBarcodeText.length > 200 || scannedBarcodeText.lines().size > 6) {
+                            Row(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(14.dp)
-                            )
+                                    .align(Alignment.BottomEnd)
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilledTonalIconButton(
+                                    onClick = {
+                                        fullScrollScope.launch {
+                                            fullScrollState.animateScrollTo(0)
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
+                                }
+                                FilledTonalIconButton(
+                                    onClick = {
+                                        fullScrollScope.launch {
+                                            fullScrollState.animateScrollTo(fullScrollState.maxValue)
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom")
+                                }
+                            }
                         }
                     }
 

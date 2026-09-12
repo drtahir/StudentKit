@@ -589,6 +589,8 @@ fun QuranMajeedScreen(
                                         quranFontFamily = quranFontFamily
                                     ) {
                                         selectedSurah = surah
+                                        readerModePage = surah.startPage
+                                        selectedTargetAyahKey = "${surah.number}:1"
                                     }
                                 }
                             }
@@ -617,7 +619,10 @@ fun QuranMajeedScreen(
                                         urduFontSize = urduFontSize,
                                         quranFontFamily = quranFontFamily
                                     ) {
+                                        val targetSurahObj = surahs.firstOrNull { it.number == juz.startSurah } ?: surahs[0]
+                                        selectedSurah = targetSurahObj
                                         readerModePage = juz.startPage
+                                        selectedTargetAyahKey = "${juz.startSurah}:${juz.startAyah}"
                                     }
                                 }
                             }
@@ -821,7 +826,8 @@ fun JuzRowItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .testTag("juz_row_${juz.number}"),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = themeColors.cardColor),
         border = BorderStroke(1.dp, themeColors.borderColor.copy(alpha = 0.4f)),
@@ -861,7 +867,7 @@ fun JuzRowItem(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Starts at Page ${juz.startPage}",
+                        text = "Page ${juz.startPage} • Ayah ${juz.startSurah}:${juz.startAyah}",
                         fontSize = (urduFontSize * 0.7f).sp,
                         color = themeColors.txtUrduColor.copy(alpha = 0.7f),
                         fontFamily = getFontFamily(quranFontFamily)
@@ -1412,16 +1418,22 @@ fun QuranPageReader(
     var autoPlayNextPage by remember { mutableStateOf(false) }
     val lazyListState = rememberLazyListState()
     
-    var hasScrolledToTarget by remember(targetAyahKey) { mutableStateOf(false) }
+    var hasScrolledToTarget by remember(currentPage, targetAyahKey, surah.number) { mutableStateOf(false) }
 
-    LaunchedEffect(versesForPage, targetAyahKey) {
-        if (targetAyahKey != null && !hasScrolledToTarget && versesForPage.isNotEmpty()) {
-            val index = versesForPage.indexOfFirst { "${it.surahNumber}:${it.verseNumber}" == targetAyahKey }
-            if (index != -1) {
-                // Short delay to ensure layout is ready
-                kotlinx.coroutines.delay(200)
-                lazyListState.animateScrollToItem(index)
-                activeVerseId = targetAyahKey // Highlight it
+    LaunchedEffect(versesForPage, targetAyahKey, currentPage) {
+        if (!hasScrolledToTarget && versesForPage.isNotEmpty()) {
+            val targetKey = targetAyahKey
+            val targetIndex = if (targetKey != null) {
+                versesForPage.indexOfFirst { "${it.surahNumber}:${it.verseNumber}" == targetKey }
+            } else {
+                versesForPage.indexOfFirst { it.surahNumber == surah.number }
+            }
+            if (targetIndex > 0) {
+                lazyListState.scrollToItem(targetIndex)
+                if (targetKey != null) activeVerseId = targetKey
+                hasScrolledToTarget = true
+            } else if (targetIndex == 0) {
+                if (targetKey != null) activeVerseId = targetKey
                 hasScrolledToTarget = true
             }
         }
@@ -1445,6 +1457,17 @@ fun QuranPageReader(
 
     val currentSurahMetadata = remember(currentVisibleSurahNum.value) {
         getSurahList().firstOrNull { it.number == currentVisibleSurahNum.value } ?: surah
+    }
+
+    val currentVisibleJuzNum = remember {
+        derivedStateOf {
+            val visibleIndex = lazyListState.firstVisibleItemIndex
+            if (visibleIndex >= 0 && visibleIndex < versesForPage.size) {
+                versesForPage[visibleIndex].juz
+            } else {
+                getJuzForPage(currentPage)
+            }
+        }
     }
 
     val stopAudio = {
@@ -1665,8 +1688,11 @@ fun QuranPageReader(
                             if (isPlayingAudio) {
                                 stopAudio()
                             } else {
-                                val firstVerse = versesForPage.firstOrNull()
-                                if (firstVerse != null) playVerse(firstVerse)
+                                val targetVerse = activeVerseId?.let { id -> versesForPage.firstOrNull { "${it.surahNumber}:${it.verseNumber}" == id } }
+                                    ?: versesForPage.getOrNull(lazyListState.firstVisibleItemIndex)
+                                    ?: versesForPage.firstOrNull { it.surahNumber == surah.number }
+                                    ?: versesForPage.firstOrNull()
+                                if (targetVerse != null) playVerse(targetVerse)
                                 else Toast.makeText(context, "No verses loaded to play", Toast.LENGTH_SHORT).show()
                             }
                         }) {
@@ -1826,7 +1852,7 @@ fun QuranPageReader(
                             )
                         }
                         Text(
-                            text = getJuzNameForPage(currentPage),
+                            text = "الجزء ${toArabicNumerals(currentVisibleJuzNum.value)}",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = decorationColor
@@ -2500,8 +2526,8 @@ fun downloadVerseAudio(context: Context, surahNum: Int, verseNum: Int, qariFolde
     try {
         val url = URL(urlStr)
         val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 3000
-        conn.readTimeout = 3000
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
         if (conn.responseCode == 200) {
             val inputStream = conn.inputStream
             val outputStream = FileOutputStream(file)
@@ -2516,7 +2542,9 @@ fun downloadVerseAudio(context: Context, surahNum: Int, verseNum: Int, qariFolde
             return true
         }
     } catch (e: Exception) {
-        // Individual audio download failure handled gracefully
+        if (file.exists() && file.length() < 500) {
+            file.delete()
+        }
     }
     return false
 }
@@ -2596,6 +2624,7 @@ fun AnimatedQuranDownloadCard(
                         statusMessage = "Surah $s/114 ($surahName) | Verses: $curCount / 6,236 | Voice Audio: $curAud files"
                         onUpdateCache()
                     }
+                    delay(150)
                 }
 
                 // Final verification sweep to ensure ALL 6,236 verses are saved

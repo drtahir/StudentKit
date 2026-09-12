@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -85,6 +86,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,7 +101,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -108,7 +119,13 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import android.graphics.Matrix
+import android.graphics.pdf.PdfRenderer
+import android.media.ExifInterface
+import android.os.ParcelFileDescriptor
 import com.drtahir.studentkit.data.DocCorners
 import com.drtahir.studentkit.data.DocumentEdgeProcessor
 import com.drtahir.studentkit.data.DocumentEdgeProcessor.ScanFilter
@@ -125,6 +142,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 // Local Document persistence helpers
 private fun loadLocalScans(context: Context): List<ScannedDocument> {
@@ -181,7 +199,8 @@ private fun loadLocalScans(context: Context): List<ScannedDocument> {
                         pdfUri = if (fields.size > 9 && fields[9].isNotEmpty()) fields[9] else null,
                         qualityScore = if (fields.size > 10) fields[10].toIntOrNull() ?: 5 else 5,
                         classification = if (fields.size > 11) fields[11] else "General Scan",
-                        summary = if (fields.size > 12) fields[12] else ""
+                        summary = if (fields.size > 12) fields[12] else "",
+                        imageUri = if (fields.size > 13 && fields[13].isNotEmpty()) fields[13] else null
                     )
                 )
             }
@@ -208,10 +227,206 @@ private fun saveLocalScans(context: Context, docs: List<ScannedDocument>) {
         sb.append(doc.pdfUri ?: "").append("||")
         sb.append(doc.qualityScore.toString()).append("||")
         sb.append(doc.classification).append("||")
-        sb.append(doc.summary.replace("\n", " ").replace("|", " "))
+        sb.append(doc.summary.replace("\n", " ").replace("|", " ")).append("||")
+        sb.append(doc.imageUri ?: "")
         sb.append("##")
     }
     prefs.edit().putString("saved_scans", sb.toString()).apply()
+}
+
+/**
+ * Loads image from Uri with EXIF orientation correction and dimension safety.
+ */
+fun loadAndCorrectOrientationFromUri(context: Context, uri: Uri): Bitmap? {
+    return try {
+        var orientation = ExifInterface.ORIENTATION_NORMAL
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            val exif = ExifInterface(stream)
+            orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        }
+
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+        val maxDim = max(options.outWidth, options.outHeight)
+        var sampleSize = 1
+        while (maxDim / sampleSize > 2400) {
+            sampleSize *= 2
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val rawBmp = context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, decodeOptions)
+        } ?: return null
+
+        val rotationAngle = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+
+        if (rotationAngle != 0f) {
+            val matrix = Matrix().apply { postRotate(rotationAngle) }
+            Bitmap.createBitmap(rawBmp, 0, 0, rawBmp.width, rawBmp.height, matrix, true)
+        } else {
+            rawBmp
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/**
+ * Loads a bitmap from local file path with EXIF orientation correction and dimension safety.
+ */
+fun loadAndCorrectOrientationFromFile(filePath: String): Bitmap? {
+    return try {
+        val exif = ExifInterface(filePath)
+        val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(filePath, options)
+        val maxDim = max(options.outWidth, options.outHeight)
+        var sampleSize = 1
+        while (maxDim / sampleSize > 2400) {
+            sampleSize *= 2
+        }
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val rawBmp = BitmapFactory.decodeFile(filePath, decodeOptions) ?: return null
+        val rotationAngle = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+        if (rotationAngle != 0f) {
+            val matrix = Matrix().apply { postRotate(rotationAngle) }
+            Bitmap.createBitmap(rawBmp, 0, 0, rawBmp.width, rawBmp.height, matrix, true)
+        } else {
+            rawBmp
+        }
+    } catch (e: Exception) {
+        BitmapFactory.decodeFile(filePath)
+    }
+}
+
+/**
+ * Loads a preview bitmap for a ScannedDocument in the Library.
+ * Works for both newly scanned documents with imageUri or pdfUri,
+ * and older saved documents without local files by rendering a clean document preview card.
+ */
+fun loadDocumentPreviewBitmap(context: Context, doc: ScannedDocument): Bitmap {
+    // 1. Try imageUri if available
+    doc.imageUri?.let { uriStr ->
+        try {
+            val uri = Uri.parse(uriStr)
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val bmp = BitmapFactory.decodeStream(stream)
+                if (bmp != null) return bmp
+            }
+        } catch (e: Exception) {
+            // fallback
+        }
+    }
+
+    // 2. Try pdfUri by rendering first page with PdfRenderer
+    doc.pdfUri?.let { pdfUriStr ->
+        try {
+            val uri = Uri.parse(pdfUriStr)
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                PdfRenderer(pfd).use { renderer ->
+                    if (renderer.pageCount > 0) {
+                        renderer.openPage(0).use { page ->
+                            val renderW = page.width * 2
+                            val renderH = page.height * 2
+                            val bmp = Bitmap.createBitmap(renderW, renderH, Bitmap.Config.ARGB_8888)
+                            val canvas = Canvas(bmp)
+                            canvas.drawColor(android.graphics.Color.WHITE)
+                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            return bmp
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // fallback
+        }
+    }
+
+    // 3. Fallback: generate a clean rendered document card
+    return renderDocPreviewFallback(doc)
+}
+
+fun renderDocPreviewFallback(doc: ScannedDocument): Bitmap {
+    val width = 800
+    val height = 1130 // A4 proportion
+    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+    canvas.drawColor(android.graphics.Color.WHITE)
+
+    val borderPaint = Paint().apply {
+        color = android.graphics.Color.parseColor("#E2E8F0")
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    canvas.drawRect(24f, 24f, width - 24f, height - 24f, borderPaint)
+
+    val headerPaint = Paint().apply {
+        color = android.graphics.Color.parseColor("#00838F")
+        textSize = 28f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        isAntiAlias = true
+    }
+    canvas.drawText("HIKMAHSCANNER DOCUMENT", 50f, 90f, headerPaint)
+
+    val metaPaint = Paint().apply {
+        color = android.graphics.Color.parseColor("#64748B")
+        textSize = 18f
+        isAntiAlias = true
+    }
+    canvas.drawText("Document: ${doc.name}", 50f, 135f, metaPaint)
+    canvas.drawText("Date: ${doc.date}   |   Pages: ${doc.pageCount}   |   ${doc.classification}", 50f, 168f, metaPaint)
+
+    val linePaint = Paint().apply {
+        color = android.graphics.Color.parseColor("#00FFA3")
+        strokeWidth = 3f
+    }
+    canvas.drawLine(50f, 195f, width - 50f, 195f, linePaint)
+
+    val bodyPaint = Paint().apply {
+        color = android.graphics.Color.parseColor("#1E293B")
+        textSize = 19f
+        isAntiAlias = true
+    }
+
+    var y = 240f
+    val textToRender = if (doc.ocrText.isNotBlank()) doc.ocrText else doc.summary
+    val lines = textToRender.split("\n").take(24)
+    for (line in lines) {
+        val trimmed = line.trim()
+        if (trimmed.isNotEmpty()) {
+            canvas.drawText(trimmed.take(65), 50f, y, bodyPaint)
+            y += 32f
+        }
+        if (y > height - 100f) break
+    }
+
+    val footerPaint = Paint().apply {
+        color = android.graphics.Color.parseColor("#94A3B8")
+        textSize = 14f
+        textAlign = Paint.Align.CENTER
+        isAntiAlias = true
+    }
+    canvas.drawText("Verified & Stored in Hikmah Omni Suite Library", width / 2f, height - 50f, footerPaint)
+
+    return bmp
 }
 
 /**
@@ -365,7 +580,7 @@ fun exportScanToDocx(
                     append("<w:body>")
                     // Header title
                     append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"36\"/><w:color w:val=\"1565C0\"/></w:rPr><w:t>$escTitle</w:t></w:r></w:p>")
-                    append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:i/><w:sz w:val=\"20\"/><w:color w:val=\"7F8C8D\"/></w:rPr><w:t>Extracted via CamScanner HD  |  $currentDateStr</w:t></w:r></w:p>")
+                    append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:i/><w:sz w:val=\"20\"/><w:color w:val=\"7F8C8D\"/></w:rPr><w:t>Extracted via Hikmahscanner HD  |  $currentDateStr</w:t></w:r></w:p>")
                     append("<w:p/>")
                     for (line in ocrText.split("\n")) {
                         val trimmed = line.trim()
@@ -453,7 +668,7 @@ fun compositeIdCard(front: Bitmap, back: Bitmap?): Bitmap {
 
     // Footer
     val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
-    canvas.drawText("Certified Copy | Scanned with CamScanner HD | $dateStr", a4W / 2f, a4H - 50f, subtitlePaint)
+    canvas.drawText("Certified Copy | Scanned with Hikmahscanner HD | $dateStr", a4W / 2f, a4H - 50f, subtitlePaint)
 
     return output
 }
@@ -469,7 +684,7 @@ fun splitBookSpread(spread: Bitmap): Pair<Bitmap, Bitmap> {
 }
 
 /**
- * Main CamScanner-style Document Scanner Entry Screen.
+ * Main Hikmahscanner-style Document Scanner Entry Screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -487,6 +702,7 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
     var detectedCorners by remember { mutableStateOf(DocCorners()) }
     var perspectiveCroppedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var filteredBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isApplyingFilter by remember { mutableStateOf(false) }
     var currentFilter by remember { mutableStateOf(ScanFilter.ENHANCE) }
     var currentRotation by remember { mutableFloatStateOf(0f) }
     var isComparingOriginal by remember { mutableStateOf(false) }
@@ -514,7 +730,7 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
 
     val defaultDocTitle = remember {
         val dateFormat = SimpleDateFormat("MM-dd-yyyy HH.mm", Locale.getDefault()).format(Date())
-        "CamScanner $dateFormat"
+        "Hikmahscanner $dateFormat"
     }
     var documentTitle by remember { mutableStateOf(defaultDocTitle) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -652,12 +868,14 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
 
     fun onApplyPerspectiveCrop() {
         val raw = rawCapturedBitmap ?: return
+        isApplyingFilter = true
         coroutineScope.launch(Dispatchers.Default) {
             val cropped = DocumentEdgeProcessor.warpPerspectiveCrop(raw, detectedCorners)
             val filtered = DocumentEdgeProcessor.applyFilter(cropped, currentFilter)
             withContext(Dispatchers.Main) {
                 perspectiveCroppedBitmap = cropped
                 filteredBitmap = filtered
+                isApplyingFilter = false
                 scannerState = "FILTER_STUDIO"
             }
         }
@@ -665,7 +883,8 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
 
     fun onFilterChanged(newFilter: ScanFilter) {
         currentFilter = newFilter
-        val baseCropped = perspectiveCroppedBitmap ?: return
+        val baseCropped = perspectiveCroppedBitmap ?: rawCapturedBitmap ?: return
+        isApplyingFilter = true
         coroutineScope.launch(Dispatchers.Default) {
             val rotated = if (currentRotation != 0f) {
                 DocumentEdgeProcessor.rotateBitmap(baseCropped, currentRotation)
@@ -675,18 +894,21 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
             val filtered = DocumentEdgeProcessor.applyFilter(rotated, newFilter)
             withContext(Dispatchers.Main) {
                 filteredBitmap = filtered
+                isApplyingFilter = false
             }
         }
     }
 
     fun onRotateBy(degrees: Float) {
         currentRotation = (currentRotation + degrees) % 360f
-        val baseCropped = perspectiveCroppedBitmap ?: return
+        val baseCropped = perspectiveCroppedBitmap ?: rawCapturedBitmap ?: return
+        isApplyingFilter = true
         coroutineScope.launch(Dispatchers.Default) {
             val rotated = DocumentEdgeProcessor.rotateBitmap(baseCropped, currentRotation)
             val filtered = DocumentEdgeProcessor.applyFilter(rotated, currentFilter)
             withContext(Dispatchers.Main) {
                 filteredBitmap = filtered
+                isApplyingFilter = false
             }
         }
     }
@@ -712,15 +934,16 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                     name = documentTitle,
                     date = timeStamp,
                     folder = "Scans",
-                    tags = listOf("camscanner", "hd_edge_scan"),
+                    tags = listOf("hikmahscanner", "hd_edge_scan"),
                     sizeMb = 0.85 * allPages.size,
                     pageCount = allPages.size,
                     isStarred = false,
                     ocrText = extractedOcrText.ifEmpty { "High-resolution scanned document." },
                     pdfUri = pdfUri?.toString(),
                     qualityScore = 5,
-                    classification = "CamScanner HD Document",
-                    summary = "Perspectively rectified document scan saved to phone storage & gallery."
+                    classification = "Hikmahscanner HD Document",
+                    summary = "Perspectively rectified document scan saved to phone storage & gallery.",
+                    imageUri = imgUri?.toString()
                 )
                 savedDocsList.add(0, newDoc)
                 saveLocalScans(context, savedDocsList)
@@ -824,13 +1047,15 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                         BackHandler {
                             scannerState = "CROP_ADJUST"
                         }
-                        filteredBitmap?.let { bmp ->
-                            CamScannerFilterStudioView(
+                        val bmp = filteredBitmap ?: perspectiveCroppedBitmap ?: rawCapturedBitmap
+                        if (bmp != null) {
+                            HikmahscannerFilterStudioView(
                                 documentTitle = documentTitle,
                                 onEditTitle = { showRenameDialog = true },
-                                currentBitmap = if (isComparingOriginal) perspectiveCroppedBitmap ?: bmp else bmp,
+                                currentBitmap = if (isComparingOriginal) perspectiveCroppedBitmap ?: bmp else (filteredBitmap ?: bmp),
                                 originalBitmap = perspectiveCroppedBitmap ?: bmp,
                                 isComparing = isComparingOriginal,
+                                isApplyingFilter = isApplyingFilter,
                                 onToggleCompare = { isComparingOriginal = !isComparingOriginal },
                                 activeFilter = currentFilter,
                                 onSelectFilter = { onFilterChanged(it) },
@@ -1047,8 +1272,8 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                 shape = RoundedCornerShape(10.dp)
                             ) {
                                 Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("📁 Image: Pictures/CamScanner", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                                    Text("📁 PDF: Documents/CamScanner", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text("📁 Image: Pictures/Hikmahscanner", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text("📁 PDF: Documents/Hikmahscanner", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                     Text("✨ Background Removed & Edges Straightened", color = Color(0xFF2E7D32), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
@@ -1145,7 +1370,7 @@ fun ToWordSuccessDialog(
                 }
                 Column {
                     Text("Word Document (.docx)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Generated via CamScanner OCR", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Generated via Hikmahscanner OCR", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
@@ -1264,7 +1489,7 @@ fun FeaturesSelectorModal(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(Icons.Default.GridView, contentDescription = null, tint = Color(0xFF00C853))
-                Text("CamScanner Tool Suite", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Hikmahscanner Tool Suite", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
             Text(
                 "Select any scanning or document intelligence mode below:",
@@ -1906,7 +2131,7 @@ fun SmartEraseStudioView(
 }
 
 // =============================================================================
-// 1. LIVE CAMERA VIEWFINDER (CamScanner Viewfinder with live edge overlay)
+// 1. LIVE CAMERA VIEWFINDER (Hikmahscanner Viewfinder with live edge overlay)
 // =============================================================================
 @Composable
 fun LiveCameraViewfinderView(
@@ -1969,10 +2194,11 @@ fun LiveCameraViewfinderView(
     ) { uri: Uri? ->
         if (uri != null) {
             try {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)?.let { bmp ->
-                        onImageCaptured(bmp, null)
-                    }
+                val bmp = loadAndCorrectOrientationFromUri(context, uri)
+                if (bmp != null) {
+                    onImageCaptured(bmp, null)
+                } else {
+                    Toast.makeText(context, "Failed to decode image", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Failed to load image from gallery", Toast.LENGTH_SHORT).show()
@@ -1996,17 +2222,18 @@ fun LiveCameraViewfinderView(
                         detectionConfidence = result.confidence
                         detectionMessage = result.statusMessage
 
-                        // Only auto-snap if a true document was confidently detected and user hasn't manually positioned edges
+                        // Only auto-snap with smooth Exponential Moving Average (EMA) if confident
                         if (result.isDetected && !hasUserManuallyAdjusted) {
                             val c = result.corners
-                            tlX = c.topLeft.x
-                            tlY = c.topLeft.y
-                            trX = c.topRight.x
-                            trY = c.topRight.y
-                            brX = c.bottomRight.x
-                            brY = c.bottomRight.y
-                            blX = c.bottomLeft.x
-                            blY = c.bottomLeft.y
+                            val smooth = 0.55f
+                            tlX = tlX * (1f - smooth) + c.topLeft.x * smooth
+                            tlY = tlY * (1f - smooth) + c.topLeft.y * smooth
+                            trX = trX * (1f - smooth) + c.topRight.x * smooth
+                            trY = trY * (1f - smooth) + c.topRight.y * smooth
+                            brX = brX * (1f - smooth) + c.bottomRight.x * smooth
+                            brY = brY * (1f - smooth) + c.bottomRight.y * smooth
+                            blX = blX * (1f - smooth) + c.bottomLeft.x * smooth
+                            blY = blY * (1f - smooth) + c.bottomLeft.y * smooth
                         }
                     }
                 } catch (e: Exception) {
@@ -2097,15 +2324,25 @@ fun LiveCameraViewfinderView(
             val boxWPx = with(density) { maxWidth.toPx() }
             val boxHPx = with(density) { maxHeight.toPx() }
 
+            val animSpec = if (isUserDragging) snap() else tween<Float>(durationMillis = 180, easing = FastOutSlowInEasing)
+            val curTlX by animateFloatAsState(targetValue = tlX, animationSpec = animSpec, label = "tlX")
+            val curTlY by animateFloatAsState(targetValue = tlY, animationSpec = animSpec, label = "tlY")
+            val curTrX by animateFloatAsState(targetValue = trX, animationSpec = animSpec, label = "trX")
+            val curTrY by animateFloatAsState(targetValue = trY, animationSpec = animSpec, label = "trY")
+            val curBrX by animateFloatAsState(targetValue = brX, animationSpec = animSpec, label = "brX")
+            val curBrY by animateFloatAsState(targetValue = brY, animationSpec = animSpec, label = "brY")
+            val curBlX by animateFloatAsState(targetValue = blX, animationSpec = animSpec, label = "blX")
+            val curBlY by animateFloatAsState(targetValue = blY, animationSpec = animSpec, label = "blY")
+
             // Canvas Drawing: Mask Scrim + Quadrilateral Lines + Midpoint Anchors
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
 
-                val pTl = Offset(tlX * w, tlY * h)
-                val pTr = Offset(trX * w, trY * h)
-                val pBr = Offset(brX * w, brY * h)
-                val pBl = Offset(blX * w, blY * h)
+                val pTl = Offset(curTlX * w, curTlY * h)
+                val pTr = Offset(curTrX * w, curTrY * h)
+                val pBr = Offset(curBrX * w, curBrY * h)
+                val pBl = Offset(curBlX * w, curBlY * h)
 
                 // Darken outside the document frame so the document pops out
                 val maskPath = Path().apply {
@@ -2125,18 +2362,24 @@ fun LiveCameraViewfinderView(
                 }
                 drawPath(maskPath, color = Color.Black.copy(alpha = 0.28f))
 
-                // High-visibility neon boundary lines
+                // High-visibility neon boundary lines with smooth glow
                 val quadColor = when {
                     hasUserManuallyAdjusted -> Color(0xFF00B4D8)
                     isDocDetected -> Color(0xFF00FFA3)
                     else -> Color(0xFF00FFA3).copy(alpha = 0.85f)
                 }
-                val strokeWidth = 3.5f
 
-                drawLine(color = quadColor, start = pTl, end = pTr, strokeWidth = strokeWidth)
-                drawLine(color = quadColor, start = pTr, end = pBr, strokeWidth = strokeWidth)
-                drawLine(color = quadColor, start = pBr, end = pBl, strokeWidth = strokeWidth)
-                drawLine(color = quadColor, start = pBl, end = pTl, strokeWidth = strokeWidth)
+                // Soft neon glow underlay
+                drawLine(color = quadColor.copy(alpha = 0.35f), start = pTl, end = pTr, strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(color = quadColor.copy(alpha = 0.35f), start = pTr, end = pBr, strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(color = quadColor.copy(alpha = 0.35f), start = pBr, end = pBl, strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(color = quadColor.copy(alpha = 0.35f), start = pBl, end = pTl, strokeWidth = 8f, cap = StrokeCap.Round)
+
+                // Crisp sharp overlay line
+                drawLine(color = quadColor, start = pTl, end = pTr, strokeWidth = 3f, cap = StrokeCap.Round)
+                drawLine(color = quadColor, start = pTr, end = pBr, strokeWidth = 3f, cap = StrokeCap.Round)
+                drawLine(color = quadColor, start = pBr, end = pBl, strokeWidth = 3f, cap = StrokeCap.Round)
+                drawLine(color = quadColor, start = pBl, end = pTl, strokeWidth = 3f, cap = StrokeCap.Round)
 
                 if (showGrid) {
                     val gridColor = Color.White.copy(alpha = 0.2f)
@@ -2760,38 +3003,84 @@ fun LiveCameraViewfinderView(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.75f))
-                .padding(bottom = 16.dp, top = 8.dp),
+                .background(Color.Black.copy(alpha = 0.85f))
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp, top = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Single / Batch Pill
+            // Sleek High-Quality Compact Single / Batch Pill
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White.copy(alpha = 0.15f),
-                modifier = Modifier.height(30.dp)
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                shadowElevation = 3.dp
             ) {
                 Row(
-                    modifier = Modifier.padding(2.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
+                    // Single Button
+                    val isSingle = scanMode == "Single"
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
-                            .background(if (scanMode == "Single") Color.White.copy(alpha = 0.35f) else Color.Transparent)
+                            .background(
+                                if (isSingle) Color(0xFF00FFA3) else Color.Transparent
+                            )
                             .clickable { onScanModeChanged("Single") }
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text("Single", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Description,
+                                contentDescription = null,
+                                tint = if (isSingle) Color(0xFF003822) else Color.White.copy(alpha = 0.75f),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                "Single",
+                                color = if (isSingle) Color(0xFF003822) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSingle) FontWeight.ExtraBold else FontWeight.Medium
+                            )
+                        }
                     }
+
+                    // Batch Button
+                    val isBatch = scanMode == "Batch"
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
-                            .background(if (scanMode == "Batch") Color.White.copy(alpha = 0.35f) else Color.Transparent)
+                            .background(
+                                if (isBatch) Color(0xFF00FFA3) else Color.Transparent
+                            )
                             .clickable { onScanModeChanged("Batch") }
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text("Batch", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.FilterNone,
+                                contentDescription = null,
+                                tint = if (isBatch) Color(0xFF003822) else Color.White.copy(alpha = 0.75f),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                if (batchCount > 0) "Batch ($batchCount)" else "Batch",
+                                color = if (isBatch) Color(0xFF003822) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isBatch) FontWeight.ExtraBold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -2851,7 +3140,7 @@ fun LiveCameraViewfinderView(
                     Text("All Features", color = Color.White, fontSize = 9.sp)
                 }
 
-                // CamScanner Shutter Button
+                // Hikmahscanner Shutter Button
                 Box(
                     modifier = Modifier
                         .size(68.dp)
@@ -2882,7 +3171,7 @@ fun LiveCameraViewfinderView(
                                     object : ImageCapture.OnImageSavedCallback {
                                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                                             try {
-                                                val bmp = BitmapFactory.decodeFile(file.absolutePath)
+                                                val bmp = loadAndCorrectOrientationFromFile(file.absolutePath)
                                                 if (bmp != null) {
                                                     onImageCaptured(bmp, activeCorners)
                                                 } else {
@@ -3021,13 +3310,14 @@ fun CornerCropAdjusterView(
             Box(
                 modifier = Modifier
                     .size(dispWDp, dispHDp)
-                    .clipToBounds()
             ) {
-                // 1. Scaled Photo Image
+                // 1. Scaled Photo Image (safely clipped to image size)
                 Image(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = "Document photo",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clipToBounds(),
                     contentScale = ContentScale.FillBounds
                 )
 
@@ -3160,10 +3450,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (cMidTopX * dispWPx).toDp() } - 32.dp,
-                            y = with(density) { (cMidTopY * dispHPx).toDp() } - 18.dp
+                            x = with(density) { (cMidTopX * dispWPx).toDp() } - 42.dp,
+                            y = with(density) { (cMidTopY * dispHPx).toDp() } - 24.dp
                         )
-                        .size(width = 64.dp, height = 36.dp)
+                        .size(width = 84.dp, height = 48.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "EDGE_TOP" },
@@ -3173,13 +3463,15 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dy = dragAmount.y / dispHPx
                                 val dx = dragAmount.x / dispWPx
-                                val maxTlY = blY - 0.015f
-                                val maxTrY = brY - 0.015f
-                                tlY = (tlY + dy).coerceIn(0f, maxTlY)
-                                trY = (trY + dy).coerceIn(0f, maxTrY)
+                                val maxAllowedY = minOf(blY, brY) - 0.005f
+                                tlY = (tlY + dy).coerceIn(0f, maxAllowedY)
+                                trY = (trY + dy).coerceIn(0f, maxAllowedY)
                                 if (dx != 0f) {
-                                    tlX = (tlX + dx).coerceIn(0f, trX - 0.015f)
-                                    trX = (trX + dx).coerceIn(tlX + 0.015f, 1f)
+                                    val minTopX = minOf(tlX, trX)
+                                    val maxTopX = maxOf(tlX, trX)
+                                    val clampedDx = dx.coerceIn(-minTopX, 1f - maxTopX)
+                                    tlX = (tlX + clampedDx).coerceIn(0f, 1f)
+                                    trX = (trX + clampedDx).coerceIn(0f, 1f)
                                 }
                             }
                         },
@@ -3189,18 +3481,18 @@ fun CornerCropAdjusterView(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF0F172A),
                         border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_TOP") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
-                        modifier = Modifier.size(width = 46.dp, height = 20.dp)
+                        modifier = Modifier.size(width = 54.dp, height = 24.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxSize(),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("▲", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("▼", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Text("▲", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("▼", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -3211,10 +3503,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (cMidBotX * dispWPx).toDp() } - 32.dp,
-                            y = with(density) { (cMidBotY * dispHPx).toDp() } - 18.dp
+                            x = with(density) { (cMidBotX * dispWPx).toDp() } - 42.dp,
+                            y = with(density) { (cMidBotY * dispHPx).toDp() } - 24.dp
                         )
-                        .size(width = 64.dp, height = 36.dp)
+                        .size(width = 84.dp, height = 48.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "EDGE_BOTTOM" },
@@ -3224,13 +3516,15 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dy = dragAmount.y / dispHPx
                                 val dx = dragAmount.x / dispWPx
-                                val minBlY = tlY + 0.015f
-                                val minBrY = trY + 0.015f
-                                blY = (blY + dy).coerceIn(minBlY, 1f)
-                                brY = (brY + dy).coerceIn(minBrY, 1f)
+                                val minAllowedY = maxOf(tlY, trY) + 0.005f
+                                blY = (blY + dy).coerceIn(minAllowedY, 1f)
+                                brY = (brY + dy).coerceIn(minAllowedY, 1f)
                                 if (dx != 0f) {
-                                    blX = (blX + dx).coerceIn(0f, brX - 0.015f)
-                                    brX = (brX + dx).coerceIn(blX + 0.015f, 1f)
+                                    val minBotX = minOf(blX, brX)
+                                    val maxBotX = maxOf(blX, brX)
+                                    val clampedDx = dx.coerceIn(-minBotX, 1f - maxBotX)
+                                    blX = (blX + clampedDx).coerceIn(0f, 1f)
+                                    brX = (brX + clampedDx).coerceIn(0f, 1f)
                                 }
                             }
                         },
@@ -3240,18 +3534,18 @@ fun CornerCropAdjusterView(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF0F172A),
                         border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_BOTTOM") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
-                        modifier = Modifier.size(width = 46.dp, height = 20.dp)
+                        modifier = Modifier.size(width = 54.dp, height = 24.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxSize(),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("▲", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("▼", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Text("▲", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("▼", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -3262,10 +3556,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (cMidLeftX * dispWPx).toDp() } - 18.dp,
-                            y = with(density) { (cMidLeftY * dispHPx).toDp() } - 32.dp
+                            x = with(density) { (cMidLeftX * dispWPx).toDp() } - 24.dp,
+                            y = with(density) { (cMidLeftY * dispHPx).toDp() } - 42.dp
                         )
-                        .size(width = 36.dp, height = 64.dp)
+                        .size(width = 48.dp, height = 84.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "EDGE_LEFT" },
@@ -3275,13 +3569,15 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dx = dragAmount.x / dispWPx
                                 val dy = dragAmount.y / dispHPx
-                                val maxTlX = trX - 0.015f
-                                val maxBlX = brX - 0.015f
-                                tlX = (tlX + dx).coerceIn(0f, maxTlX)
-                                blX = (blX + dx).coerceIn(0f, maxBlX)
+                                val maxAllowedX = minOf(trX, brX) - 0.005f
+                                tlX = (tlX + dx).coerceIn(0f, maxAllowedX)
+                                blX = (blX + dx).coerceIn(0f, maxAllowedX)
                                 if (dy != 0f) {
-                                    tlY = (tlY + dy).coerceIn(0f, blY - 0.015f)
-                                    blY = (blY + dy).coerceIn(tlY + 0.015f, 1f)
+                                    val minLeftY = minOf(tlY, blY)
+                                    val maxLeftY = maxOf(tlY, blY)
+                                    val clampedDy = dy.coerceIn(-minLeftY, 1f - maxLeftY)
+                                    tlY = (tlY + clampedDy).coerceIn(0f, 1f)
+                                    blY = (blY + clampedDy).coerceIn(0f, 1f)
                                 }
                             }
                         },
@@ -3291,18 +3587,18 @@ fun CornerCropAdjusterView(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF0F172A),
                         border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_LEFT") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
-                        modifier = Modifier.size(width = 20.dp, height = 46.dp)
+                        modifier = Modifier.size(width = 24.dp, height = 54.dp)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("◀", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("▶", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Text("◀", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(5.dp))
+                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.height(5.dp))
+                            Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -3313,10 +3609,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (cMidRightX * dispWPx).toDp() } - 18.dp,
-                            y = with(density) { (cMidRightY * dispHPx).toDp() } - 32.dp
+                            x = with(density) { (cMidRightX * dispWPx).toDp() } - 24.dp,
+                            y = with(density) { (cMidRightY * dispHPx).toDp() } - 42.dp
                         )
-                        .size(width = 36.dp, height = 64.dp)
+                        .size(width = 48.dp, height = 84.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "EDGE_RIGHT" },
@@ -3326,13 +3622,15 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dx = dragAmount.x / dispWPx
                                 val dy = dragAmount.y / dispHPx
-                                val minTrX = tlX + 0.015f
-                                val minBrX = blX + 0.015f
-                                trX = (trX + dx).coerceIn(minTrX, 1f)
-                                brX = (brX + dx).coerceIn(minBrX, 1f)
+                                val minAllowedX = maxOf(tlX, blX) + 0.005f
+                                trX = (trX + dx).coerceIn(minAllowedX, 1f)
+                                brX = (brX + dx).coerceIn(minAllowedX, 1f)
                                 if (dy != 0f) {
-                                    trY = (trY + dy).coerceIn(0f, brY - 0.015f)
-                                    brY = (brY + dy).coerceIn(trY + 0.015f, 1f)
+                                    val minRightY = minOf(trY, brY)
+                                    val maxRightY = maxOf(trY, brY)
+                                    val clampedDy = dy.coerceIn(-minRightY, 1f - maxRightY)
+                                    trY = (trY + clampedDy).coerceIn(0f, 1f)
+                                    brY = (brY + clampedDy).coerceIn(0f, 1f)
                                 }
                             }
                         },
@@ -3342,18 +3640,18 @@ fun CornerCropAdjusterView(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF0F172A),
                         border = BorderStroke(1.5.dp, if (activeAdjustHandle == "EDGE_RIGHT") Color(0xFF00FFA3) else Color(0xFF00B4D8)),
-                        modifier = Modifier.size(width = 20.dp, height = 46.dp)
+                        modifier = Modifier.size(width = 24.dp, height = 54.dp)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("◀", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("▶", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                            Text("◀", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(5.dp))
+                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color(0xFF00FFA3)))
+                            Spacer(modifier = Modifier.height(5.dp))
+                            Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -3366,10 +3664,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (tlX * dispWPx).toDp() } - 26.dp,
-                            y = with(density) { (tlY * dispHPx).toDp() } - 26.dp
+                            x = with(density) { (tlX * dispWPx).toDp() } - 32.dp,
+                            y = with(density) { (tlY * dispHPx).toDp() } - 32.dp
                         )
-                        .size(52.dp)
+                        .size(64.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "TL" },
@@ -3379,27 +3677,27 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dx = dragAmount.x / dispWPx
                                 val dy = dragAmount.y / dispHPx
-                                tlX = (tlX + dx).coerceIn(0f, trX - 0.015f)
-                                tlY = (tlY + dy).coerceIn(0f, blY - 0.015f)
+                                tlX = (tlX + dx).coerceIn(0f, trX - 0.002f)
+                                tlY = (tlY + dy).coerceIn(0f, blY - 0.002f)
                             }
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(if (activeAdjustHandle == "TL") 46.dp else 36.dp)
+                            .size(if (activeAdjustHandle == "TL") 48.dp else 38.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "TL") 0.38f else 0.20f))
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "TL") 0.40f else 0.22f))
                     )
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00FFA3))
                             .border(2.5.dp, Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
                     }
                 }
 
@@ -3407,10 +3705,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (trX * dispWPx).toDp() } - 26.dp,
-                            y = with(density) { (trY * dispHPx).toDp() } - 26.dp
+                            x = with(density) { (trX * dispWPx).toDp() } - 32.dp,
+                            y = with(density) { (trY * dispHPx).toDp() } - 32.dp
                         )
-                        .size(52.dp)
+                        .size(64.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "TR" },
@@ -3420,27 +3718,27 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dx = dragAmount.x / dispWPx
                                 val dy = dragAmount.y / dispHPx
-                                trX = (trX + dx).coerceIn(tlX + 0.015f, 1f)
-                                trY = (trY + dy).coerceIn(0f, brY - 0.015f)
+                                trX = (trX + dx).coerceIn(tlX + 0.002f, 1f)
+                                trY = (trY + dy).coerceIn(0f, brY - 0.002f)
                             }
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(if (activeAdjustHandle == "TR") 46.dp else 36.dp)
+                            .size(if (activeAdjustHandle == "TR") 48.dp else 38.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "TR") 0.38f else 0.20f))
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "TR") 0.40f else 0.22f))
                     )
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00FFA3))
                             .border(2.5.dp, Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
                     }
                 }
 
@@ -3448,10 +3746,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (brX * dispWPx).toDp() } - 26.dp,
-                            y = with(density) { (brY * dispHPx).toDp() } - 26.dp
+                            x = with(density) { (brX * dispWPx).toDp() } - 32.dp,
+                            y = with(density) { (brY * dispHPx).toDp() } - 32.dp
                         )
-                        .size(52.dp)
+                        .size(64.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "BR" },
@@ -3461,27 +3759,27 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dx = dragAmount.x / dispWPx
                                 val dy = dragAmount.y / dispHPx
-                                brX = (brX + dx).coerceIn(blX + 0.015f, 1f)
-                                brY = (brY + dy).coerceIn(trY + 0.015f, 1f)
+                                brX = (brX + dx).coerceIn(blX + 0.002f, 1f)
+                                brY = (brY + dy).coerceIn(trY + 0.002f, 1f)
                             }
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(if (activeAdjustHandle == "BR") 46.dp else 36.dp)
+                            .size(if (activeAdjustHandle == "BR") 48.dp else 38.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "BR") 0.38f else 0.20f))
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "BR") 0.40f else 0.22f))
                     )
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00FFA3))
                             .border(2.5.dp, Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
                     }
                 }
 
@@ -3489,10 +3787,10 @@ fun CornerCropAdjusterView(
                 Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (blX * dispWPx).toDp() } - 26.dp,
-                            y = with(density) { (blY * dispHPx).toDp() } - 26.dp
+                            x = with(density) { (blX * dispWPx).toDp() } - 32.dp,
+                            y = with(density) { (blY * dispHPx).toDp() } - 32.dp
                         )
-                        .size(52.dp)
+                        .size(64.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { activeAdjustHandle = "BL" },
@@ -3502,27 +3800,27 @@ fun CornerCropAdjusterView(
                                 change.consume()
                                 val dx = dragAmount.x / dispWPx
                                 val dy = dragAmount.y / dispHPx
-                                blX = (blX + dx).coerceIn(0f, brX - 0.015f)
-                                blY = (blY + dy).coerceIn(tlY + 0.015f, 1f)
+                                blX = (blX + dx).coerceIn(0f, brX - 0.002f)
+                                blY = (blY + dy).coerceIn(tlY + 0.002f, 1f)
                             }
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(if (activeAdjustHandle == "BL") 46.dp else 36.dp)
+                            .size(if (activeAdjustHandle == "BL") 48.dp else 38.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "BL") 0.38f else 0.20f))
+                            .background(Color(0xFF00FFA3).copy(alpha = if (activeAdjustHandle == "BL") 0.40f else 0.22f))
                     )
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF00FFA3))
                             .border(2.5.dp, Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color.Black))
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Black))
                     }
                 }
             }
@@ -3661,12 +3959,48 @@ fun CornerCropAdjusterView(
 
                     AssistChip(
                         onClick = {
-                            tlX = 0.01f; tlY = 0.01f
-                            trX = 0.99f; trY = 0.01f
-                            brX = 0.99f; brY = 0.99f
-                            blX = 0.01f; blY = 0.99f
+                            tlX = 0.0f; tlY = 0.0f
+                            trX = 1.0f; trY = 0.0f
+                            brX = 1.0f; brY = 1.0f
+                            blX = 0.0f; blY = 1.0f
                         },
                         label = { Text("🔲 Full Page", color = Color.White, fontSize = 11.sp) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
+                    )
+
+                    AssistChip(
+                        onClick = {
+                            // Expand crop outward by 4%
+                            tlX = (tlX - 0.04f).coerceAtLeast(0f)
+                            tlY = (tlY - 0.04f).coerceAtLeast(0f)
+                            trX = (trX + 0.04f).coerceAtMost(1f)
+                            trY = (trY - 0.04f).coerceAtLeast(0f)
+                            brX = (brX + 0.04f).coerceAtMost(1f)
+                            brY = (brY + 0.04f).coerceAtMost(1f)
+                            blX = (blX - 0.04f).coerceAtLeast(0f)
+                            blY = (blY + 0.04f).coerceAtMost(1f)
+                        },
+                        label = { Text("↔ Expand (+4%)", color = Color(0xFF00FFA3), fontSize = 11.sp) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
+                    )
+
+                    AssistChip(
+                        onClick = {
+                            // Pull crop inward by 4%
+                            val maxInsetX = (trX - tlX) * 0.2f
+                            val maxInsetY = (blY - tlY) * 0.2f
+                            val stepX = 0.04f.coerceAtMost(maxInsetX)
+                            val stepY = 0.04f.coerceAtMost(maxInsetY)
+                            tlX = (tlX + stepX).coerceIn(0f, 0.45f)
+                            tlY = (tlY + stepY).coerceIn(0f, 0.45f)
+                            trX = (trX - stepX).coerceIn(0.55f, 1f)
+                            trY = (trY + stepY).coerceIn(0f, 0.45f)
+                            brX = (brX - stepX).coerceIn(0.55f, 1f)
+                            brY = (brY - stepY).coerceIn(0.55f, 1f)
+                            blX = (blX + stepX).coerceIn(0f, 0.45f)
+                            blY = (blY - stepY).coerceIn(0.55f, 1f)
+                        },
+                        label = { Text("🔍 Inward (-4%)", color = Color(0xFF38BDF8), fontSize = 11.sp) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFF1E293B))
                     )
 
@@ -3724,15 +4058,16 @@ fun CornerCropAdjusterView(
 }
 
 // =============================================================================
-// 3. CAMSCANNER FILTER STUDIO VIEW
+// 3. HIKMAHSCANNER FILTER STUDIO VIEW
 // =============================================================================
 @Composable
-fun CamScannerFilterStudioView(
+fun HikmahscannerFilterStudioView(
     documentTitle: String,
     onEditTitle: () -> Unit,
     currentBitmap: Bitmap,
     originalBitmap: Bitmap,
     isComparing: Boolean,
+    isApplyingFilter: Boolean = false,
     onToggleCompare: () -> Unit,
     activeFilter: ScanFilter,
     onSelectFilter: (ScanFilter) -> Unit,
@@ -3820,6 +4155,32 @@ fun CamScannerFilterStudioView(
                 )
             }
 
+            if (isApplyingFilter) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Black.copy(alpha = 0.75f),
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color(0xFF00FFA3),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = "Applying Filter...",
+                            color = Color.White,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             if (isComparing) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -3889,7 +4250,7 @@ fun CamScannerFilterStudioView(
             }
         }
 
-        // CamScanner Filter Carousel
+        // Hikmahscanner Filter Carousel
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 4.dp,
@@ -4075,6 +4436,7 @@ fun ScannerLibraryView(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    var viewingDoc by remember { mutableStateOf<ScannedDocument?>(null) }
 
     val filteredList = savedDocsList.filter { doc ->
         val matchesQuery = searchQuery.isBlank() || doc.name.contains(searchQuery, ignoreCase = true) || doc.ocrText.contains(searchQuery, ignoreCase = true)
@@ -4144,7 +4506,9 @@ fun ScannerLibraryView(
             ) {
                 items(filteredList) { doc ->
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewingDoc = doc },
                         shape = RoundedCornerShape(10.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(0.5.dp, Color.LightGray)
@@ -4156,18 +4520,18 @@ fun ScannerLibraryView(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(45.dp)
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.PictureAsPdf, null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.PictureAsPdf, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(doc.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                                Text(doc.name, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, maxLines = 1)
                                 Text("Folder: ${doc.folder} | Pages: ${doc.pageCount} | Size: ${doc.sizeMb} MB", fontSize = 10.sp, color = Color.Gray)
-                                Text("Date: ${doc.date} | ${doc.classification}", fontSize = 9.sp, color = Color(0xFF00838F))
+                                Text("Date: ${doc.date} | ${doc.classification}", fontSize = 9.5.sp, color = Color(0xFF00838F), fontWeight = FontWeight.Medium)
                             }
 
                             IconButton(onClick = {
@@ -4185,6 +4549,225 @@ fun ScannerLibraryView(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    viewingDoc?.let { doc ->
+        DocumentDetailViewerDialog(
+            context = context,
+            doc = doc,
+            onDismiss = { viewingDoc = null },
+            onDelete = {
+                savedDocsList.removeAll { it.id == doc.id }
+                saveLocalScans(context, savedDocsList)
+                viewingDoc = null
+                Toast.makeText(context, "Document deleted", Toast.LENGTH_SHORT).show()
+            },
+            onToggleStar = {
+                val idx = savedDocsList.indexOfFirst { it.id == doc.id }
+                if (idx != -1) {
+                    val updated = savedDocsList[idx].copy(isStarred = !savedDocsList[idx].isStarred)
+                    savedDocsList[idx] = updated
+                    saveLocalScans(context, savedDocsList)
+                    viewingDoc = updated
+                }
+            }
+        )
+    }
+}
+
+/**
+ * High-fidelity Dialog for viewing any ScannedDocument in the library (both old and newly captured).
+ */
+@Composable
+fun DocumentDetailViewerDialog(
+    context: Context,
+    doc: ScannedDocument,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+    onToggleStar: () -> Unit
+) {
+    val previewBmp = remember(doc.id) { loadDocumentPreviewBitmap(context, doc) }
+    var selectedTab by remember { mutableStateOf(0) } // 0 = Preview, 1 = OCR Text
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.88f),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = doc.name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${doc.date} • ${doc.folder} • ${doc.pageCount} page(s)",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onToggleStar) {
+                            Icon(
+                                imageVector = if (doc.isStarred) Icons.Default.Star else Icons.Default.StarBorder,
+                                contentDescription = "Star",
+                                tint = if (doc.isStarred) Color(0xFFFFC107) else Color.Gray
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
+                    }
+                }
+
+                // Tab Selector (Document Preview vs Extracted Text)
+                TabRow(selectedTabIndex = selectedTab) {
+                    Tab(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        text = { Text("Document Preview", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        text = { Text("OCR Text", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                    )
+                }
+
+                // Content Box
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFF8FAFC)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selectedTab == 0) {
+                        Image(
+                            bitmap = previewBmp.asImageBitmap(),
+                            contentDescription = doc.name,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = if (doc.ocrText.isNotBlank()) doc.ocrText else "No OCR text extracted for this document. You can scan again or run OCR from the scanner studio.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+
+                // Bottom Action Buttons Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Open PDF button if available
+                    if (doc.pdfUri != null) {
+                        Button(
+                            onClick = {
+                                try {
+                                    val uri = Uri.parse(doc.pdfUri)
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, "application/pdf")
+                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(Intent.createChooser(intent, "Open PDF with"))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "No PDF viewer app found", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00838F)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.PictureAsPdf, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Open PDF", fontSize = 12.sp)
+                        }
+                    }
+
+                    // Share button
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    if (doc.pdfUri != null) {
+                                        val uri = Uri.parse(doc.pdfUri)
+                                        type = "application/pdf"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    } else {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, doc.name)
+                                        putExtra(Intent.EXTRA_TEXT, "${doc.name}\n\n${doc.ocrText}")
+                                    }
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Document"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Failed to share document", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Share", fontSize = 12.sp)
+                    }
+
+                    // Copy Text button
+                    IconButton(onClick = {
+                        val textToCopy = if (doc.ocrText.isNotBlank()) doc.ocrText else doc.name
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Document Text", textToCopy))
+                        Toast.makeText(context, "Text copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy Text")
+                    }
+
+                    // Delete button
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
                     }
                 }
             }
