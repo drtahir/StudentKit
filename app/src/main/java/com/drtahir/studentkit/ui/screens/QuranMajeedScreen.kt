@@ -1334,8 +1334,8 @@ suspend fun downloadQuranSurah(surahNum: Int): List<CachedQuranVerse> {
                     val juz = aAr.optInt("juz", 1)
                     val page = aAr.optInt("page", 1)
                     
-                    val textArabic = if (verseNum == 1 && surahNum != 9) stripBismillahPrefix(rawArabic) else rawArabic
-                    val textUrdu = if (verseNum == 1 && surahNum != 9) stripUrduBismillahPrefix(rawUrdu) else rawUrdu
+                    val textArabic = if (verseNum == 1 && surahNum != 1 && surahNum != 9) stripBismillahPrefix(rawArabic) else rawArabic
+                    val textUrdu = if (verseNum == 1 && surahNum != 1 && surahNum != 9) stripUrduBismillahPrefix(rawUrdu) else rawUrdu
                     
                     versesList.add(
                         CachedQuranVerse(
@@ -1424,16 +1424,22 @@ fun QuranPageReader(
         if (!hasScrolledToTarget && versesForPage.isNotEmpty()) {
             val targetKey = targetAyahKey
             val targetIndex = if (targetKey != null) {
-                versesForPage.indexOfFirst { "${it.surahNumber}:${it.verseNumber}" == targetKey }
+                val parts = targetKey.split(":", "_")
+                if (parts.size >= 2) {
+                    val s = parts[0].toIntOrNull()
+                    val a = parts[1].toIntOrNull()
+                    versesForPage.indexOfFirst { it.surahNumber == s && it.verseNumber == a }
+                } else {
+                    versesForPage.indexOfFirst { "${it.surahNumber}:${it.verseNumber}" == targetKey || it.id == targetKey }
+                }
             } else {
                 versesForPage.indexOfFirst { it.surahNumber == surah.number }
             }
-            if (targetIndex > 0) {
-                lazyListState.scrollToItem(targetIndex)
-                if (targetKey != null) activeVerseId = targetKey
-                hasScrolledToTarget = true
-            } else if (targetIndex == 0) {
-                if (targetKey != null) activeVerseId = targetKey
+            if (targetIndex >= 0) {
+                if (targetIndex > 0) {
+                    lazyListState.scrollToItem(targetIndex)
+                }
+                activeVerseId = versesForPage[targetIndex].id
                 hasScrolledToTarget = true
             }
         }
@@ -1742,6 +1748,7 @@ fun QuranPageReader(
                 .pointerInput(currentPage) {
                     awaitEachGesture {
                         var accumulatedPanX = 0f
+                        var accumulatedPanY = 0f
                         var isZoomGesture = false
                         
                         val down = awaitFirstDown(requireUnconsumed = false)
@@ -1777,27 +1784,30 @@ fun QuranPageReader(
                                     offsetY = (offsetY + dragAmount.y).coerceIn(-maxY, maxY)
                                     change.consume()
                                 } else if (!isZoomGesture) {
+                                    // In unzoomed mode, do NOT consume the event so that child LazyColumn scrolls vertically with full smoothness!
                                     accumulatedPanX += dragAmount.x
-                                    change.consume()
+                                    accumulatedPanY += dragAmount.y
                                 }
                             }
                         } while (event.changes.any { it.pressed })
                         
-                        // Finger released
+                        // Finger released: only trigger page turn if it was a distinct horizontal swipe rather than a vertical scroll
                         if (!isZoomGesture && scale <= 1.05f) {
-                            if (accumulatedPanX < -80f) {
-                                if (currentPage < 604) {
-                                    stopAudio()
-                                    currentPage++
-                                } else {
-                                    Toast.makeText(context, "Last page of Quran (604)", Toast.LENGTH_SHORT).show()
-                                }
-                            } else if (accumulatedPanX > 80f) {
-                                if (currentPage > 1) {
-                                    stopAudio()
-                                    currentPage--
-                                } else {
-                                    Toast.makeText(context, "First page of Quran (1)", Toast.LENGTH_SHORT).show()
+                            if (Math.abs(accumulatedPanX) > 100f && Math.abs(accumulatedPanX) > Math.abs(accumulatedPanY) * 1.5f) {
+                                if (accumulatedPanX < -100f) {
+                                    if (currentPage < 604) {
+                                        stopAudio()
+                                        currentPage++
+                                    } else {
+                                        Toast.makeText(context, "Last page of Quran (604)", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else if (accumulatedPanX > 100f) {
+                                    if (currentPage > 1) {
+                                        stopAudio()
+                                        currentPage--
+                                    } else {
+                                        Toast.makeText(context, "First page of Quran (1)", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
                         }
@@ -1925,7 +1935,7 @@ fun QuranPageReader(
                                 .weight(1f),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            items(versesForPage) { verse ->
+                            items(versesForPage, key = { it.id }) { verse ->
                                 val isActive = activeVerseId == verse.id
 
                                 // Surah Header and Standalone Bismillah for Verse 1
@@ -1998,8 +2008,8 @@ fun QuranPageReader(
                                         }
                                     }
 
-                                    // Standalone Bismillah Header (Not counted as an Ayah, except Surah 9 At-Tawbah)
-                                    if (verse.surahNumber != 9) {
+                                    // Standalone Bismillah Header (Not counted as an Ayah; omitted for Surah 1 where Bismillah is counted as Ayah 1, and omitted for Surah 9 At-Tawbah)
+                                    if (verse.surahNumber != 1 && verse.surahNumber != 9) {
                                         Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -2041,9 +2051,9 @@ fun QuranPageReader(
                                     }
                                 }
 
-                                // Clean up Bismillah from Verse 1 text so Bismillah is never counted as an Ayah
-                                val cleanArabicText = if (verse.verseNumber == 1 && verse.surahNumber != 9) stripBismillahPrefix(verse.textArabic) else verse.textArabic
-                                val cleanUrduText = if (verse.verseNumber == 1 && verse.surahNumber != 9) stripUrduBismillahPrefix(verse.textUrdu) else verse.textUrdu
+                                // Clean up Bismillah from Verse 1 text so Bismillah is never duplicated (omitted for Surah 1 where Bismillah is counted Ayah 1)
+                                val cleanArabicText = if (verse.verseNumber == 1 && verse.surahNumber != 1 && verse.surahNumber != 9) stripBismillahPrefix(verse.textArabic) else verse.textArabic
+                                val cleanUrduText = if (verse.verseNumber == 1 && verse.surahNumber != 1 && verse.surahNumber != 9) stripUrduBismillahPrefix(verse.textUrdu) else verse.textUrdu
 
                                 Card(
                                     modifier = Modifier
@@ -3134,45 +3144,45 @@ suspend fun downloadQuranPage(pageNum: Int): List<CachedQuranVerse> {
         return listOf(
             CachedQuranVerse(
                 id = "1_1", surahNumber = 1, verseNumber = 1, juz = 1, page = 1,
+                textArabic = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ",
+                textUrdu = "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے۔",
+                textEnglish = "In the name of Allah, the Entirely Merciful, the Especially Merciful."
+            ),
+            CachedQuranVerse(
+                id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
                 textArabic = "اَلْحَمْدُ لِلّٰهِ رَبِّ الْعٰلَمِیْنَۙ",
                 textUrdu = "سب تعریفیں اللہ ہی کے لیے ہیں جو تمام جہانوں کا پالنے والا ہے۔",
                 textEnglish = "[All] praise is [due] to Allah, Lord of the worlds -"
             ),
             CachedQuranVerse(
-                id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
+                id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
                 textArabic = "الرَّحْمٰنِ الرَّحِیْمِۙ",
                 textUrdu = "بڑا مہربان نہایت رحم والا ہے۔",
                 textEnglish = "The Entirely Merciful, the Especially Merciful,"
             ),
             CachedQuranVerse(
-                id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
+                id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
                 textArabic = "مٰلِكِ یَوْمِ الدِّیْنِؕ",
                 textUrdu = "روزِ جزا کا مالک ہے۔",
                 textEnglish = "Sovereign of the Day of Recompense."
             ),
             CachedQuranVerse(
-                id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
+                id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
                 textArabic = "اِیَّاكَ نَعْبُدُ وَاِیَّاكَ نَسْتَعِیْنُؕ",
                 textUrdu = "ہم تیری ہی عبادت کرتے ہیں اور تجھ ہی سے مدد مانگتے ہیں۔",
                 textEnglish = "It is You we worship and You we ask for help."
             ),
             CachedQuranVerse(
-                id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
+                id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
                 textArabic = "اِهْدِنَا الصِّرَاطَ الْمُسْتَقِیْمَۙ",
                 textUrdu = "ہمیں سیدھے راستے پر چلا۔",
                 textEnglish = "Guide us to the straight path -"
             ),
             CachedQuranVerse(
-                id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
-                textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ",
-                textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا،",
-                textEnglish = "The path of those upon whom You have bestowed favor,"
-            ),
-            CachedQuranVerse(
                 id = "1_7", surahNumber = 1, verseNumber = 7, juz = 1, page = 1,
-                textArabic = "غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
-                textUrdu = "نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
-                textEnglish = "Not of those who have evoked [Your] anger or of those who are astray."
+                textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
+                textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا، نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
+                textEnglish = "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray."
             )
         )
     }
@@ -3271,8 +3281,8 @@ suspend fun downloadQuranPage(pageNum: Int): List<CachedQuranVerse> {
                 val rawUrdu = urduMap[key] ?: "اردو ترجمہ دستیاب نہیں ہے۔"
                 val textEnglish = "English translation cached offline."
                 
-                val textArabic = if (ayahNum == 1 && surahNum != 9) stripBismillahPrefix(rawArabic) else rawArabic
-                val textUrdu = if (ayahNum == 1 && surahNum != 9) stripUrduBismillahPrefix(rawUrdu) else rawUrdu
+                val textArabic = if (ayahNum == 1 && surahNum != 1 && surahNum != 9) stripBismillahPrefix(rawArabic) else rawArabic
+                val textUrdu = if (ayahNum == 1 && surahNum != 1 && surahNum != 9) stripUrduBismillahPrefix(rawUrdu) else rawUrdu
                 
                 versesList.add(
                     CachedQuranVerse(
@@ -3299,45 +3309,45 @@ fun savePreloadedSurahs(viewModel: StudentKitViewModel) {
     val verses = listOf(
         CachedQuranVerse(
             id = "1_1", surahNumber = 1, verseNumber = 1, juz = 1, page = 1,
+            textArabic = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِیْمِ",
+            textUrdu = "شروع اللہ کے نام سے جو بڑا مہربان نہایت رحم والا ہے۔",
+            textEnglish = "In the name of Allah, the Entirely Merciful, the Especially Merciful."
+        ),
+        CachedQuranVerse(
+            id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
             textArabic = "اَلْحَمْدُ لِلّٰهِ رَبِّ الْعٰلَمِیْنَۙ",
             textUrdu = "سب تعریفیں اللہ ہی کے لیے ہیں جو تمام جہانوں کا پالنے والا ہے۔",
             textEnglish = "[All] praise is [due] to Allah, Lord of the worlds -"
         ),
         CachedQuranVerse(
-            id = "1_2", surahNumber = 1, verseNumber = 2, juz = 1, page = 1,
+            id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
             textArabic = "الرَّحْمٰنِ الرَّحِیْمِۙ",
             textUrdu = "بڑا مہربان نہایت رحم والا ہے۔",
             textEnglish = "The Entirely Merciful, the Especially Merciful,"
         ),
         CachedQuranVerse(
-            id = "1_3", surahNumber = 1, verseNumber = 3, juz = 1, page = 1,
+            id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
             textArabic = "مٰلِكِ یَوْمِ الدِّیْنِؕ",
             textUrdu = "روزِ جزا کا مالک ہے۔",
             textEnglish = "Sovereign of the Day of Recompense."
         ),
         CachedQuranVerse(
-            id = "1_4", surahNumber = 1, verseNumber = 4, juz = 1, page = 1,
+            id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
             textArabic = "اِیَّاكَ نَعْبُدُ وَاِیَّاكَ نَسْتَعِیْنُؕ",
             textUrdu = "ہم تیری ہی عبادت کرتے ہیں اور تجھ ہی سے مدد مانگتے ہیں۔",
             textEnglish = "It is You we worship and You we ask for help."
         ),
         CachedQuranVerse(
-            id = "1_5", surahNumber = 1, verseNumber = 5, juz = 1, page = 1,
+            id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
             textArabic = "اِهْدِنَا الصِّرَاطَ الْمُسْتَقِیْمَۙ",
             textUrdu = "ہمیں سیدھے راستے پر چلا۔",
             textEnglish = "Guide us to the straight path -"
         ),
         CachedQuranVerse(
-            id = "1_6", surahNumber = 1, verseNumber = 6, juz = 1, page = 1,
-            textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ",
-            textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا،",
-            textEnglish = "The path of those upon whom You have bestowed favor,"
-        ),
-        CachedQuranVerse(
             id = "1_7", surahNumber = 1, verseNumber = 7, juz = 1, page = 1,
-            textArabic = "غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
-            textUrdu = "نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
-            textEnglish = "Not of those who have evoked [Your] anger or of those who are astray."
+            textArabic = "صِرَاطَ الَّذِیْنَ اَنْعَمْتَ عَلَیْهِمْ ۙ غَیْرِ الْمَغْضُوْبِ عَلَیْهِمْ وَلَا الضَّآلِّیْنَؒ",
+            textUrdu = "ان لوگوں کے راستے پر جن پر تو نے انعام کیا، نہ کہ ان کے راستے پر جن پر تیرا غضب ہوا اور نہ ہی گمراہوں کے راستے۔",
+            textEnglish = "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray."
         ),
         // Surah Al-Ikhlas
         CachedQuranVerse(
