@@ -75,6 +75,7 @@ val allToolsList = listOf(
     UtilityTool("pdftools", "PDF Handlers Suite", "13-in-1: Merge, split, numbers, grayscale, booklet, crop", "Documents", Icons.Default.PictureAsPdf, Color(0xFFEF6C00), "13-IN-1", Screen.PdfTools),
     UtilityTool("invoice", "Invoice Maker", "Create professional PDF invoices", "Documents", Icons.Default.Receipt, Color(0xFF00838F), "INVOICES", Screen.InvoiceGenerator),
     UtilityTool("hospital_clerk", "Hospital Clerk & MS Kit", "Official orders, rosters, show causes & letters", "Documents", Icons.Default.LocalHospital, Color(0xFF00796B), "GOVT KP", Screen.HospitalClerkAdmin),
+    UtilityTool("duty_rota", "Duty Rota Creator", "Create official Word (.docx) & PDF rosters with header, logo & stamp", "Documents", Icons.Default.TableChart, Color(0xFF0D47A1), "WORD DOCX", Screen.DutyRotaCreator),
     UtilityTool("stamp_sign", "Stamp & Sign", "Freehand draw signature & stamp docs", "Documents", Icons.Default.Gesture, Color(0xFF1976D2), "STAMP", Screen.SignaturePad),
 
     // ⚙️ Utilities

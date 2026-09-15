@@ -35,6 +35,7 @@ sealed class Screen {
     object PdfTools : Screen()
     object InvoiceGenerator : Screen()
     object HospitalClerkAdmin : Screen()
+    object DutyRotaCreator : Screen()
     object QrGenerator : Screen()
     object BarcodeGenerator : Screen()
     object QrScanner : Screen()

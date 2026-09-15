@@ -728,6 +728,65 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
     var scanMode by remember { mutableStateOf("Single") }
     val batchPages = remember { mutableStateListOf<Bitmap>() }
 
+    // Reorder Pages Tool State
+    val reorderPagesList = remember { mutableStateListOf<Bitmap>() }
+    var reorderDocTitle by remember { mutableStateOf("Scanned_Document") }
+    var reorderOriginalDocId by remember { mutableStateOf<String?>(null) }
+    var showImportChoiceModal by remember { mutableStateOf(false) }
+    var isExtractingPdfPages by remember { mutableStateOf(false) }
+    var extractingPdfMessage by remember { mutableStateOf("") }
+
+    val reorderPdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isExtractingPdfPages = true
+            extractingPdfMessage = "Extracting multi-page PDF..."
+            coroutineScope.launch {
+                val extracted = extractAllPagesFromPdfUri(context, uri)
+                val docName = getDocumentDisplayName(context, uri)
+                withContext(Dispatchers.Main) {
+                    isExtractingPdfPages = false
+                    if (extracted.isNotEmpty()) {
+                        reorderPagesList.clear()
+                        reorderPagesList.addAll(extracted)
+                        reorderDocTitle = docName
+                        reorderOriginalDocId = null
+                        scannerState = "REORDER_STUDIO"
+                    } else {
+                        Toast.makeText(context, "Could not extract pages from PDF", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val reorderMultiImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            isExtractingPdfPages = true
+            extractingPdfMessage = "Loading ${uris.size} image(s)..."
+            coroutineScope.launch(Dispatchers.IO) {
+                val bmps = mutableListOf<Bitmap>()
+                for (u in uris) {
+                    val b = loadAndCorrectOrientationFromUri(context, u)
+                    if (b != null) bmps.add(b)
+                }
+                withContext(Dispatchers.Main) {
+                    isExtractingPdfPages = false
+                    if (bmps.isNotEmpty()) {
+                        reorderPagesList.clear()
+                        reorderPagesList.addAll(bmps)
+                        reorderDocTitle = "Scanned_Batch_${System.currentTimeMillis() % 10000}"
+                        reorderOriginalDocId = null
+                        scannerState = "REORDER_STUDIO"
+                    }
+                }
+            }
+        }
+    }
+
     val defaultDocTitle = remember {
         val dateFormat = SimpleDateFormat("MM-dd-yyyy HH.mm", Locale.getDefault()).format(Date())
         "Hikmahscanner $dateFormat"
@@ -742,6 +801,37 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
     var showSaveSuccessDialog by remember { mutableStateOf(false) }
     var lastSavedImageUri by remember { mutableStateOf<Uri?>(null) }
     var lastSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
+
+    fun launchReorderForDocument(doc: ScannedDocument) {
+        reorderDocTitle = doc.name
+        reorderOriginalDocId = doc.id
+        val pdfUriStr = doc.pdfUri
+        if (pdfUriStr != null) {
+            isExtractingPdfPages = true
+            extractingPdfMessage = "Loading document pages for reordering..."
+            coroutineScope.launch {
+                val pages = extractAllPagesFromPdfUri(context, Uri.parse(pdfUriStr))
+                withContext(Dispatchers.Main) {
+                    isExtractingPdfPages = false
+                    if (pages.isNotEmpty()) {
+                        reorderPagesList.clear()
+                        reorderPagesList.addAll(pages)
+                        scannerState = "REORDER_STUDIO"
+                    } else {
+                        val fallback = loadDocumentPreviewBitmap(context, doc)
+                        reorderPagesList.clear()
+                        reorderPagesList.add(fallback)
+                        scannerState = "REORDER_STUDIO"
+                    }
+                }
+            }
+        } else {
+            val fallback = loadDocumentPreviewBitmap(context, doc)
+            reorderPagesList.clear()
+            reorderPagesList.add(fallback)
+            scannerState = "REORDER_STUDIO"
+        }
+    }
 
     fun onNewImageAcquired(bitmap: Bitmap, customCorners: DocCorners? = null) {
         rawCapturedBitmap = bitmap
@@ -991,7 +1081,13 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                 .padding(paddingValues)
         ) {
             if (activeTab == "Library") {
-                ScannerLibraryView(context = context, savedDocsList = savedDocsList)
+                ScannerLibraryView(
+                    context = context,
+                    savedDocsList = savedDocsList,
+                    onReorderDoc = { doc ->
+                        launchReorderForDocument(doc)
+                    }
+                )
             } else {
                 when (scannerState) {
                     "VIEWFINDER" -> {
@@ -1022,7 +1118,24 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                 onNewImageAcquired(bmp, corners)
                             },
                             onSwitchToLibrary = { activeTab = "Library" },
-                            onOpenAllFeatures = { showAllFeaturesModal = true }
+                            onOpenAllFeatures = { showAllFeaturesModal = true },
+                            onOpenReorderPages = {
+                                if (batchPages.isNotEmpty()) {
+                                    reorderPagesList.clear()
+                                    reorderPagesList.addAll(batchPages)
+                                    reorderDocTitle = documentTitle
+                                    reorderOriginalDocId = null
+                                    scannerState = "REORDER_STUDIO"
+                                } else {
+                                    showImportChoiceModal = true
+                                }
+                            },
+                            onImportPdfForReorder = {
+                                reorderPdfPickerLauncher.launch(arrayOf("application/pdf"))
+                            },
+                            onImportMultiImagesForReorder = {
+                                reorderMultiImagePickerLauncher.launch("image/*")
+                            }
                         )
                     }
                     "CROP_ADJUST" -> {
@@ -1060,6 +1173,10 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                 activeFilter = currentFilter,
                                 onSelectFilter = { onFilterChanged(it) },
                                 onRetake = {
+                                    if (scanMode == "Batch") {
+                                        val finalBmp = filteredBitmap ?: perspectiveCroppedBitmap ?: bmp
+                                        batchPages.add(finalBmp)
+                                    }
                                     scannerState = "VIEWFINDER"
                                 },
                                 onRotateLeft = { onRotateBy(-90f) },
@@ -1113,6 +1230,20 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                 },
                                 onSaveCheckmark = {
                                     onSaveDocumentToPhone()
+                                },
+                                batchCount = batchPages.size,
+                                onReorderBatch = {
+                                    val finalBmp = filteredBitmap ?: perspectiveCroppedBitmap ?: bmp
+                                    val allPages = if (batchPages.isNotEmpty()) {
+                                        batchPages.toList() + listOf(finalBmp)
+                                    } else {
+                                        listOf(finalBmp)
+                                    }
+                                    reorderPagesList.clear()
+                                    reorderPagesList.addAll(allPages)
+                                    reorderDocTitle = documentTitle
+                                    reorderOriginalDocId = null
+                                    scannerState = "REORDER_STUDIO"
                                 }
                             )
                         }
@@ -1148,6 +1279,53 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                 }
                             )
                         }
+                    }
+                    "REORDER_STUDIO" -> {
+                        BackHandler {
+                            scannerState = "VIEWFINDER"
+                        }
+                        EdgeScannerReorderPagesView(
+                            initialPages = reorderPagesList,
+                            documentTitle = reorderDocTitle,
+                            originalDocId = reorderOriginalDocId,
+                            onSaveFinished = { title, finalBitmaps, savedUri ->
+                                val timeStamp = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                                val docId = reorderOriginalDocId ?: "scan_${System.currentTimeMillis()}"
+                                val newDoc = ScannedDocument(
+                                    id = docId,
+                                    name = title,
+                                    date = timeStamp,
+                                    folder = "Scans",
+                                    tags = listOf("reordered", "hikmahscanner"),
+                                    sizeMb = String.format(Locale.US, "%.2f", 0.45 * finalBitmaps.size).toDoubleOrNull() ?: 1.0,
+                                    pageCount = finalBitmaps.size,
+                                    isStarred = false,
+                                    ocrText = "Multi-page reordered document with ${finalBitmaps.size} page(s).",
+                                    pdfUri = savedUri?.toString(),
+                                    qualityScore = 5,
+                                    classification = "Reordered PDF",
+                                    summary = "Reordered document with ${finalBitmaps.size} pages compiled into A4 PDF."
+                                )
+                                val existingIdx = savedDocsList.indexOfFirst { it.id == docId }
+                                if (existingIdx != -1) {
+                                    savedDocsList[existingIdx] = newDoc
+                                } else {
+                                    savedDocsList.add(0, newDoc)
+                                }
+                                saveLocalScans(context, savedDocsList)
+                                batchPages.clear()
+                                batchPages.addAll(finalBitmaps)
+                                documentTitle = title
+                                scannerState = "VIEWFINDER"
+                                activeTab = "Library"
+                            },
+                            onBack = {
+                                scannerState = "VIEWFINDER"
+                            },
+                            onRequestCameraCapture = {
+                                scannerState = "VIEWFINDER"
+                            }
+                        )
                     }
                 }
             }
@@ -1329,12 +1507,174 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                 FeaturesSelectorModal(
                     currentMode = featureMode,
                     onSelectMode = { newMode ->
-                        featureMode = newMode
                         showAllFeaturesModal = false
-                        Toast.makeText(context, "$newMode mode selected", Toast.LENGTH_SHORT).show()
+                        if (newMode == "Reorder Pages") {
+                            showImportChoiceModal = true
+                        } else {
+                            featureMode = newMode
+                            Toast.makeText(context, "$newMode mode selected", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     onDismiss = { showAllFeaturesModal = false }
                 )
+            }
+
+            // Reorder Pages Import Method Modal Bottom Sheet
+            if (showImportChoiceModal) {
+                ModalBottomSheet(
+                    onDismissRequest = { showImportChoiceModal = false },
+                    containerColor = MaterialTheme.colorScheme.surface
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                            .navigationBarsPadding(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Layers, contentDescription = null, tint = Color(0xFF00C853))
+                            Text("Reorder Pages Tool", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        Text(
+                            "Choose pages to reorder, delete, rotate, and export into an updated PDF:",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (batchPages.isNotEmpty()) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showImportChoiceModal = false
+                                        reorderPagesList.clear()
+                                        reorderPagesList.addAll(batchPages)
+                                        reorderDocTitle = documentTitle
+                                        reorderOriginalDocId = null
+                                        scannerState = "REORDER_STUDIO"
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00FFA3)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Layers, null, tint = Color(0xFF003822))
+                                    }
+                                    Column {
+                                        Text("Reorder Current Scanned Batch", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text("Arrange ${batchPages.size} currently scanned camera pages", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportChoiceModal = false
+                                    reorderPdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.PictureAsPdf, null, tint = Color(0xFF0284C7))
+                                }
+                                Column {
+                                    Text("Import Multi-Page PDF Document", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Pick any PDF from storage to reorder, delete, rotate & re-save", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportChoiceModal = false
+                                    reorderMultiImagePickerLauncher.launch("image/*")
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00C853).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.PhotoLibrary, null, tint = Color(0xFF00C853))
+                                }
+                                Column {
+                                    Text("Import Multiple Images from Gallery", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Select several photos/scans to arrange into a reordered document", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+            }
+
+            // PDF Loading / Extraction Progress Dialog
+            if (isExtractingPdfPages) {
+                Dialog(
+                    onDismissRequest = {},
+                    properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFF00C853))
+                            Text(
+                                text = extractingPdfMessage,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -1499,6 +1839,7 @@ fun FeaturesSelectorModal(
 
             val features = listOf(
                 Triple("Scan", "Smart perspective edge detection, HD auto-enhance & PDF/JPG export", Icons.Default.DocumentScanner),
+                Triple("Reorder Pages", "Import multi-page PDF or images to reorder, delete, rotate & export", Icons.Default.Layers),
                 Triple("Extract Text", "Google ML-Kit OCR engine to extract, copy, edit and share text", Icons.Default.TextFields),
                 Triple("To Word", "Scan or import documents to generate editable Microsoft Word (.docx)", Icons.Default.Description),
                 Triple("Sign", "Draw, stamp and position handwritten electronic signatures on documents", Icons.Default.Draw),
@@ -2133,6 +2474,7 @@ fun SmartEraseStudioView(
 // =============================================================================
 // 1. LIVE CAMERA VIEWFINDER (Hikmahscanner Viewfinder with live edge overlay)
 // =============================================================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveCameraViewfinderView(
     context: Context,
@@ -2147,7 +2489,10 @@ fun LiveCameraViewfinderView(
     batchCount: Int,
     onImageCaptured: (Bitmap, DocCorners?) -> Unit,
     onSwitchToLibrary: () -> Unit,
-    onOpenAllFeatures: () -> Unit
+    onOpenAllFeatures: () -> Unit,
+    onOpenReorderPages: () -> Unit = {},
+    onImportPdfForReorder: () -> Unit = {},
+    onImportMultiImagesForReorder: () -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
@@ -2809,6 +3154,14 @@ fun LiveCameraViewfinderView(
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
+
+                IconButton(onClick = onOpenReorderPages) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = "Reorder Pages",
+                        tint = if (batchCount > 0) Color(0xFF00FFA3) else Color.White
+                    )
+                }
             }
         }
 
@@ -3122,6 +3475,34 @@ fun LiveCameraViewfinderView(
                 }
             }
 
+            // Reorder Scanned Batch Floating Pill (Visible when pages are scanned)
+            if (batchCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF00C853),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .padding(bottom = 6.dp)
+                        .clickable { onOpenReorderPages() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.Layers, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Text(
+                            text = "Reorder $batchCount Page${if (batchCount > 1) "s" else ""}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            var showImportPickerSheet by remember { mutableStateOf(false) }
+
             // Shutter Row
             Row(
                 modifier = Modifier
@@ -3201,15 +3582,133 @@ fun LiveCameraViewfinderView(
                     )
                 }
 
-                // Gallery Import
+                // Gallery Import / Reorder
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable {
-                        galleryLauncher.launch("image/*")
+                        showImportPickerSheet = true
                     }
                 ) {
-                    Icon(Icons.Default.Image, contentDescription = "Import", tint = Color.White, modifier = Modifier.size(26.dp))
-                    Text("Import Images", color = Color.White, fontSize = 9.sp)
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Import", tint = Color.White, modifier = Modifier.size(26.dp))
+                    Text("Import", color = Color.White, fontSize = 9.sp)
+                }
+            }
+
+            if (showImportPickerSheet) {
+                ModalBottomSheet(
+                    onDismissRequest = { showImportPickerSheet = false },
+                    containerColor = MaterialTheme.colorScheme.surface
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                            .navigationBarsPadding(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFF00C853))
+                            Text("Import & Reorder Pages", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportPickerSheet = false
+                                    onImportPdfForReorder()
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.PictureAsPdf, null, tint = Color(0xFF0284C7))
+                                }
+                                Column {
+                                    Text("Import Multi-Page PDF Document", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Render all pages to reorder, delete, rotate & re-save", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportPickerSheet = false
+                                    onImportMultiImagesForReorder()
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00C853).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.PhotoLibrary, null, tint = Color(0xFF00C853))
+                                }
+                                Column {
+                                    Text("Import Multiple Photos (Reorder)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Pick multiple pages from gallery to arrange into PDF", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportPickerSheet = false
+                                    galleryLauncher.launch("image/*")
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFF9800).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Image, null, tint = Color(0xFFFF9800))
+                                }
+                                Column {
+                                    Text("Import Single Photo (Scan & Crop)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Single page scan with edge correction and HD filter", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
                 }
             }
         }
@@ -4079,7 +4578,9 @@ fun HikmahscannerFilterStudioView(
     onSignDocument: () -> Unit = {},
     onSmartErase: () -> Unit = {},
     onExportWord: () -> Unit = {},
-    onSaveCheckmark: () -> Unit
+    onSaveCheckmark: () -> Unit,
+    batchCount: Int = 0,
+    onReorderBatch: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -4126,9 +4627,31 @@ fun HikmahscannerFilterStudioView(
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = onRetake) {
-                        Text("Add", fontWeight = FontWeight.Bold, color = Color(0xFF00B4D8), fontSize = 15.sp)
+                        Text("Add Page", fontWeight = FontWeight.Bold, color = Color(0xFF00B4D8), fontSize = 13.sp)
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF00C853),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onReorderBatch() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Layers, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                            Text(
+                                text = "Reorder (${batchCount + 1})",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }
@@ -4432,7 +4955,8 @@ fun HikmahscannerFilterStudioView(
 @Composable
 fun ScannerLibraryView(
     context: Context,
-    savedDocsList: MutableList<ScannedDocument>
+    savedDocsList: MutableList<ScannedDocument>,
+    onReorderDoc: (ScannedDocument) -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
@@ -4535,6 +5059,16 @@ fun ScannerLibraryView(
                             }
 
                             IconButton(onClick = {
+                                onReorderDoc(doc)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Layers,
+                                    contentDescription = "Reorder Pages",
+                                    tint = Color(0xFF00C853)
+                                )
+                            }
+
+                            IconButton(onClick = {
                                 val idx = savedDocsList.indexOfFirst { it.id == doc.id }
                                 if (idx != -1) {
                                     val updated = savedDocsList[idx].copy(isStarred = !savedDocsList[idx].isStarred)
@@ -4574,6 +5108,10 @@ fun ScannerLibraryView(
                     saveLocalScans(context, savedDocsList)
                     viewingDoc = updated
                 }
+            },
+            onReorder = {
+                viewingDoc = null
+                onReorderDoc(doc)
             }
         )
     }
@@ -4588,7 +5126,8 @@ fun DocumentDetailViewerDialog(
     doc: ScannedDocument,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onToggleStar: () -> Unit
+    onToggleStar: () -> Unit,
+    onReorder: () -> Unit = {}
 ) {
     val previewBmp = remember(doc.id) { loadDocumentPreviewBitmap(context, doc) }
     var selectedTab by remember { mutableStateOf(0) } // 0 = Preview, 1 = OCR Text
@@ -4698,9 +5237,24 @@ fun DocumentDetailViewerDialog(
                 // Bottom Action Buttons Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Reorder Pages button
+                    Button(
+                        onClick = {
+                            onDismiss()
+                            onReorder()
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Layers, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reorder", fontSize = 11.5.sp)
+                    }
+
                     // Open PDF button if available
                     if (doc.pdfUri != null) {
                         Button(
@@ -4722,7 +5276,7 @@ fun DocumentDetailViewerDialog(
                         ) {
                             Icon(Icons.Default.PictureAsPdf, null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Open PDF", fontSize = 12.sp)
+                            Text("Open PDF", fontSize = 11.5.sp)
                         }
                     }
 

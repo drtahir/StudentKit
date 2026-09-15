@@ -1,11 +1,6 @@
 package com.drtahir.studentkit
 
 import android.os.Bundle
-import android.app.Activity
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -41,7 +36,6 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        hideSystemUI()
         setContent {
             val viewModel: StudentKitViewModel = viewModel()
             val isDarkThemeSetting by viewModel.isDarkTheme.collectAsState()
@@ -54,20 +48,6 @@ class MainActivity : FragmentActivity() {
                 MainAppContainer(viewModel = viewModel)
             }
         }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            hideSystemUI()
-        }
-    }
-
-    private fun hideSystemUI() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        val controller = WindowCompat.getInsetsController(window, window.decorView)
-        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        controller.hide(WindowInsetsCompat.Type.systemBars())
     }
 }
 
@@ -88,7 +68,7 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
             is Screen.LoanTracker, is Screen.SavingsGoals, is Screen.FinanceReportAndBackup -> 1
             is Screen.CvBuilder, is Screen.ImageToPdf, is Screen.ImageToXls, is Screen.ImageToWord,
             is Screen.DocumentScanner, is Screen.IdCardScanner, is Screen.PassportScanner,
-            is Screen.PdfTools, is Screen.InvoiceGenerator, is Screen.HospitalClerkAdmin, is Screen.SignaturePad -> 2
+            is Screen.PdfTools, is Screen.InvoiceGenerator, is Screen.HospitalClerkAdmin, is Screen.SignaturePad, is Screen.DutyRotaCreator -> 2
             is Screen.Calculator, is Screen.UnitConverter, is Screen.QrGenerator, is Screen.BarcodeGenerator,
             is Screen.QrScanner, is Screen.PasswordManager,
             is Screen.ImageTools, is Screen.AgeCalculator, is Screen.IntruderGuard, is Screen.WatermarkStudio, is Screen.BackgroundEraser,
@@ -121,7 +101,7 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
     } else {
         Scaffold(
             bottomBar = {
-                if (currentScreen != Screen.IslamicHub && currentScreen != Screen.Splash) {
+                if (currentScreen != Screen.IslamicHub && currentScreen != Screen.Splash && currentScreen != Screen.DutyRotaCreator) {
                     NavigationBar(
                         modifier = Modifier.testTag("bottom_nav_bar")
                     ) {
@@ -271,6 +251,9 @@ fun MainAppContainer(viewModel: StudentKitViewModel) {
                     }
                     is Screen.HospitalClerkAdmin -> DocumentHubScreen(viewModel = viewModel, title = "Health Dept & Hospital Clerical Kit") {
                         HospitalClericalAdminScreen(viewModel = viewModel)
+                    }
+                    is Screen.DutyRotaCreator -> {
+                        DutyRotaCreatorScreen(viewModel = viewModel)
                     }
                     is Screen.SignaturePad -> DocumentHubScreen(viewModel = viewModel, title = "Digital Stamp & Sign") {
                         SignaturePadScreen(viewModel = viewModel)
@@ -499,6 +482,7 @@ fun CategoryModuleSheet(
                 CategoryModuleItem("PDF Tool Suite", "Compress, merge, split or lock PDFs", "EDIT", Icons.Default.Compress, Color(0xFFEF6C00), Screen.PdfTools),
                 CategoryModuleItem("OmniPOS Invoice", "Create professional PDF invoices", "INVOICES", Icons.Default.Receipt, Color(0xFF00838F), Screen.InvoiceGenerator),
                 CategoryModuleItem("Hospital Clerk Kit", "Health Dept letters, rosters, show causes & orders", "GOVT KP", Icons.Default.LocalHospital, Color(0xFF00796B), Screen.HospitalClerkAdmin),
+                CategoryModuleItem("Duty Rota Creator", "Official Word (.docx) & PDF rosters with logo & stamp", "WORD DOCX", Icons.Default.TableChart, Color(0xFF0D47A1), Screen.DutyRotaCreator),
                 CategoryModuleItem("Stamp & Sign", "Freehand draw signature & stamp docs", "STAMP", Icons.Default.Gesture, Color(0xFF1976D2), Screen.SignaturePad)
             )
         )
