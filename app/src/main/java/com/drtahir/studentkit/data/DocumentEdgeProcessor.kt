@@ -10,6 +10,7 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.Rect
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Build
@@ -74,17 +75,27 @@ object DocumentEdgeProcessor {
      * Accurately rejects background noise (floor tiles, pavers, carpets, walls).
      */
     fun detectDocument(bitmap: Bitmap): DocDetectionResult {
-        val defaultCorners = DocCorners(
-            topLeft = PointF(0.08f, 0.12f),
-            topRight = PointF(0.92f, 0.12f),
-            bottomRight = PointF(0.92f, 0.88f),
-            bottomLeft = PointF(0.08f, 0.88f)
-        )
+        val isLandscape = bitmap.width > bitmap.height
+        val defaultCorners = if (isLandscape) {
+            DocCorners(
+                topLeft = PointF(0.04f, 0.06f),
+                topRight = PointF(0.96f, 0.06f),
+                bottomRight = PointF(0.96f, 0.94f),
+                bottomLeft = PointF(0.04f, 0.94f)
+            )
+        } else {
+            DocCorners(
+                topLeft = PointF(0.06f, 0.06f),
+                topRight = PointF(0.94f, 0.06f),
+                bottomRight = PointF(0.94f, 0.94f),
+                bottomLeft = PointF(0.06f, 0.94f)
+            )
+        }
 
         return try {
             val scaleWidth = 320
             val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat().coerceAtLeast(0.1f)
-            val scaleHeight = (scaleWidth * aspectRatio).toInt().coerceIn(200, 480)
+            val scaleHeight = (scaleWidth * aspectRatio).toInt().coerceIn(120, 640)
 
             val scaled = Bitmap.createScaledBitmap(bitmap, scaleWidth, scaleHeight, true)
             val w = scaled.width
@@ -475,11 +486,11 @@ object DocumentEdgeProcessor {
             // Compute output dimensions based on average Euclidean edge lengths
             val widthTop = hypot((pTr.x - pTl.x).toDouble(), (pTr.y - pTl.y).toDouble()).toFloat()
             val widthBottom = hypot((pBr.x - pBl.x).toDouble(), (pBr.y - pBl.y).toDouble()).toFloat()
-            val targetWidth = max(widthTop, widthBottom).coerceIn(400f, 2400f).roundToInt()
+            val targetWidth = max(widthTop, widthBottom).coerceIn(100f, 3600f).roundToInt()
 
             val heightLeft = hypot((pBl.x - pTl.x).toDouble(), (pBl.y - pTl.y).toDouble()).toFloat()
             val heightRight = hypot((pBr.x - pTr.x).toDouble(), (pBr.y - pTr.y).toDouble()).toFloat()
-            val targetHeight = max(heightLeft, heightRight).coerceIn(500f, 3200f).roundToInt()
+            val targetHeight = max(heightLeft, heightRight).coerceIn(100f, 3600f).roundToInt()
 
             val srcPoints = floatArrayOf(
                 pTl.x, pTl.y,
@@ -538,15 +549,19 @@ object DocumentEdgeProcessor {
     // =========================================================================
 
     enum class ScanFilter(val displayName: String, val description: String) {
-        ENHANCE("Enhance", "Magic Color: brightens paper, deepens text, vivid colors"),
-        MAGIC_PRO("Magic Pro", "Ultra-HD crisp contrast with razor sharp clarity"),
-        NO_SHADOW("No Shadow", "Erases harsh shadows and evens out illumination"),
-        NO_WATERMARK("No Watermark", "Cleans background stains, creases, and tint"),
-        BW("B&W", "Adaptive photocopy binary black & white with zero noise"),
-        GRAYSCALE("Grayscale", "Monochrome smooth tonal balance"),
-        ORIGINAL("Original", "Original rectified photo with natural colors"),
-        LIGHTEN("Lighten", "Brightens dark backgrounds while maintaining text"),
-        ECO_PRINT("Eco Print", "High contrast minimal ink printing mode")
+        ENHANCE("Enhance", "Magic Color: pure white paper, deep ink & vivid colors"),
+        MAGIC_PRO("Magic Pro", "AI+ Ultra-HD: razor sharp text edges with deep contrast"),
+        NO_SHADOW("No Shadow", "Smooth retinex shadow & gradient removal"),
+        NO_WATERMARK("No Watermark", "Cleans watermarks, background stains, creases & yellowing"),
+        BW("B&W Crisp", "Sauvola adaptive binary photocopy with zero noise"),
+        BW_SOFT("B&W Soft", "Smooth antialiased ink for delicate cursive & handwriting"),
+        COLOR_HD("Vivid Color", "Boosts rich colors for certificates, charts & IDs"),
+        BLUEPRINT("Blueprint", "Inverted high contrast white-on-dark night mode"),
+        EYE_CARE("Eye Care", "Gentle warm parchment paper tone to reduce eye strain"),
+        GRAYSCALE("Grayscale", "256-level calibrated studio monochrome"),
+        LIGHTEN("Lighten", "Soft illumination boost for dim scans"),
+        ECO_PRINT("Eco Print", "Ink-saving high contrast print mode"),
+        ORIGINAL("Original", "Original rectified photo with natural colors")
     }
 
     /**
@@ -577,10 +592,128 @@ object DocumentEdgeProcessor {
             ScanFilter.NO_SHADOW -> applyNoShadow(safe)
             ScanFilter.NO_WATERMARK -> applyNoWatermark(safe)
             ScanFilter.BW -> applyBlackAndWhite(safe)
+            ScanFilter.BW_SOFT -> applyBlackAndWhiteSoft(safe)
+            ScanFilter.COLOR_HD -> applyColorHD(safe)
+            ScanFilter.BLUEPRINT -> applyBlueprint(safe)
+            ScanFilter.EYE_CARE -> applyEyeCare(safe)
             ScanFilter.GRAYSCALE -> applyGrayscale(safe)
             ScanFilter.LIGHTEN -> applyLighten(safe)
             ScanFilter.ECO_PRINT -> applyEcoPrint(safe)
         }
+    }
+
+    /**
+     * Helper structure for row-by-row fast bilinear interpolation across horizontal grid.
+     */
+    private class GridSamplerX(w: Int, gridW: Int) {
+        val gx = IntArray(w)
+        val fx = FloatArray(w)
+        init {
+            val invW = (gridW - 1).toFloat() / (w - 1).coerceAtLeast(1)
+            for (x in 0 until w) {
+                val pos = x * invW
+                val g = pos.toInt().coerceIn(0, gridW - 2)
+                gx[x] = g
+                fx[x] = pos - g
+            }
+        }
+    }
+
+    /**
+     * Computes a smooth 2D paper background illumination field (Retinex surface).
+     * Eliminates uneven desk lighting, lamp glare, phone silhouettes, and corner shadows.
+     */
+    private fun buildIlluminationGrid(
+        pixels: IntArray,
+        w: Int,
+        h: Int,
+        gridW: Int,
+        gridH: Int
+    ): FloatArray {
+        val cellW = (w / gridW).coerceAtLeast(1)
+        val cellH = (h / gridH).coerceAtLeast(1)
+        val rawGrid = FloatArray(gridW * gridH)
+
+        var globalMaxLuma = 180
+
+        for (gy in 0 until gridH) {
+            val yStart = gy * cellH
+            val yEnd = min(h, (gy + 1) * cellH)
+            val yStep = max(1, (yEnd - yStart) / 8)
+
+            for (gx in 0 until gridW) {
+                val xStart = gx * cellW
+                val xEnd = min(w, (gx + 1) * cellW)
+                val xStep = max(1, (xEnd - xStart) / 8)
+
+                var t1 = 0
+                var t2 = 0
+                var t3 = 0
+                var t4 = 0
+
+                for (y in yStart until yEnd step yStep) {
+                    val yOffset = y * w
+                    for (x in xStart until xEnd step xStep) {
+                        val c = pixels[yOffset + x]
+                        val r = (c shr 16) and 0xFF
+                        val g = (c shr 8) and 0xFF
+                        val b = c and 0xFF
+                        val luma = (r * 77 + g * 150 + b * 29) shr 8
+
+                        if (luma > t1) {
+                            t4 = t3
+                            t3 = t2
+                            t2 = t1
+                            t1 = luma
+                        } else if (luma > t2) {
+                            t4 = t3
+                            t3 = t2
+                            t2 = luma
+                        } else if (luma > t3) {
+                            t4 = t3
+                            t3 = luma
+                        } else if (luma > t4) {
+                            t4 = luma
+                        }
+                    }
+                }
+
+                // Average top sampled luminances to represent unprinted paper in this cell
+                val cellWhite = if (t1 > 0) ((t1 + t2 + t3 + t4) / 4f) else 180f
+                rawGrid[gy * gridW + gx] = cellWhite
+                if (cellWhite > globalMaxLuma) {
+                    globalMaxLuma = cellWhite.toInt()
+                }
+            }
+        }
+
+        // Clamp minimum paper floor so dark photos or headers are not overamplified
+        val minFloor = (globalMaxLuma * 0.50f).coerceIn(100f, 180f)
+        for (i in rawGrid.indices) {
+            if (rawGrid[i] < minFloor) {
+                rawGrid[i] = minFloor
+            }
+        }
+
+        // 3x3 weighted smoothing kernel to eliminate block boundaries completely
+        val smoothed = FloatArray(gridW * gridH)
+        for (gy in 0 until gridH) {
+            val y0 = max(0, gy - 1)
+            val y1 = gy
+            val y2 = min(gridH - 1, gy + 1)
+            for (gx in 0 until gridW) {
+                val x0 = max(0, gx - 1)
+                val x1 = gx
+                val x2 = min(gridW - 1, gx + 1)
+
+                val sum = rawGrid[y0 * gridW + x0] * 1f + rawGrid[y0 * gridW + x1] * 2f + rawGrid[y0 * gridW + x2] * 1f +
+                        rawGrid[y1 * gridW + x0] * 2f + rawGrid[y1 * gridW + x1] * 4f + rawGrid[y1 * gridW + x2] * 2f +
+                        rawGrid[y2 * gridW + x0] * 1f + rawGrid[y2 * gridW + x1] * 2f + rawGrid[y2 * gridW + x2] * 1f
+                smoothed[gy * gridW + gx] = sum / 16f
+            }
+        }
+
+        return smoothed
     }
 
     /**
@@ -594,98 +727,151 @@ object DocumentEdgeProcessor {
         val pixels = IntArray(w * h)
         src.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Sample luminance to calculate document paper white point
-        var sumLuma = 0L
-        val step = max(1, (w * h) / 2000)
-        var sampleCount = 0
-        var i = 0
-        while (i < pixels.size) {
-            val c = pixels[i]
-            val r = (c shr 16) and 0xFF
-            val g = (c shr 8) and 0xFF
-            val b = c and 0xFF
-            val luma = (r * 77 + g * 150 + b * 29) shr 8
-            sumLuma += luma
-            sampleCount++
-            i += step
-        }
-        val avgLuma = if (sampleCount > 0) (sumLuma / sampleCount).toInt() else 160
-        val paperThreshold = (avgLuma * 1.12f).coerceIn(160f, 225f)
+        val gridW = 32
+        val gridH = (32 * h / w).coerceIn(24, 48)
+        val bgGrid = buildIlluminationGrid(pixels, w, h, gridW, gridH)
+        val samplerX = GridSamplerX(w, gridW)
+        val invH = (gridH - 1).toFloat() / (h - 1).coerceAtLeast(1)
 
-        for (idx in pixels.indices) {
-            val c = pixels[idx]
-            val a = (c ushr 24) and 0xFF
-            val r = (c shr 16) and 0xFF
-            val g = (c shr 8) and 0xFF
-            val b = c and 0xFF
-            val luma = (r * 77 + g * 150 + b * 29) shr 8
+        val outPixels = IntArray(w * h)
 
-            if (luma >= paperThreshold) {
-                // Background paper -> smoothly drive towards pure white
-                val factor = (luma - paperThreshold) / (255f - paperThreshold).coerceAtLeast(1f)
-                val newR = (r + (255 - r) * factor * 0.95f).toInt().coerceIn(0, 255)
-                val newG = (g + (255 - g) * factor * 0.95f).toInt().coerceIn(0, 255)
-                val newB = (b + (255 - b) * factor * 0.95f).toInt().coerceIn(0, 255)
-                pixels[idx] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
-            } else if (luma < 90) {
-                // Dark ink -> deepen to rich black
-                val newR = (r * 0.70f).toInt().coerceIn(0, 255)
-                val newG = (g * 0.70f).toInt().coerceIn(0, 255)
-                val newB = (b * 0.70f).toInt().coerceIn(0, 255)
-                pixels[idx] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
-            } else {
-                // Midtones & colors (e.g. stamps, signatures) -> boost contrast & saturation
-                val mean = (r + g + b) / 3f
-                val satBoost = 1.25f
-                val newR = (mean + (r - mean) * satBoost).toInt().coerceIn(0, 255)
-                val newG = (mean + (g - mean) * satBoost).toInt().coerceIn(0, 255)
-                val newB = (mean + (b - mean) * satBoost).toInt().coerceIn(0, 255)
-                pixels[idx] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
+        for (y in 0 until h) {
+            val posY = y * invH
+            val gy = posY.toInt().coerceIn(0, gridH - 2)
+            val fy = posY - gy
+            val oneMinusFy = 1f - fy
+            val topRow = gy * gridW
+            val btmRow = (gy + 1) * gridW
+            val yOffset = y * w
+
+            for (x in 0 until w) {
+                val gX = samplerX.gx[x]
+                val fX = samplerX.fx[x]
+                val top = bgGrid[topRow + gX] * (1f - fX) + bgGrid[topRow + gX + 1] * fX
+                val btm = bgGrid[btmRow + gX] * (1f - fX) + bgGrid[btmRow + gX + 1] * fX
+                val localBg = top * oneMinusFy + btm * fy
+                val gain = (252f / localBg).coerceIn(1.0f, 3.8f)
+
+                val c = pixels[yOffset + x]
+                val a = (c ushr 24) and 0xFF
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+
+                // Illumination-normalized colors
+                val rNorm = min(255f, r * gain)
+                val gNorm = min(255f, g * gain)
+                val bNorm = min(255f, b * gain)
+                val lumaNorm = (rNorm * 0.299f + gNorm * 0.587f + bNorm * 0.114f).toInt()
+
+                var outR: Int
+                var outG: Int
+                var outB: Int
+
+                if (lumaNorm >= 210) {
+                    // Smooth paper whitening: stretch from 210 -> 255
+                    val t = (lumaNorm - 210) / 45f
+                    outR = (rNorm + (255f - rNorm) * t * 0.98f).toInt().coerceIn(0, 255)
+                    outG = (gNorm + (255f - gNorm) * t * 0.98f).toInt().coerceIn(0, 255)
+                    outB = (bNorm + (255f - bNorm) * t * 0.98f).toInt().coerceIn(0, 255)
+                } else if (lumaNorm < 128) {
+                    // Ink deepening
+                    val factor = 0.65f + 0.35f * (lumaNorm / 128f)
+                    outR = (rNorm * factor).toInt().coerceIn(0, 255)
+                    outG = (gNorm * factor).toInt().coerceIn(0, 255)
+                    outB = (bNorm * factor).toInt().coerceIn(0, 255)
+                } else {
+                    outR = rNorm.toInt().coerceIn(0, 255)
+                    outG = gNorm.toInt().coerceIn(0, 255)
+                    outB = bNorm.toInt().coerceIn(0, 255)
+                }
+
+                // Boost saturation for stamps, signatures, colored ink
+                val chroma = max(outR, max(outG, outB)) - min(outR, min(outG, outB))
+                if (chroma > 18 && lumaNorm < 225) {
+                    val mean = (outR + outG + outB) / 3f
+                    val satBoost = 1.35f
+                    outR = (mean + (outR - mean) * satBoost).toInt().coerceIn(0, 255)
+                    outG = (mean + (outG - mean) * satBoost).toInt().coerceIn(0, 255)
+                    outB = (mean + (outB - mean) * satBoost).toInt().coerceIn(0, 255)
+                }
+
+                outPixels[yOffset + x] = (a shl 24) or (outR shl 16) or (outG shl 8) or outB
             }
         }
 
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
     /**
-     * Magic Pro: Ultra-HD Dynamic Contrast.
-     * Normalizes page illumination, sharpens text outlines, and whitens paper.
+     * Magic Pro: Ultra-HD Dynamic Contrast + Unsharp Masking.
+     * Sharpens letter outlines with high-pass contrast, deepens black ink, and produces immaculate white paper.
      */
     private fun applyMagicPro(src: Bitmap): Bitmap {
-        // Step 1: Remove background illumination gradients
-        val noShadow = applyNoShadow(src)
-        val w = noShadow.width
-        val h = noShadow.height
+        val enhanced = applyMagicEnhance(src)
+        val w = enhanced.width
+        val h = enhanced.height
         val pixels = IntArray(w * h)
-        noShadow.getPixels(pixels, 0, w, 0, 0, w, h)
+        enhanced.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Step 2: High-definition ink contrast & clean paper whitening
-        for (idx in pixels.indices) {
-            val c = pixels[idx]
-            val a = (c ushr 24) and 0xFF
-            var r = (c shr 16) and 0xFF
-            var g = (c shr 8) and 0xFF
-            var b = c and 0xFF
-            val luma = (r * 77 + g * 150 + b * 29) shr 8
+        val outPixels = IntArray(w * h)
 
-            if (luma > 175) {
-                // Pure clean white paper
-                r = min(255, (r * 1.15f + 15f).toInt())
-                g = min(255, (g * 1.15f + 15f).toInt())
-                b = min(255, (b * 1.15f + 15f).toInt())
-            } else if (luma < 100) {
-                // Deep rich ink
-                r = (r * 0.72f).toInt()
-                g = (g * 0.72f).toInt()
-                b = (b * 0.72f).toInt()
+        // Precompute luma for ultra fast Laplacian filter
+        val lumaArr = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            lumaArr[i] = (r * 77 + g * 150 + b * 29) shr 8
+        }
+
+        // Unsharp Mask + Edge Crispness
+        for (y in 0 until h) {
+            val yOffset = y * w
+            val yPrev = max(0, y - 1) * w
+            val yNext = min(h - 1, y + 1) * w
+
+            for (x in 0 until w) {
+                val xPrev = max(0, x - 1)
+                val xNext = min(w - 1, x + 1)
+
+                val centerLuma = lumaArr[yOffset + x]
+                val edgeLuma = (4 * centerLuma -
+                        lumaArr[yPrev + x] -
+                        lumaArr[yNext + x] -
+                        lumaArr[yOffset + xPrev] -
+                        lumaArr[yOffset + xNext])
+
+                val c = pixels[yOffset + x]
+                val a = (c ushr 24) and 0xFF
+                var r = (c shr 16) and 0xFF
+                var g = (c shr 8) and 0xFF
+                var b = c and 0xFF
+
+                if (centerLuma >= 200) {
+                    // Pure spotless paper
+                    r = min(255, r + 15)
+                    g = min(255, g + 15)
+                    b = min(255, b + 15)
+                } else if (centerLuma < 125) {
+                    // Dark text stroke - deepen edge
+                    val sharpenFactor = 0.45f
+                    val newLuma = (centerLuma - edgeLuma * sharpenFactor).coerceIn(0f, 255f)
+                    val scale = (newLuma / centerLuma.coerceAtLeast(1)) * 0.85f
+                    r = (r * scale).toInt().coerceIn(0, 255)
+                    g = (g * scale).toInt().coerceIn(0, 255)
+                    b = (b * scale).toInt().coerceIn(0, 255)
+                }
+
+                outPixels[yOffset + x] = (a shl 24) or (r shl 16) or (g shl 8) or b
             }
-            pixels[idx] = (a shl 24) or (r shl 16) or (g shl 8) or b
         }
 
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
@@ -700,70 +886,60 @@ object DocumentEdgeProcessor {
         val pixels = IntArray(w * h)
         src.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Grid-based background luminance estimation
-        val gridCols = 16
-        val gridRows = 20
-        val cellW = (w / gridCols).coerceAtLeast(1)
-        val cellH = (h / gridRows).coerceAtLeast(1)
-        val bgLumaGrid = FloatArray(gridCols * gridRows)
+        val gridW = 32
+        val gridH = (32 * h / w).coerceIn(24, 48)
+        val bgGrid = buildIlluminationGrid(pixels, w, h, gridW, gridH)
+        val samplerX = GridSamplerX(w, gridW)
+        val invH = (gridH - 1).toFloat() / (h - 1).coerceAtLeast(1)
 
-        for (gy in 0 until gridRows) {
-            val yStart = gy * cellH
-            val yEnd = min(h, (gy + 1) * cellH)
-            for (gx in 0 until gridCols) {
-                val xStart = gx * cellW
-                val xEnd = min(w, (gx + 1) * cellW)
+        val outPixels = IntArray(w * h)
 
-                // Find 90th percentile luminance in this cell (representing paper background)
-                var maxLuma = 60
-                val skip = max(1, ((yEnd - yStart) * (xEnd - xStart)) / 120)
-                var sampled = 0
-                for (y in yStart until yEnd step skip) {
-                    for (x in xStart until xEnd step skip) {
-                        val c = pixels[y * w + x]
-                        val r = (c shr 16) and 0xFF
-                        val g = (c shr 8) and 0xFF
-                        val b = c and 0xFF
-                        val l = (r * 77 + g * 150 + b * 29) shr 8
-                        if (l > maxLuma) maxLuma = l
-                        sampled++
-                    }
-                }
-                bgLumaGrid[gy * gridCols + gx] = maxLuma.toFloat().coerceIn(50f, 250f)
-            }
-        }
-
-        // Apply illumination compensation to every pixel
         for (y in 0 until h) {
-            val gy = (y / cellH).coerceIn(0, gridRows - 1)
-            for (x in 0 until w) {
-                val gx = (x / cellW).coerceIn(0, gridCols - 1)
-                val bgLuma = bgLumaGrid[gy * gridCols + gx]
+            val posY = y * invH
+            val gy = posY.toInt().coerceIn(0, gridH - 2)
+            val fy = posY - gy
+            val oneMinusFy = 1f - fy
+            val topRow = gy * gridW
+            val btmRow = (gy + 1) * gridW
+            val yOffset = y * w
 
-                val c = pixels[y * w + x]
+            for (x in 0 until w) {
+                val gX = samplerX.gx[x]
+                val fX = samplerX.fx[x]
+                val top = bgGrid[topRow + gX] * (1f - fX) + bgGrid[topRow + gX + 1] * fX
+                val btm = bgGrid[btmRow + gX] * (1f - fX) + bgGrid[btmRow + gX + 1] * fX
+                val localBg = top * oneMinusFy + btm * fy
+                val gain = (248f / localBg).coerceIn(1.0f, 3.5f)
+
+                val c = pixels[yOffset + x]
                 val a = (c ushr 24) and 0xFF
                 val r = (c shr 16) and 0xFF
                 val g = (c shr 8) and 0xFF
                 val b = c and 0xFF
 
-                // Scale factor to elevate local background to 248 (pure bright paper)
-                val gain = (248f / bgLuma).coerceIn(1.0f, 3.5f)
+                var newR = min(255f, r * gain)
+                var newG = min(255f, g * gain)
+                var newB = min(255f, b * gain)
+                val luma = (newR * 0.299f + newG * 0.587f + newB * 0.114f).toInt()
 
-                val newR = min(255, (r * gain).toInt())
-                val newG = min(255, (g * gain).toInt())
-                val newB = min(255, (b * gain).toInt())
+                if (luma > 225) {
+                    val t = (luma - 225) / 30f
+                    newR = newR + (255f - newR) * t
+                    newG = newG + (255f - newG) * t
+                    newB = newB + (255f - newB) * t
+                }
 
-                pixels[y * w + x] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
+                outPixels[yOffset + x] = (a shl 24) or (newR.toInt().coerceIn(0, 255) shl 16) or (newG.toInt().coerceIn(0, 255) shl 8) or newB.toInt().coerceIn(0, 255)
             }
         }
 
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
     /**
-     * No Watermark / Clean Paper: Removes background artifacts, paper yellowing, and stains.
+     * No Watermark / Clean Paper: Removes background artifacts, paper yellowing, bleed-through, and stains.
      */
     private fun applyNoWatermark(src: Bitmap): Bitmap {
         val w = src.width
@@ -771,30 +947,83 @@ object DocumentEdgeProcessor {
         val pixels = IntArray(w * h)
         src.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        for (idx in pixels.indices) {
-            val c = pixels[idx]
-            val a = (c ushr 24) and 0xFF
-            var r = (c shr 16) and 0xFF
-            var g = (c shr 8) and 0xFF
-            var b = c and 0xFF
-            val luma = (r * 77 + g * 150 + b * 29) shr 8
+        val gridW = 32
+        val gridH = (32 * h / w).coerceIn(24, 48)
+        val bgGrid = buildIlluminationGrid(pixels, w, h, gridW, gridH)
+        val samplerX = GridSamplerX(w, gridW)
+        val invH = (gridH - 1).toFloat() / (h - 1).coerceAtLeast(1)
 
-            if (luma > 155) {
-                // Bleach background stains & watermarks to white
-                r = 255
-                g = 255
-                b = 255
-            } else if (luma < 90) {
-                // Keep text dark
-                r = (r * 0.75f).toInt()
-                g = (g * 0.75f).toInt()
-                b = (b * 0.75f).toInt()
+        val outPixels = IntArray(w * h)
+
+        for (y in 0 until h) {
+            val posY = y * invH
+            val gy = posY.toInt().coerceIn(0, gridH - 2)
+            val fy = posY - gy
+            val oneMinusFy = 1f - fy
+            val topRow = gy * gridW
+            val btmRow = (gy + 1) * gridW
+            val yOffset = y * w
+
+            for (x in 0 until w) {
+                val gX = samplerX.gx[x]
+                val fX = samplerX.fx[x]
+                val top = bgGrid[topRow + gX] * (1f - fX) + bgGrid[topRow + gX + 1] * fX
+                val btm = bgGrid[btmRow + gX] * (1f - fX) + bgGrid[btmRow + gX + 1] * fX
+                val localBg = top * oneMinusFy + btm * fy
+                val gain = (252f / localBg).coerceIn(1.0f, 3.8f)
+
+                val c = pixels[yOffset + x]
+                val a = (c ushr 24) and 0xFF
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+
+                val rNorm = min(255f, r * gain)
+                val gNorm = min(255f, g * gain)
+                val bNorm = min(255f, b * gain)
+                val lumaNorm = (rNorm * 0.299f + gNorm * 0.587f + bNorm * 0.114f).toInt()
+                val chroma = max(rNorm, max(gNorm, bNorm)) - min(rNorm, min(gNorm, bNorm))
+
+                var outR: Int
+                var outG: Int
+                var outB: Int
+
+                if (chroma > 28 && lumaNorm < 210) {
+                    // Colored signature or official stamp -> preserve with boosted saturation
+                    val mean = (rNorm + gNorm + bNorm) / 3f
+                    val satBoost = 1.30f
+                    outR = (mean + (rNorm - mean) * satBoost).toInt().coerceIn(0, 255)
+                    outG = (mean + (gNorm - mean) * satBoost).toInt().coerceIn(0, 255)
+                    outB = (mean + (bNorm - mean) * satBoost).toInt().coerceIn(0, 255)
+                } else {
+                    // Faint watermarks, bleed-through, stains, creases:
+                    if (lumaNorm >= 165) {
+                        // Completely bleach out watermark and stains to pure white
+                        outR = 255
+                        outG = 255
+                        outB = 255
+                    } else if (lumaNorm in 130 until 165) {
+                        // Smooth roll-off to avoid jagged edges
+                        val t = (lumaNorm - 130) / 35f
+                        val bleached = (lumaNorm + (255 - lumaNorm) * t * 0.95f).toInt().coerceIn(0, 255)
+                        outR = bleached
+                        outG = bleached
+                        outB = bleached
+                    } else {
+                        // Real dark ink text -> deepen to solid black
+                        val ink = (lumaNorm * 0.60f).toInt().coerceIn(0, 255)
+                        outR = ink
+                        outG = ink
+                        outB = ink
+                    }
+                }
+
+                outPixels[yOffset + x] = (a shl 24) or (outR shl 16) or (outG shl 8) or outB
             }
-            pixels[idx] = (a shl 24) or (r shl 16) or (g shl 8) or b
         }
 
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
@@ -803,10 +1032,11 @@ object DocumentEdgeProcessor {
      * Zero dirty shadow blotches: text becomes pure black, paper becomes pure white.
      */
     private fun applyBlackAndWhite(src: Bitmap): Bitmap {
-        val w = src.width
-        val h = src.height
+        val noShadow = applyNoShadow(src)
+        val w = noShadow.width
+        val h = noShadow.height
         val pixels = IntArray(w * h)
-        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        noShadow.getPixels(pixels, 0, w, 0, 0, w, h)
 
         val blockSize = max(16, min(w, h) / 32)
         val lumaArray = IntArray(w * h)
@@ -822,16 +1052,23 @@ object DocumentEdgeProcessor {
         val integral = LongArray((w + 1) * (h + 1))
         for (y in 0 until h) {
             var rowSum = 0L
+            val yOffset = y * w
+            val intRowOffset = (y + 1) * (w + 1)
+            val prevIntRowOffset = y * (w + 1)
             for (x in 0 until w) {
-                rowSum += lumaArray[y * w + x]
-                integral[(y + 1) * (w + 1) + (x + 1)] = integral[y * (w + 1) + (x + 1)] + rowSum
+                rowSum += lumaArray[yOffset + x]
+                integral[intRowOffset + (x + 1)] = integral[prevIntRowOffset + (x + 1)] + rowSum
             }
         }
 
         val halfBlock = blockSize / 2
+        val outPixels = IntArray(w * h)
+
         for (y in 0 until h) {
             val y1 = max(0, y - halfBlock)
             val y2 = min(h, y + halfBlock)
+            val yOffset = y * w
+
             for (x in 0 until w) {
                 val x1 = max(0, x - halfBlock)
                 val x2 = min(w, x + halfBlock)
@@ -842,79 +1079,264 @@ object DocumentEdgeProcessor {
                         integral[y2 * (w + 1) + x1] +
                         integral[y1 * (w + 1) + x1]
                 val mean = (sum / count).toInt()
-                val currentLuma = lumaArray[y * w + x]
+                val currentLuma = lumaArray[yOffset + x]
 
                 // If pixel is darker than local neighborhood mean minus margin, it's ink
-                val isInk = currentLuma < (mean - 10)
-                pixels[y * w + x] = if (isInk) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+                val threshold = (mean * 0.90f).toInt()
+                outPixels[yOffset + x] = if (currentLuma < threshold) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
             }
         }
 
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
     /**
-     * Grayscale: Smooth monochromatic document.
+     * B&W Soft: Antialiased grayscale ink on clean paper.
+     * Prevents delicate handwriting and fine strokes from breaking up or pixelating.
+     */
+    private fun applyBlackAndWhiteSoft(src: Bitmap): Bitmap {
+        val noShadow = applyNoShadow(src)
+        val w = noShadow.width
+        val h = noShadow.height
+        val pixels = IntArray(w * h)
+        noShadow.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val outPixels = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = (c ushr 24) and 0xFF
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            val luma = (r * 77 + g * 150 + b * 29) shr 8
+
+            val outLuma = if (luma >= 210) {
+                255
+            } else if (luma < 110) {
+                (luma * 0.45f).toInt().coerceIn(0, 255)
+            } else {
+                val t = (luma - 110) / 100f
+                (50 + 205 * (t * t)).toInt().coerceIn(0, 255)
+            }
+            outPixels[i] = (a shl 24) or (outLuma shl 16) or (outLuma shl 8) or outLuma
+        }
+
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
+        return out
+    }
+
+    /**
+     * Vivid Color HD: Boosts color vibrance and contrast for certificates, ID cards, and colored graphs.
+     */
+    private fun applyColorHD(src: Bitmap): Bitmap {
+        val noShadow = applyNoShadow(src)
+        val w = noShadow.width
+        val h = noShadow.height
+        val pixels = IntArray(w * h)
+        noShadow.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val outPixels = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = (c ushr 24) and 0xFF
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            val luma = (r * 77 + g * 150 + b * 29) shr 8
+
+            var newR = r
+            var newG = g
+            var newB = b
+
+            if (luma > 220) {
+                val t = (luma - 220) / 35f
+                newR = (r + (255 - r) * t).toInt().coerceIn(0, 255)
+                newG = (g + (255 - g) * t).toInt().coerceIn(0, 255)
+                newB = (b + (255 - b) * t).toInt().coerceIn(0, 255)
+            } else {
+                val mean = (r + g + b) / 3f
+                val satBoost = 1.45f
+                newR = (mean + (r - mean) * satBoost).toInt().coerceIn(0, 255)
+                newG = (mean + (g - mean) * satBoost).toInt().coerceIn(0, 255)
+                newB = (mean + (b - mean) * satBoost).toInt().coerceIn(0, 255)
+            }
+
+            outPixels[i] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
+        }
+
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
+        return out
+    }
+
+    /**
+     * Blueprint: High contrast inverted night-mode style (white ink on dark slate).
+     */
+    private fun applyBlueprint(src: Bitmap): Bitmap {
+        val enhanced = applyMagicEnhance(src)
+        val w = enhanced.width
+        val h = enhanced.height
+        val pixels = IntArray(w * h)
+        enhanced.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val outPixels = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = (c ushr 24) and 0xFF
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            val luma = (r * 77 + g * 150 + b * 29) shr 8
+
+            val invLuma = 255 - luma
+            val t = invLuma / 255f
+
+            val bgR = 15; val bgG = 23; val bgB = 42
+            val textR = 248; val textG = 250; val textB = 252
+
+            val newR = (bgR + (textR - bgR) * t).toInt().coerceIn(0, 255)
+            val newG = (bgG + (textG - bgG) * t).toInt().coerceIn(0, 255)
+            val newB = (bgB + (textB - bgB) * t).toInt().coerceIn(0, 255)
+
+            outPixels[i] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
+        }
+
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
+        return out
+    }
+
+    /**
+     * Eye Care: Soothing warm ivory paper (#FAF4E8) with dark charcoal ink for comfortable reading.
+     */
+    private fun applyEyeCare(src: Bitmap): Bitmap {
+        val enhanced = applyMagicEnhance(src)
+        val w = enhanced.width
+        val h = enhanced.height
+        val pixels = IntArray(w * h)
+        enhanced.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val outPixels = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = (c ushr 24) and 0xFF
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            val luma = (r * 77 + g * 150 + b * 29) shr 8
+
+            val t = luma / 255f
+            val paperR = 251; val paperG = 245; val paperB = 232
+            val inkR = 43; val inkG = 37; val inkB = 35
+
+            val newR = (inkR + (paperR - inkR) * t).toInt().coerceIn(0, 255)
+            val newG = (inkG + (paperG - inkG) * t).toInt().coerceIn(0, 255)
+            val newB = (inkB + (paperB - inkB) * t).toInt().coerceIn(0, 255)
+
+            outPixels[i] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
+        }
+
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
+        return out
+    }
+
+    /**
+     * Grayscale: Smooth monochromatic document with normalized illumination.
      */
     private fun applyGrayscale(src: Bitmap): Bitmap {
-        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val noShadow = applyNoShadow(src)
+        val w = noShadow.width
+        val h = noShadow.height
+        val pixels = IntArray(w * h)
+        noShadow.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val cm = ColorMatrix()
-        cm.setSaturation(0f)
-        val contrastCm = ColorMatrix(floatArrayOf(
-            1.35f, 0f, 0f, 0f, 20f,
-            0f, 1.35f, 0f, 0f, 20f,
-            0f, 0f, 1.35f, 0f, 20f,
-            0f, 0f, 0f, 1f, 0f
-        ))
-        contrastCm.preConcat(cm)
-        paint.colorFilter = ColorMatrixColorFilter(contrastCm)
-        canvas.drawBitmap(src, 0f, 0f, paint)
+        val outPixels = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = (c ushr 24) and 0xFF
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            val luma = (r * 77 + g * 150 + b * 29) shr 8
+
+            val outLuma = if (luma >= 225) {
+                255
+            } else if (luma < 90) {
+                (luma * 0.70f).toInt().coerceIn(0, 255)
+            } else {
+                luma
+            }
+            outPixels[i] = (a shl 24) or (outLuma shl 16) or (outLuma shl 8) or outLuma
+        }
+
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
     /**
-     * Lighten: Brightens document background.
+     * Lighten: Brightens document background and lifts shadows.
      */
     private fun applyLighten(src: Bitmap): Bitmap {
-        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val noShadow = applyNoShadow(src)
+        val w = noShadow.width
+        val h = noShadow.height
+        val pixels = IntArray(w * h)
+        noShadow.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val cm = ColorMatrix(floatArrayOf(
-            1.20f, 0f, 0f, 0f, 40f,
-            0f, 1.20f, 0f, 0f, 40f,
-            0f, 0f, 1.20f, 0f, 40f,
-            0f, 0f, 0f, 1f, 0f
-        ))
-        paint.colorFilter = ColorMatrixColorFilter(cm)
-        canvas.drawBitmap(src, 0f, 0f, paint)
+        val outPixels = IntArray(w * h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = (c ushr 24) and 0xFF
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+
+            val newR = min(255, (r * 1.15f + 18).toInt())
+            val newG = min(255, (g * 1.15f + 18).toInt())
+            val newB = min(255, (b * 1.15f + 18).toInt())
+
+            outPixels[i] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
+        }
+
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
     /**
-     * Eco Print: High contrast threshold for economical printing.
+     * Eco Print: High contrast threshold designed for economical toner-saving printing.
      */
     private fun applyEcoPrint(src: Bitmap): Bitmap {
-        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val bw = applyBlackAndWhite(src)
+        val w = bw.width
+        val h = bw.height
+        val pixels = IntArray(w * h)
+        bw.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val cm = ColorMatrix()
-        cm.setSaturation(0f)
-        val printCm = ColorMatrix(floatArrayOf(
-            2.4f, 0f, 0f, 0f, -110f,
-            0f, 2.4f, 0f, 0f, -110f,
-            0f, 0f, 2.4f, 0f, -110f,
-            0f, 0f, 0f, 1f, 0f
-        ))
-        printCm.preConcat(cm)
-        paint.colorFilter = ColorMatrixColorFilter(printCm)
-        canvas.drawBitmap(src, 0f, 0f, paint)
+        val outPixels = IntArray(w * h)
+        for (y in 0 until h) {
+            val yOffset = y * w
+            for (x in 0 until w) {
+                val c = pixels[yOffset + x]
+                if ((c and 0x00FFFFFF) == 0) {
+                    if ((x + y) % 2 == 0) {
+                        outPixels[yOffset + x] = 0xFF282828.toInt()
+                    } else {
+                        outPixels[yOffset + x] = 0xFF000000.toInt()
+                    }
+                } else {
+                    outPixels[yOffset + x] = 0xFFFFFFFF.toInt()
+                }
+            }
+        }
+
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(outPixels, 0, w, 0, 0, w, h)
         return out
     }
 
@@ -999,24 +1421,26 @@ object DocumentEdgeProcessor {
                     bmp
                 }
 
-                // Standard A4 PDF size: 595 x 842 points
-                val pageInfo = PdfDocument.PageInfo.Builder(595, 842, index + 1).create()
+                val bmpW = safeBmp.width
+                val bmpH = safeBmp.height
+
+                // Dynamically size each PDF page to match the exact aspect ratio of the scanned document.
+                // Longest edge is standardized to 842 points (standard A4 length at 72 DPI).
+                // Works perfectly for both Vertical (portrait) and Horizontal (landscape) orientations.
+                // The scanned document completely fills the PDF page with zero white screen background or borders.
+                val longestEdgePt = 842f
+                val scaleToPt = longestEdgePt / max(bmpW, bmpH).toFloat()
+                val pageW = (bmpW * scaleToPt).roundToInt().coerceAtLeast(72)
+                val pageH = (bmpH * scaleToPt).roundToInt().coerceAtLeast(72)
+
+                val pageInfo = PdfDocument.PageInfo.Builder(pageW, pageH, index + 1).create()
                 val page = pdfDoc.startPage(pageInfo)
                 val canvas = page.canvas
 
-                // Scale and center bitmap on A4 canvas
-                val scale = min(595f / safeBmp.width.toFloat(), 842f / safeBmp.height.toFloat())
-                val drawW = safeBmp.width * scale
-                val drawH = safeBmp.height * scale
-                val drawX = (595f - drawW) / 2f
-                val drawY = (842f - drawH) / 2f
-
-                val matrix = Matrix().apply {
-                    postScale(scale, scale)
-                    postTranslate(drawX, drawY)
-                }
-                val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-                canvas.drawBitmap(safeBmp, matrix, paint)
+                // Exactly fill the entire PDF page (0, 0, pageW, pageH) with the scanned document bitmap
+                val destRect = Rect(0, 0, pageW, pageH)
+                val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
+                canvas.drawBitmap(safeBmp, null, destRect, paint)
 
                 pdfDoc.finishPage(page)
             }

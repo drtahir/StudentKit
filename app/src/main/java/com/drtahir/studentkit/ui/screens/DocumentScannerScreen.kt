@@ -737,24 +737,33 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
     var extractingPdfMessage by remember { mutableStateOf("") }
 
     val reorderPdfPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
             isExtractingPdfPages = true
-            extractingPdfMessage = "Extracting multi-page PDF..."
             coroutineScope.launch {
-                val extracted = extractAllPagesFromPdfUri(context, uri)
-                val docName = getDocumentDisplayName(context, uri)
+                val allExtracted = mutableListOf<Bitmap>()
+                var firstDocName = "Scanned_Document"
+                uris.forEachIndexed { index, uri ->
+                    val docName = getDocumentDisplayName(context, uri)
+                    if (index == 0) firstDocName = docName
+                    withContext(Dispatchers.Main) {
+                        extractingPdfMessage = "Extracting PDF ${index + 1}/${uris.size}: $docName..."
+                    }
+                    val pages = extractAllPagesFromPdfUri(context, uri)
+                    allExtracted.addAll(pages)
+                }
                 withContext(Dispatchers.Main) {
                     isExtractingPdfPages = false
-                    if (extracted.isNotEmpty()) {
+                    if (allExtracted.isNotEmpty()) {
                         reorderPagesList.clear()
-                        reorderPagesList.addAll(extracted)
-                        reorderDocTitle = docName
+                        reorderPagesList.addAll(allExtracted)
+                        reorderDocTitle = if (uris.size > 1) "${firstDocName}_merged_${uris.size}docs" else firstDocName
                         reorderOriginalDocId = null
                         scannerState = "REORDER_STUDIO"
+                        Toast.makeText(context, "Extracted ${allExtracted.size} page(s) from ${uris.size} PDF document(s)!", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "Could not extract pages from PDF", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Could not extract pages from selected PDF file(s)", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -766,21 +775,73 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             isExtractingPdfPages = true
-            extractingPdfMessage = "Loading ${uris.size} image(s)..."
             coroutineScope.launch(Dispatchers.IO) {
                 val bmps = mutableListOf<Bitmap>()
-                for (u in uris) {
+                for ((idx, u) in uris.withIndex()) {
+                    withContext(Dispatchers.Main) {
+                        extractingPdfMessage = "Loading picture ${idx + 1}/${uris.size}..."
+                    }
                     val b = loadAndCorrectOrientationFromUri(context, u)
                     if (b != null) bmps.add(b)
                 }
                 withContext(Dispatchers.Main) {
                     isExtractingPdfPages = false
                     if (bmps.isNotEmpty()) {
+                        if (scanMode == "Batch") {
+                            batchPages.addAll(bmps)
+                        }
                         reorderPagesList.clear()
                         reorderPagesList.addAll(bmps)
-                        reorderDocTitle = "Scanned_Batch_${System.currentTimeMillis() % 10000}"
+                        reorderDocTitle = "Batch_Scan_${System.currentTimeMillis() % 10000}"
                         reorderOriginalDocId = null
                         scannerState = "REORDER_STUDIO"
+                        Toast.makeText(context, "Imported ${bmps.size} picture(s)!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Failed to load selected images", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val reorderMixedFilesPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            isExtractingPdfPages = true
+            coroutineScope.launch(Dispatchers.IO) {
+                val allPages = mutableListOf<Bitmap>()
+                var firstDocName = "Imported_Batch"
+                uris.forEachIndexed { index, uri ->
+                    val docName = getDocumentDisplayName(context, uri)
+                    if (index == 0) firstDocName = docName
+                    withContext(Dispatchers.Main) {
+                        extractingPdfMessage = "Loading file ${index + 1}/${uris.size}: $docName..."
+                    }
+                    val mime = context.contentResolver.getType(uri) ?: ""
+                    val isPdf = mime.contains("pdf", ignoreCase = true) || docName.endsWith(".pdf", ignoreCase = true)
+                    if (isPdf) {
+                        val pdfPages = extractAllPagesFromPdfUri(context, uri)
+                        allPages.addAll(pdfPages)
+                    } else {
+                        val bmp = loadAndCorrectOrientationFromUri(context, uri)
+                        if (bmp != null) allPages.add(bmp)
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    isExtractingPdfPages = false
+                    if (allPages.isNotEmpty()) {
+                        if (scanMode == "Batch") {
+                            batchPages.addAll(allPages)
+                        }
+                        reorderPagesList.clear()
+                        reorderPagesList.addAll(allPages)
+                        reorderDocTitle = if (uris.size > 1) "${firstDocName}_${allPages.size}p" else firstDocName
+                        reorderOriginalDocId = null
+                        scannerState = "REORDER_STUDIO"
+                        Toast.makeText(context, "Imported ${allPages.size} page(s) from ${uris.size} file(s)!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "No readable pages or images found in selected files", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -1135,6 +1196,9 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                             },
                             onImportMultiImagesForReorder = {
                                 reorderMultiImagePickerLauncher.launch("image/*")
+                            },
+                            onImportMixedFilesForReorder = {
+                                reorderMixedFilesPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
                             }
                         )
                     }
@@ -1303,8 +1367,8 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                     ocrText = "Multi-page reordered document with ${finalBitmaps.size} page(s).",
                                     pdfUri = savedUri?.toString(),
                                     qualityScore = 5,
-                                    classification = "Reordered PDF",
-                                    summary = "Reordered document with ${finalBitmaps.size} pages compiled into A4 PDF."
+                                    classification = "Border-Free PDF",
+                                    summary = "Document with ${finalBitmaps.size} page(s) compiled into borderless PDF."
                                 )
                                 val existingIdx = savedDocsList.indexOfFirst { it.id == docId }
                                 if (existingIdx != -1) {
@@ -1607,8 +1671,8 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                     Icon(Icons.Default.PictureAsPdf, null, tint = Color(0xFF0284C7))
                                 }
                                 Column {
-                                    Text("Import Multi-Page PDF Document", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("Pick any PDF from storage to reorder, delete, rotate & re-save", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Import PDF Documents (Single or Multiple)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Pick one or more PDFs from storage — extracts all pages automatically", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -1638,8 +1702,39 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                     Icon(Icons.Default.PhotoLibrary, null, tint = Color(0xFF00C853))
                                 }
                                 Column {
-                                    Text("Import Multiple Images from Gallery", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("Select several photos/scans to arrange into a reordered document", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Import Multiple Pictures from Gallery", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Select multiple photos or scans to arrange and compile into a document", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportChoiceModal = false
+                                    reorderMixedFilesPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF7C3AED).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.FolderOpen, null, tint = Color(0xFFA78BFA))
+                                }
+                                Column {
+                                    Text("Import Any Files (PDFs & Pictures Combined)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Select any mixture of PDF documents and photos from device storage", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -2492,7 +2587,8 @@ fun LiveCameraViewfinderView(
     onOpenAllFeatures: () -> Unit,
     onOpenReorderPages: () -> Unit = {},
     onImportPdfForReorder: () -> Unit = {},
-    onImportMultiImagesForReorder: () -> Unit = {}
+    onImportMultiImagesForReorder: () -> Unit = {},
+    onImportMixedFilesForReorder: () -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
@@ -3619,37 +3715,6 @@ fun LiveCameraViewfinderView(
                                 .fillMaxWidth()
                                 .clickable {
                                     showImportPickerSheet = false
-                                    onImportPdfForReorder()
-                                },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.PictureAsPdf, null, tint = Color(0xFF0284C7))
-                                }
-                                Column {
-                                    Text("Import Multi-Page PDF Document", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("Render all pages to reorder, delete, rotate & re-save", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    showImportPickerSheet = false
                                     onImportMultiImagesForReorder()
                                 },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
@@ -3670,8 +3735,70 @@ fun LiveCameraViewfinderView(
                                     Icon(Icons.Default.PhotoLibrary, null, tint = Color(0xFF00C853))
                                 }
                                 Column {
-                                    Text("Import Multiple Photos (Reorder)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("Pick multiple pages from gallery to arrange into PDF", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Import Multiple Pictures (Gallery)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Select multiple photos or scans to arrange and compile into a document", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportPickerSheet = false
+                                    onImportPdfForReorder()
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.PictureAsPdf, null, tint = Color(0xFF0284C7))
+                                }
+                                Column {
+                                    Text("Import PDF Files (Single or Multiple)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Select one or multiple PDF documents — extracts all pages automatically", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImportPickerSheet = false
+                                    onImportMixedFilesForReorder()
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF7C3AED).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.FolderOpen, null, tint = Color(0xFFA78BFA))
+                                }
+                                Column {
+                                    Text("Import Any Files (PDFs & Pictures Combined)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Select any mixture of PDF documents and photos from device storage", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -3701,8 +3828,8 @@ fun LiveCameraViewfinderView(
                                     Icon(Icons.Default.Image, null, tint = Color(0xFFFF9800))
                                 }
                                 Column {
-                                    Text("Import Single Photo (Scan & Crop)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("Single page scan with edge correction and HD filter", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Import Single Photo (Manual Crop & Edit)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Single picture scan with interactive 4-corner perspective adjustment", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -4780,6 +4907,29 @@ fun HikmahscannerFilterStudioView(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                // Active filter description banner
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "FILTER: ",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF00838F)
+                    )
+                    Text(
+                        text = "${activeFilter.displayName} — ${activeFilter.description}",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 12.dp),
@@ -4805,6 +4955,10 @@ fun HikmahscannerFilterStudioView(
                                             ScanFilter.NO_SHADOW -> Color(0xFFFFF3E0)
                                             ScanFilter.NO_WATERMARK -> Color(0xFFF3E5F5)
                                             ScanFilter.BW -> Color(0xFFECEFF1)
+                                            ScanFilter.BW_SOFT -> Color(0xFFE0F2F1)
+                                            ScanFilter.COLOR_HD -> Color(0xFFFCE4EC)
+                                            ScanFilter.BLUEPRINT -> Color(0xFFEDE7F6)
+                                            ScanFilter.EYE_CARE -> Color(0xFFFFF8E1)
                                             ScanFilter.GRAYSCALE -> Color(0xFFE0E0E0)
                                             ScanFilter.ORIGINAL -> Color(0xFFFFFDE7)
                                             ScanFilter.LIGHTEN -> Color(0xFFFFF9C4)
@@ -4833,6 +4987,18 @@ fun HikmahscannerFilterStudioView(
                                     }
                                     ScanFilter.BW -> {
                                         Box(modifier = Modifier.size(16.dp).background(Color.Black, CircleShape))
+                                    }
+                                    ScanFilter.BW_SOFT -> {
+                                        Text("✒", fontSize = 16.sp, color = Color(0xFF00695C))
+                                    }
+                                    ScanFilter.COLOR_HD -> {
+                                        Text("🎨", fontSize = 16.sp)
+                                    }
+                                    ScanFilter.BLUEPRINT -> {
+                                        Text("📐", fontSize = 16.sp)
+                                    }
+                                    ScanFilter.EYE_CARE -> {
+                                        Text("📖", fontSize = 16.sp)
                                     }
                                     ScanFilter.GRAYSCALE -> {
                                         Box(modifier = Modifier.size(16.dp).background(Color.Gray, CircleShape))

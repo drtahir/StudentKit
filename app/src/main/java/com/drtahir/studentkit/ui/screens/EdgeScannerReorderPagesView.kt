@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FirstPage
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LastPage
 import androidx.compose.material.icons.filled.Layers
@@ -288,29 +289,83 @@ fun EdgeScannerReorderPagesView(
         }
     }
 
-    // PDF document picker launcher
+    // Multi-PDF document picker launcher (extracts and appends all pages from multiple PDFs)
     val pdfPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
             isProcessingLoading = true
-            processingMessage = "Extracting multi-page PDF..."
             coroutineScope.launch {
-                val extracted = extractAllPagesFromPdfUri(context, uri)
-                val docName = getDocumentDisplayName(context, uri)
-                withContext(Dispatchers.Main) {
+                var totalAdded = 0
+                uris.forEachIndexed { i, uri ->
+                    val docName = getDocumentDisplayName(context, uri)
+                    processingMessage = "Extracting PDF ${i + 1}/${uris.size}: $docName..."
+                    val extracted = extractAllPagesFromPdfUri(context, uri)
                     if (extracted.isNotEmpty()) {
-                        extracted.forEachIndexed { idx, bmp ->
-                            pages.add(EdgeScanPage(bitmap = bmp, label = "$docName p.${idx + 1}"))
+                        withContext(Dispatchers.Main) {
+                            extracted.forEachIndexed { idx, bmp ->
+                                pages.add(EdgeScanPage(bitmap = bmp, label = "$docName p.${idx + 1}"))
+                            }
+                            if (currentTitle == "Scanned_Document" || currentTitle.isBlank()) {
+                                currentTitle = docName
+                            }
+                            totalAdded += extracted.size
                         }
-                        if (currentTitle == "Scanned_Document" || currentTitle.isBlank()) {
-                            currentTitle = docName
-                        }
-                        Toast.makeText(context, "Extracted ${extracted.size} pages from PDF!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "Could not extract pages from selected PDF", Toast.LENGTH_LONG).show()
                     }
+                }
+                withContext(Dispatchers.Main) {
                     isProcessingLoading = false
+                    if (totalAdded > 0) {
+                        Toast.makeText(context, "Added $totalAdded page(s) from ${uris.size} PDF document(s)!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Could not extract pages from selected PDF file(s)", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // Mixed Files picker launcher (supports both PDFs and images in one selection)
+    val mixedFilesPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            isProcessingLoading = true
+            coroutineScope.launch(Dispatchers.IO) {
+                var totalAdded = 0
+                uris.forEachIndexed { i, uri ->
+                    val docName = getDocumentDisplayName(context, uri)
+                    processingMessage = "Processing file ${i + 1}/${uris.size}: $docName..."
+                    val mime = context.contentResolver.getType(uri) ?: ""
+                    val isPdf = mime.contains("pdf", ignoreCase = true) || docName.endsWith(".pdf", ignoreCase = true)
+                    if (isPdf) {
+                        val extracted = extractAllPagesFromPdfUri(context, uri)
+                        withContext(Dispatchers.Main) {
+                            extracted.forEachIndexed { idx, bmp ->
+                                pages.add(EdgeScanPage(bitmap = bmp, label = "$docName p.${idx + 1}"))
+                            }
+                            if (currentTitle == "Scanned_Document" || currentTitle.isBlank()) {
+                                currentTitle = docName
+                            }
+                            totalAdded += extracted.size
+                        }
+                    } else {
+                        val bmp = loadAndCorrectOrientationFromUri(context, uri)
+                        if (bmp != null) {
+                            withContext(Dispatchers.Main) {
+                                pages.add(EdgeScanPage(bitmap = bmp, label = docName))
+                                totalAdded++
+                            }
+                        }
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    isProcessingLoading = false
+                    if (totalAdded > 0) {
+                        Toast.makeText(context, "Added $totalAdded page(s) from ${uris.size} file(s)!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "No readable pages found in selected files", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
@@ -637,7 +692,7 @@ fun EdgeScannerReorderPagesView(
                     )
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(top = 8.dp)
                     ) {
                         Button(
@@ -646,8 +701,8 @@ fun EdgeScannerReorderPagesView(
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Icon(Icons.Default.PictureAsPdf, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Import PDF", fontSize = 13.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Import PDF(s)", fontSize = 12.sp)
                         }
 
                         Button(
@@ -656,8 +711,18 @@ fun EdgeScannerReorderPagesView(
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Import Photos", fontSize = 13.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Photos", fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = { mixedFilesPicker.launch(arrayOf("application/pdf", "image/*")) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Any Files", fontSize = 12.sp)
                         }
                     }
                 }
@@ -1053,7 +1118,7 @@ fun EdgeScannerReorderPagesView(
                     fontSize = 12.sp
                 )
 
-                // Option: Import PDF
+                // Option: Import PDF(s)
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF334155)),
                     shape = RoundedCornerShape(12.dp),
@@ -1079,8 +1144,8 @@ fun EdgeScannerReorderPagesView(
                             Icon(Icons.Default.PictureAsPdf, null, tint = Color(0xFF38BDF8))
                         }
                         Column {
-                            Text("Import Multi-Page PDF Document", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Extracts and appends all pages from any PDF file", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                            Text("Import PDF Document(s) (Single or Multiple)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Select one or multiple PDF files to extract and append all pages", color = Color(0xFF94A3B8), fontSize = 11.sp)
                         }
                     }
                 }
@@ -1111,8 +1176,40 @@ fun EdgeScannerReorderPagesView(
                             Icon(Icons.Default.PhotoLibrary, null, tint = Color(0xFF00FFA3))
                         }
                         Column {
-                            Text("Import Photos from Gallery", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Select single or multiple photos to add to this sequence", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                            Text("Import Multiple Pictures (Gallery)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Select multiple photos or scans to add to this sequence", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                // Option: Import Any Files (PDFs & Pictures Combined)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF334155)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showAddPagesSheet = false
+                            mixedFilesPicker.launch(arrayOf("application/pdf", "image/*"))
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF7C3AED).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.FolderOpen, null, tint = Color(0xFFA78BFA))
+                        }
+                        Column {
+                            Text("Import Any Files (PDFs & Pictures)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Select any mix of PDF documents and images from device storage", color = Color(0xFF94A3B8), fontSize = 11.sp)
                         }
                     }
                 }

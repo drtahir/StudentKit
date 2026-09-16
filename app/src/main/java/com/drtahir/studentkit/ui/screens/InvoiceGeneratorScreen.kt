@@ -404,6 +404,7 @@ fun InvoiceGeneratorScreen(viewModel: StudentKitViewModel) {
 // -------------------------------------------------------------
 // FULLSCREEN INVOICE & PRINT PREVIEW MODAL (FIT TO SCREEN)
 // -------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullscreenInvoicePreviewModal(
     context: Context,
@@ -414,19 +415,20 @@ fun FullscreenInvoicePreviewModal(
 ) {
     val coroutineScope = rememberCoroutineScope()
     var selectedFormatMode by remember { mutableStateOf("A4 Standard") } // "A4 Standard", "80mm Thermal", "58mm Slip"
+    var viewMode by remember { mutableStateOf("Visual Bill") } // "Visual Bill", "Monospace Print"
     var zoomFactor by remember { mutableFloatStateOf(10f) }
     var isDarkPaper by remember { mutableStateOf(false) }
 
     // Business profile & Logo preferences
     val profile = remember { getSavedBusinessProfile(context) }
-    var logoBitmap by remember { mutableStateOf(BluetoothThermalPrinterHelper.getSavedLogoBitmap(context)) }
+    val logoBitmap = remember { BluetoothThermalPrinterHelper.getSavedLogoBitmap(context) }
 
     val businessName = profile.businessName
     val businessAddress = "${profile.address}, ${profile.cityCountry}"
     val businessPhone = profile.phone
     val businessNtn = profile.ntnNumber
 
-    val a4Text = remember(order, items, client, selectedFormatMode, profile) {
+    val a4Text = remember(order, items, client, profile) {
         BluetoothThermalPrinterHelper.buildA4InvoiceText(
             businessName = businessName,
             tagline = profile.tagline.ifBlank { "Healthcare & Enterprise Solutions" },
@@ -443,6 +445,84 @@ fun FullscreenInvoicePreviewModal(
             paymentMethod = "Cash / Terminal",
             footerNote = "Official computerized sales invoice. Computer generated."
         )
+    }
+
+    val thermalText = remember(order, items, client, profile, selectedFormatMode) {
+        BluetoothThermalPrinterHelper.buildThermalReceiptText(
+            businessName = businessName,
+            tagline = profile.tagline.ifBlank { "Healthcare & Enterprise Solutions" },
+            address = businessAddress,
+            phone = businessPhone,
+            orderId = order.id,
+            dateStr = order.date,
+            clientName = client?.name ?: "Walking Customer / Cash",
+            items = items,
+            subtotal = order.subtotal,
+            discount = order.discount,
+            tax = order.tax,
+            total = order.total,
+            paymentMethod = "Cash / Terminal",
+            footerNote = "Thank you for your visit!",
+            is80mm = selectedFormatMode == "80mm Thermal"
+        )
+    }
+
+    // Helper to generate the active high-resolution bitmap for gallery saving and sharing
+    fun getActiveBillBitmap(): Bitmap {
+        return if (selectedFormatMode == "A4 Standard") {
+            BluetoothThermalPrinterHelper.renderA4InvoiceBitmap(
+                businessName = businessName,
+                tagline = profile.tagline.ifBlank { "Healthcare & Enterprise Solutions" },
+                address = businessAddress,
+                phone = businessPhone,
+                ntn = businessNtn,
+                orderId = order.id,
+                dateStr = order.date,
+                clientName = client?.name ?: "Walking Customer / Cash",
+                clientPhone = client?.phone ?: "",
+                clientAddress = client?.address ?: "",
+                items = items,
+                subtotal = order.subtotal,
+                discount = order.discount,
+                tax = order.tax,
+                total = order.total,
+                paymentMethod = "Cash / Terminal",
+                footerNote = "Official computerized sales invoice. Computer generated.",
+                logoBitmap = logoBitmap,
+                showLogo = profile.showLogoOnInvoice
+            )
+        } else {
+            BluetoothThermalPrinterHelper.renderThermalReceiptBitmap(
+                businessName = businessName,
+                tagline = profile.tagline.ifBlank { "Healthcare & Enterprise Solutions" },
+                address = businessAddress,
+                phone = businessPhone,
+                orderId = order.id,
+                dateStr = order.date,
+                clientName = client?.name ?: "Walking Customer / Cash",
+                items = items,
+                subtotal = order.subtotal,
+                discount = order.discount,
+                tax = order.tax,
+                total = order.total,
+                paymentMethod = "Cash / Terminal",
+                footerNote = "Thank you for your visit!",
+                logoBitmap = logoBitmap,
+                showLogo = profile.showLogoOnThermal,
+                is80mm = selectedFormatMode == "80mm Thermal"
+            )
+        }
+    }
+
+    val invoiceSummary = remember(order, items, client, businessName) {
+        "🧾 *Official Bill - ${businessName.ifBlank { "OmniPOS Enterprise" }}*\n" +
+        "📄 Invoice #: ${order.id}\n" +
+        "📅 Date: ${order.date}\n" +
+        "👤 Customer: ${client?.name ?: "Walking Customer / Cash"}\n" +
+        "📦 Items: ${items.size} item(s)\n" +
+        "💵 Total: Rs ${String.format("%.2f", order.total)}\n" +
+        "💳 Payment: Cash / Terminal\n\n" +
+        "Thank you for your business!"
     }
 
     Dialog(
@@ -508,8 +588,19 @@ fun FullscreenInvoicePreviewModal(
                                 }
                             }
 
-                            // Zoom & View Mode Controls
+                            // View Mode Toggle, Zoom & Paper Tone Controls
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                IconButton(
+                                    onClick = { viewMode = if (viewMode == "Visual Bill") "Monospace Print" else "Visual Bill" },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        if (viewMode == "Visual Bill") Icons.Default.Code else Icons.Default.ViewAgenda,
+                                        contentDescription = "Toggle Sheet/Code View",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                                 IconButton(
                                     onClick = { zoomFactor = (zoomFactor - 1f).coerceAtLeast(6.5f) },
                                     modifier = Modifier.size(32.dp)
@@ -536,9 +627,9 @@ fun FullscreenInvoicePreviewModal(
                             }
                         }
 
-                        // Format Preset Chips
+                        // Format Preset Chips (A4 vs Thermal)
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             listOf("A4 Standard", "80mm Thermal", "58mm Slip").forEach { fmt ->
@@ -546,7 +637,17 @@ fun FullscreenInvoicePreviewModal(
                                 FilterChip(
                                     selected = isSelected,
                                     onClick = { selectedFormatMode = fmt },
-                                    label = { Text(fmt, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                    label = {
+                                        Text(
+                                            when (fmt) {
+                                                "A4 Standard" -> "📄 A4 Standard"
+                                                "80mm Thermal" -> "🧾 80mm Thermal"
+                                                else -> "🧾 58mm Slip"
+                                            },
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -554,56 +655,572 @@ fun FullscreenInvoicePreviewModal(
                     }
                 }
 
-                // SCROLLABLE FULLSCREEN INVOICE DOCUMENT VIEWPORT (Fit to Screen Guaranteed)
+                // SCROLLABLE DOCUMENT VIEWPORT
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .shadow(6.dp, RoundedCornerShape(10.dp)),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDarkPaper) Color(0xFF1E293B) else Color.White
-                        ),
-                        border = BorderStroke(1.dp, if (isDarkPaper) Color(0xFF334155) else Color(0xFFCBD5E1))
-                    ) {
-                        Column(
+                    if (selectedFormatMode == "A4 Standard") {
+                        // -------------------------------------------------------------
+                        // A4 STANDARD INVOICE VIEWPORT
+                        // -------------------------------------------------------------
+                        Card(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .horizontalScroll(rememberScrollState())
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .shadow(6.dp, RoundedCornerShape(8.dp)),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isDarkPaper) Color(0xFF1E293B) else Color.White
+                            ),
+                            border = BorderStroke(1.dp, if (isDarkPaper) Color(0xFF334155) else Color(0xFFCBD5E1))
                         ) {
-                            // High Quality Logo Preview on top of invoice paper
-                            if (profile.showLogoOnInvoice && logoBitmap != null) {
-                                Image(
-                                    bitmap = logoBitmap!!.asImageBitmap(),
-                                    contentDescription = "Enterprise Logo",
+                            if (viewMode == "Monospace Print") {
+                                // Raw printable ASCII layout
+                                Column(
                                     modifier = Modifier
-                                        .height(55.dp)
-                                        .padding(bottom = 12.dp),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    if (profile.showLogoOnInvoice && logoBitmap != null) {
+                                        Image(
+                                            bitmap = logoBitmap.asImageBitmap(),
+                                            contentDescription = "Logo",
+                                            modifier = Modifier.height(50.dp).padding(bottom = 10.dp),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+                                    Text(
+                                        text = a4Text,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = zoomFactor.sp,
+                                        color = if (isDarkPaper) Color(0xFFF1F5F9) else Color(0xFF0F172A),
+                                        lineHeight = (zoomFactor * 1.35f).sp
+                                    )
+                                }
+                            } else {
+                                // Authentic A4 Tax Invoice Page Layout
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // Top Accent Bar
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .background(Color(0xFF0F766E), RoundedCornerShape(2.dp))
+                                    )
 
-                            Text(
-                                text = a4Text,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = zoomFactor.sp,
-                                color = if (isDarkPaper) Color(0xFFF1F5F9) else Color(0xFF0F172A),
-                                lineHeight = (zoomFactor * 1.35f).sp
-                            )
+                                    // Invoice Header Section
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        // Left: Business Branding
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            if (profile.showLogoOnInvoice && logoBitmap != null) {
+                                                Image(
+                                                    bitmap = logoBitmap.asImageBitmap(),
+                                                    contentDescription = "Logo",
+                                                    modifier = Modifier.size(54.dp).clip(RoundedCornerShape(6.dp)),
+                                                    contentScale = ContentScale.Fit
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                            }
+                                            Column {
+                                                Text(
+                                                    businessName.ifBlank { "OmniPOS Enterprise" },
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 17.sp,
+                                                    color = if (isDarkPaper) Color.White else Color(0xFF0F172A)
+                                                )
+                                                if (profile.tagline.isNotBlank()) {
+                                                    Text(profile.tagline, fontSize = 11.sp, color = Color.Gray)
+                                                }
+                                                Text(businessAddress, fontSize = 11.sp, color = Color.Gray)
+                                                Text("Tel: $businessPhone" + if (businessNtn.isNotBlank()) " | NTN: $businessNtn" else "", fontSize = 11.sp, color = Color.Gray)
+                                            }
+                                        }
+
+                                        // Right: Tax Invoice Title & Metadata
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Surface(
+                                                color = Color(0xFF0F766E),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    "TAX INVOICE",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                            Spacer(Modifier.height(4.dp))
+                                            Text("Invoice #: ${order.id}", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (isDarkPaper) Color.White else Color(0xFF0F172A))
+                                            Text("Date: ${order.date}", fontSize = 11.sp, color = Color.Gray)
+                                            Text("Status: PAID (Cash)", fontSize = 11.sp, color = Color(0xFF16A34A), fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = if (isDarkPaper) Color(0xFF334155) else Color(0xFFE2E8F0))
+
+                                    // Billed To & Issuance Cards
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            color = if (isDarkPaper) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                            shape = RoundedCornerShape(6.dp),
+                                            border = BorderStroke(1.dp, if (isDarkPaper) Color(0xFF334155) else Color(0xFFE2E8F0))
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                Text("BILLED TO / CUSTOMER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                                Spacer(Modifier.height(3.dp))
+                                                Text(client?.name ?: "Walking Customer / Cash", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isDarkPaper) Color.White else Color(0xFF0F172A))
+                                                if (!client?.phone.isNullOrBlank()) Text("Phone: ${client?.phone}", fontSize = 11.sp, color = Color.Gray)
+                                                if (!client?.address.isNullOrBlank()) Text("Address: ${client?.address}", fontSize = 11.sp, color = Color.Gray)
+                                            }
+                                        }
+
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            color = if (isDarkPaper) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                            shape = RoundedCornerShape(6.dp),
+                                            border = BorderStroke(1.dp, if (isDarkPaper) Color(0xFF334155) else Color(0xFFE2E8F0))
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                Text("ISSUANCE & REGISTER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                                Spacer(Modifier.height(3.dp))
+                                                Text("POS Register Terminal #01", fontWeight = FontWeight.Medium, fontSize = 12.sp, color = if (isDarkPaper) Color.White else Color(0xFF0F172A))
+                                                Text("Cashier: Administrator", fontSize = 11.sp, color = Color.Gray)
+                                                Text("Payment: Cash / Terminal", fontSize = 11.sp, color = Color.Gray)
+                                            }
+                                        }
+                                    }
+
+                                    // Items Table
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(6.dp),
+                                        border = BorderStroke(1.dp, if (isDarkPaper) Color(0xFF334155) else Color(0xFFCBD5E1))
+                                    ) {
+                                        Column {
+                                            // Table Header
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(if (isDarkPaper) Color(0xFF0F172A) else Color(0xFF0F172A))
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text("S#", modifier = Modifier.width(30.dp), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("ITEM DESCRIPTION", modifier = Modifier.weight(1f), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("QTY", modifier = Modifier.width(45.dp), textAlign = TextAlign.Center, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("RATE", modifier = Modifier.width(65.dp), textAlign = TextAlign.End, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                Text("TOTAL (RS)", modifier = Modifier.width(80.dp), textAlign = TextAlign.End, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                            }
+
+                                            // Table Rows
+                                            items.forEachIndexed { idx, item ->
+                                                val isEven = idx % 2 == 0
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(
+                                                            if (isDarkPaper) {
+                                                                if (isEven) Color(0xFF1E293B) else Color(0xFF172033)
+                                                            } else {
+                                                                if (isEven) Color.White else Color(0xFFF8FAFC)
+                                                            }
+                                                        )
+                                                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text("${idx + 1}", modifier = Modifier.width(30.dp), fontSize = 11.sp, color = if (isDarkPaper) Color.White else Color(0xFF0F172A))
+                                                    Text(item.name, modifier = Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = if (isDarkPaper) Color.White else Color(0xFF0F172A))
+                                                    Text("${item.quantity}", modifier = Modifier.width(45.dp), textAlign = TextAlign.Center, fontSize = 11.sp, color = if (isDarkPaper) Color.White else Color(0xFF0F172A))
+                                                    Text(String.format("%.2f", item.price), modifier = Modifier.width(65.dp), textAlign = TextAlign.End, fontSize = 11.sp, color = Color.Gray)
+                                                    Text(String.format("%.2f", item.price * item.quantity), modifier = Modifier.width(80.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (isDarkPaper) Color.White else Color(0xFF0F172A))
+                                                }
+                                                if (idx < items.lastIndex) {
+                                                    HorizontalDivider(color = if (isDarkPaper) Color(0xFF334155) else Color(0xFFE2E8F0), thickness = 0.5.dp)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Totals & Terms
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        // Left: Terms & Conditions
+                                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                            Text("TERMS & CONDITIONS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                            Spacer(Modifier.height(2.dp))
+                                            Text("• Computer generated tax invoice. No signature required.", fontSize = 10.sp, color = Color.Gray)
+                                            Text("• Goods received in proper sealed condition.", fontSize = 10.sp, color = Color.Gray)
+                                            Text("• Warranty claims require original bill presentation.", fontSize = 10.sp, color = Color.Gray)
+                                        }
+
+                                        // Right: Totals Card
+                                        Surface(
+                                            modifier = Modifier.width(180.dp),
+                                            color = if (isDarkPaper) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                                            shape = RoundedCornerShape(6.dp),
+                                            border = BorderStroke(1.dp, if (isDarkPaper) Color(0xFF334155) else Color(0xFFCBD5E1))
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                    Text("Subtotal:", fontSize = 11.sp, color = Color.Gray)
+                                                    Text(String.format("Rs %.2f", order.subtotal), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                                }
+                                                if (order.discount > 0) {
+                                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                        Text("Discount:", fontSize = 11.sp, color = Color(0xFFE11D48))
+                                                        Text(String.format("-Rs %.2f", order.discount), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color(0xFFE11D48))
+                                                    }
+                                                }
+                                                if (order.tax > 0) {
+                                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                        Text("Sales Tax:", fontSize = 11.sp, color = Color.Gray)
+                                                        Text(String.format("Rs %.2f", order.tax), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                                    }
+                                                }
+                                                HorizontalDivider(color = if (isDarkPaper) Color(0xFF334155) else Color(0xFFCBD5E1))
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                    Text("TOTAL:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
+                                                    Text(String.format("Rs %.2f", order.total), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(10.dp))
+
+                                    // Signatures Section
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Box(modifier = Modifier.width(130.dp).height(1.dp).background(Color.Gray))
+                                            Spacer(Modifier.height(4.dp))
+                                            Text("Authorized Signatory & Stamp", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Box(modifier = Modifier.width(130.dp).height(1.dp).background(Color.Gray))
+                                            Spacer(Modifier.height(4.dp))
+                                            Text("Customer Receiver Signature", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                    }
+
+                                    // Footer text
+                                    Text(
+                                        "Computerized A4 Tax Invoice • Generated via OmniPOS Enterprise Suite • All Rights Reserved",
+                                        fontSize = 9.sp,
+                                        color = Color.Gray,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // -------------------------------------------------------------
+                        // THERMAL RECEIPT VIEWPORT (80mm or 58mm POS Roll)
+                        // -------------------------------------------------------------
+                        val slipMaxWidth = if (selectedFormatMode == "80mm Thermal") 360.dp else 290.dp
+
+                        Card(
+                            modifier = Modifier
+                                .widthIn(max = slipMaxWidth)
+                                .fillMaxHeight()
+                                .shadow(8.dp, RoundedCornerShape(6.dp)),
+                            shape = RoundedCornerShape(6.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isDarkPaper) Color(0xFF1E293B) else Color.White
+                            ),
+                            border = BorderStroke(1.dp, if (isDarkPaper) Color(0xFF334155) else Color(0xFFCBD5E1))
+                        ) {
+                            if (viewMode == "Monospace Print") {
+                                // Raw printable monospace receipt text
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    if (profile.showLogoOnThermal && logoBitmap != null) {
+                                        Image(
+                                            bitmap = logoBitmap.asImageBitmap(),
+                                            contentDescription = "Logo",
+                                            modifier = Modifier.height(40.dp).padding(bottom = 6.dp),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+                                    Text(
+                                        text = thermalText,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = zoomFactor.sp,
+                                        color = if (isDarkPaper) Color(0xFFF1F5F9) else Color(0xFF0F172A),
+                                        lineHeight = (zoomFactor * 1.3f).sp
+                                    )
+                                }
+                            } else {
+                                // Realistic POS Thermal Paper Roll Slip
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(14.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    // Top Serrated / Dashed Tear Edge
+                                    Text(
+                                        "- - - - - - - - - - - - - - - - - - - - - - - - - - - -",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+
+                                    // Centered Logo
+                                    if (profile.showLogoOnThermal && logoBitmap != null) {
+                                        Image(
+                                            bitmap = logoBitmap.asImageBitmap(),
+                                            contentDescription = "Thermal Logo",
+                                            modifier = Modifier.height(42.dp).padding(bottom = 4.dp),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+
+                                    // Store Header
+                                    Text(
+                                        businessName.uppercase().ifBlank { "OMNIPOS ENTERPRISE" },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = if (selectedFormatMode == "80mm Thermal") 15.sp else 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        textAlign = TextAlign.Center,
+                                        color = if (isDarkPaper) Color.White else Color.Black
+                                    )
+                                    if (profile.tagline.isNotBlank()) {
+                                        Text(profile.tagline, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, textAlign = TextAlign.Center)
+                                    }
+                                    if (businessAddress.isNotBlank()) {
+                                        Text(businessAddress, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, textAlign = TextAlign.Center)
+                                    }
+                                    if (businessPhone.isNotBlank()) {
+                                        Text("Tel: $businessPhone", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray, textAlign = TextAlign.Center)
+                                    }
+
+                                    // Divider
+                                    Text(
+                                        "------------------------------------------------",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+
+                                    // Receipt Meta Information
+                                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Receipt #:", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray)
+                                            Text(order.id, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                        }
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Date & Time:", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray)
+                                            Text(order.date, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                        }
+                                        if (!client?.name.isNullOrBlank() && client?.name != "Walking Customer / Cash") {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("Customer:", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray)
+                                                Text(client!!.name, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
+                                            }
+                                        }
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Payment:", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Color.Gray)
+                                            Text("Cash / Terminal", fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                        }
+                                    }
+
+                                    // Divider
+                                    Text(
+                                        "------------------------------------------------",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+
+                                    // Columns Header
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("ITEM", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                        Text("QTY", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                        Text("AMOUNT", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+
+                                    // Divider
+                                    Text(
+                                        "- - - - - - - - - - - - - - - - - - - - - - - -",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+
+                                    // Line Items
+                                    items.forEach { item ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                item.name,
+                                                modifier = Modifier.weight(1f).padding(end = 4.dp),
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                "${item.quantity}",
+                                                modifier = Modifier.width(30.dp),
+                                                textAlign = TextAlign.Center,
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Text(
+                                                String.format("%.2f", item.price * item.quantity),
+                                                modifier = Modifier.width(65.dp),
+                                                textAlign = TextAlign.End,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+
+                                    // Divider
+                                    Text(
+                                        "------------------------------------------------",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+
+                                    // Totals breakdown
+                                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Subtotal:", fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            Text(String.format("Rs %.2f", order.subtotal), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                        }
+                                        if (order.discount > 0) {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("Discount:", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = Color(0xFFE11D48))
+                                                Text(String.format("-Rs %.2f", order.discount), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = Color(0xFFE11D48))
+                                            }
+                                        }
+                                        if (order.tax > 0) {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("Sales Tax / GST:", fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                                Text(String.format("Rs %.2f", order.tax), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            }
+                                        }
+                                    }
+
+                                    // Double Divider
+                                    Text(
+                                        "================================================",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+
+                                    // Bold Grand Total
+                                    Text(
+                                        "*** TOTAL: Rs ${String.format("%.2f", order.total)} ***",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (isDarkPaper) Color.White else Color.Black,
+                                        textAlign = TextAlign.Center
+                                    )
+
+                                    // Double Divider
+                                    Text(
+                                        "================================================",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+
+                                    Spacer(Modifier.height(4.dp))
+
+                                    // Barcode Graphic Simulation
+                                    Text(
+                                        "||| | ||||| | ||| |||| | |||",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        letterSpacing = 1.sp,
+                                        color = if (isDarkPaper) Color.White else Color.Black
+                                    )
+                                    Text("*${order.id}*", fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("Thank you for your visit!", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
+                                    Text("*** Powered by OmniPOS ***", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color.Gray)
+
+                                    // Bottom Tear Edge
+                                    Text(
+                                        "- - - - - - - - - - - - - - - - - - - - - - - - - - - -",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.sp,
+                                        color = Color.Gray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                // Bottom Print & Spool Actions
+                // -------------------------------------------------------------
+                // BOTTOM PRINT, SAVE TO GALLERY & SHARE CONTROLS
+                // -------------------------------------------------------------
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.surface,
@@ -612,115 +1229,182 @@ fun FullscreenInvoicePreviewModal(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // ROW 1: PRINT & SAVE TO GALLERY
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            // Print Active Bill Format
                             Button(
                                 onClick = {
-                                    BluetoothThermalPrinterHelper.printA4ViaSystem(
-                                        context = context,
-                                        jobName = "OmniPOS_Invoice_${order.id}",
-                                        documentTitle = "Invoice_${order.id}",
-                                        contentText = a4Text,
-                                        logoBitmap = logoBitmap,
-                                        showLogo = profile.showLogoOnInvoice
-                                    )
-                                },
-                                modifier = Modifier.weight(1.2f),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Print A4 PDF", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
-
-                            FilledTonalButton(
-                                onClick = {
-                                    val printerAddress = BluetoothThermalPrinterHelper.getSavedPrinterAddress(context)
-                                    if (printerAddress.isBlank()) {
-                                        Toast.makeText(context, "No Bluetooth printer paired in settings. Opening system spooler...", Toast.LENGTH_SHORT).show()
+                                    if (selectedFormatMode == "A4 Standard") {
                                         BluetoothThermalPrinterHelper.printA4ViaSystem(
                                             context = context,
-                                            jobName = "OmniPOS_Thermal_${order.id}",
-                                            documentTitle = "ThermalReceipt_${order.id}",
+                                            jobName = "OmniPOS_Invoice_${order.id}",
+                                            documentTitle = "Invoice_${order.id}",
                                             contentText = a4Text,
                                             logoBitmap = logoBitmap,
                                             showLogo = profile.showLogoOnInvoice
                                         )
                                     } else {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            val payload = BluetoothThermalPrinterHelper.buildPosReceiptPayload(
-                                                businessName = businessName,
-                                                tagline = profile.tagline.ifBlank { "Healthcare & Enterprise Solutions" },
-                                                address = businessAddress,
-                                                phone = businessPhone,
-                                                orderId = order.id,
-                                                dateStr = order.date,
-                                                items = items,
-                                                subtotal = order.subtotal,
-                                                discount = order.discount,
-                                                tax = order.tax,
-                                                total = order.total,
-                                                paymentMethod = "Cash / Terminal",
-                                                footerNote = "Thank you for your business!",
+                                        val printerAddress = BluetoothThermalPrinterHelper.getSavedPrinterAddress(context)
+                                        if (printerAddress.isBlank()) {
+                                            Toast.makeText(context, "No Bluetooth thermal printer paired. Spooling to system printer...", Toast.LENGTH_SHORT).show()
+                                            BluetoothThermalPrinterHelper.printA4ViaSystem(
+                                                context = context,
+                                                jobName = "OmniPOS_Thermal_${order.id}",
+                                                documentTitle = "ThermalReceipt_${order.id}",
+                                                contentText = thermalText,
                                                 logoBitmap = logoBitmap,
-                                                showLogo = profile.showLogoOnThermal,
-                                                threshold = profile.thermalDitherThreshold
+                                                showLogo = profile.showLogoOnThermal
                                             )
-                                            val (success, message) = BluetoothThermalPrinterHelper.printPayload(context, printerAddress, payload)
-                                            withContext(Dispatchers.Main) {
-                                                if (success) {
-                                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                                                    BluetoothThermalPrinterHelper.printA4ViaSystem(
-                                                        context = context,
-                                                        jobName = "OmniPOS_Thermal_${order.id}",
-                                                        documentTitle = "ThermalReceipt_${order.id}",
-                                                        contentText = a4Text,
-                                                        logoBitmap = logoBitmap,
-                                                        showLogo = profile.showLogoOnInvoice
-                                                    )
+                                        } else {
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                val payload = BluetoothThermalPrinterHelper.buildPosReceiptPayload(
+                                                    businessName = businessName,
+                                                    tagline = profile.tagline.ifBlank { "Healthcare & Enterprise Solutions" },
+                                                    address = businessAddress,
+                                                    phone = businessPhone,
+                                                    orderId = order.id,
+                                                    dateStr = order.date,
+                                                    items = items,
+                                                    subtotal = order.subtotal,
+                                                    discount = order.discount,
+                                                    tax = order.tax,
+                                                    total = order.total,
+                                                    paymentMethod = "Cash / Terminal",
+                                                    footerNote = "Thank you for your business!",
+                                                    logoBitmap = logoBitmap,
+                                                    showLogo = profile.showLogoOnThermal,
+                                                    threshold = profile.thermalDitherThreshold
+                                                )
+                                                val (success, message) = BluetoothThermalPrinterHelper.printPayload(context, printerAddress, payload)
+                                                withContext(Dispatchers.Main) {
+                                                    if (success) {
+                                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                                        BluetoothThermalPrinterHelper.printA4ViaSystem(
+                                                            context = context,
+                                                            jobName = "OmniPOS_Thermal_${order.id}",
+                                                            documentTitle = "ThermalReceipt_${order.id}",
+                                                            contentText = thermalText,
+                                                            logoBitmap = logoBitmap,
+                                                            showLogo = profile.showLogoOnThermal
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 },
-                                modifier = Modifier.weight(1.2f),
+                                modifier = Modifier.weight(1.1f),
                                 shape = RoundedCornerShape(10.dp)
                             ) {
-                                Icon(Icons.Default.Receipt, null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Thermal Print", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(
+                                    if (selectedFormatMode == "A4 Standard") "Print A4 Bill" else "Print Thermal",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    maxLines = 1
+                                )
                             }
 
-                            OutlinedButton(
+                            // Save to Gallery
+                            FilledTonalButton(
                                 onClick = {
-                                    val sendIntent = Intent().apply {
-                                        action = Intent.ACTION_SEND
-                                        putExtra(Intent.EXTRA_TEXT, a4Text)
-                                        type = "text/plain"
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val bitmap = getActiveBillBitmap()
+                                        val title = if (selectedFormatMode == "A4 Standard") "Invoice_${order.id}_A4" else "Receipt_${order.id}_Thermal"
+                                        val uri = BluetoothThermalPrinterHelper.saveBillBitmapToGallery(context, bitmap, title)
+                                        withContext(Dispatchers.Main) {
+                                            if (uri != null) {
+                                                Toast.makeText(context, "✅ Saved to Gallery! (Pictures/OmniPOS_Invoices)", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(context, "Could not save image to gallery", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     }
-                                    context.startActivity(Intent.createChooser(sendIntent, "Share Invoice ${order.id}"))
                                 },
+                                modifier = Modifier.weight(1.1f),
                                 shape = RoundedCornerShape(10.dp)
                             ) {
-                                Icon(Icons.Default.Share, null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Save to Gallery", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                            }
+                        }
+
+                        // ROW 2: WHATSAPP DIRECT SHARE, GENERAL SHARE, COPY
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Direct WhatsApp Share (with official WhatsApp Green branding)
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val bitmap = getActiveBillBitmap()
+                                        withContext(Dispatchers.Main) {
+                                            BluetoothThermalPrinterHelper.shareBillViaWhatsApp(
+                                                context = context,
+                                                bitmap = bitmap,
+                                                orderId = order.id,
+                                                summaryText = invoiceSummary
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1.3f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF25D366),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Send, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("WhatsApp", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
 
+                            // General System Share Sheet
                             OutlinedButton(
                                 onClick = {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val bitmap = getActiveBillBitmap()
+                                        withContext(Dispatchers.Main) {
+                                            BluetoothThermalPrinterHelper.shareBillGeneral(
+                                                context = context,
+                                                bitmap = bitmap,
+                                                orderId = order.id,
+                                                summaryText = invoiceSummary
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Share", fontSize = 12.sp)
+                            }
+
+                            // Copy Invoice Text
+                            OutlinedButton(
+                                onClick = {
+                                    val textToCopy = if (selectedFormatMode == "A4 Standard") a4Text else thermalText
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Invoice Text", a4Text))
-                                    Toast.makeText(context, "Invoice copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Invoice Text", textToCopy))
+                                    Toast.makeText(context, "Bill text copied to clipboard!", Toast.LENGTH_SHORT).show()
                                 },
                                 shape = RoundedCornerShape(10.dp)
                             ) {
-                                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
                             }
                         }
                     }

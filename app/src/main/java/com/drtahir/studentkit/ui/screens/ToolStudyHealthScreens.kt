@@ -16,6 +16,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.drtahir.studentkit.data.RobustQrDecoder
+import com.drtahir.studentkit.data.WifiConnectHelper
+import com.drtahir.studentkit.data.ScannedWifiConfig
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.launch
@@ -3581,50 +3583,58 @@ fun QrGeneratorScreen(viewModel: StudentKitViewModel) {
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Link,
                                 contentDescription = "QR Content",
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(18.dp)
                             )
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "🔗 Enter Link / Content",
+                                    text = "Enter Link / Content",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "Type or paste any URL, text, or data. Updates live!",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = "Type or paste URL. Updates live!",
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }
 
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(6.dp),
                             color = Color(0xFFE8F5E9),
-                            border = BorderStroke(1.dp, Color(0xFF2E7D32))
+                            border = BorderStroke(1.dp, Color(0xFF2E7D32)),
+                            modifier = Modifier.padding(start = 6.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(6.dp)
+                                        .size(4.dp)
                                         .clip(CircleShape)
                                         .background(Color(0xFF00E676))
                                 )
                                 Text(
                                     text = "100% Scannable",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 9.sp,
-                                    color = Color(0xFF1B5E20)
+                                    fontSize = 8.sp,
+                                    color = Color(0xFF1B5E20),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -5387,6 +5397,14 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
     var isDecodingGalleryImage by remember { mutableStateOf(false) }
     var isFullScreenResultVisible by remember { mutableStateOf(false) }
 
+    // Wi-Fi detection and connection state
+    val parsedWifiConfig = remember(scannedBarcodeText) {
+        WifiConnectHelper.parseWifiQr(scannedBarcodeText)
+    }
+    var isWifiPasswordVisible by remember { mutableStateOf(false) }
+    var wifiConnectionStatus by remember { mutableStateOf<String?>(null) }
+    var isRawDataExpanded by remember { mutableStateOf(false) }
+
     // Camera control references and states
     var cameraControlRef by remember { mutableStateOf<CameraControl?>(null) }
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
@@ -5405,11 +5423,12 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                     val result = RobustQrDecoder.decodeFromUri(context, uri)
                     if (result != null) {
                         scannedBarcodeText = result.text
-                        lastScannedType = result.format
+                        val detectedWifi = WifiConnectHelper.parseWifiQr(result.text)
+                        lastScannedType = if (detectedWifi != null) "Wi-Fi Config" else result.format
                         lastScannedEngine = result.engine
                         isScanResultActive = true
                         isScanningActive = false
-                        Toast.makeText(context, "${result.format} detected successfully!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "${if (detectedWifi != null) "Wi-Fi Network" else result.format} detected successfully!", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "No readable QR code found. If dense, try zooming or cropping closer.", Toast.LENGTH_LONG).show()
                     }
@@ -5588,17 +5607,31 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                                         for (barcode in barcodes) {
                                                             val value = barcode.rawValue
                                                             if (!value.isNullOrBlank()) {
-                                                                scannedBarcodeText = value
-                                                                lastScannedType = when (barcode.valueType) {
-                                                                    Barcode.TYPE_URL -> "Website Link"
-                                                                    Barcode.TYPE_WIFI -> "Wi-Fi Config"
+                                                                var rawVal = value
+                                                                if (barcode.valueType == Barcode.TYPE_WIFI && barcode.wifi != null && !barcode.wifi?.ssid.isNullOrBlank()) {
+                                                                    val enc = when (barcode.wifi?.encryptionType) {
+                                                                        1 -> "nopass"
+                                                                        3 -> "WEP"
+                                                                        else -> "WPA"
+                                                                    }
+                                                                    val pass = barcode.wifi?.password.orEmpty()
+                                                                    val s = barcode.wifi?.ssid.orEmpty()
+                                                                    if (!rawVal.startsWith("WIFI:", ignoreCase = true)) {
+                                                                        rawVal = "WIFI:S:$s;T:$enc;P:$pass;;"
+                                                                    }
+                                                                }
+                                                                scannedBarcodeText = rawVal
+                                                                val isWifi = barcode.valueType == Barcode.TYPE_WIFI || WifiConnectHelper.parseWifiQr(rawVal) != null
+                                                                lastScannedType = when {
+                                                                    isWifi -> "Wi-Fi Config"
+                                                                    barcode.valueType == Barcode.TYPE_URL -> "Website Link"
                                                                     else -> "QR Code"
                                                                 }
                                                                 lastScannedEngine = "Google ML-Kit (Realtime)"
                                                                 isScanResultActive = true
                                                                 isScanningActive = false
                                                                 found = true
-                                                                Toast.makeText(ctx, "QR Code Detected Successfully!", Toast.LENGTH_SHORT).show()
+                                                                Toast.makeText(ctx, "${if (isWifi) "Wi-Fi Network" else "QR Code"} Detected Successfully!", Toast.LENGTH_SHORT).show()
                                                                 break
                                                             }
                                                         }
@@ -5619,11 +5652,12 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                                                     }
                                                                     if (zxingRes != null) {
                                                                         scannedBarcodeText = zxingRes.text
-                                                                        lastScannedType = zxingRes.format
+                                                                        val isWifi = WifiConnectHelper.parseWifiQr(zxingRes.text) != null
+                                                                        lastScannedType = if (isWifi) "Wi-Fi Config" else zxingRes.format
                                                                         lastScannedEngine = "ZXing High-Density Engine"
                                                                         isScanResultActive = true
                                                                         isScanningActive = false
-                                                                        Toast.makeText(ctx, "Dense QR Code Detected!", Toast.LENGTH_SHORT).show()
+                                                                        Toast.makeText(ctx, "${if (isWifi) "Wi-Fi Network" else "Dense QR Code"} Detected!", Toast.LENGTH_SHORT).show()
                                                                     }
                                                                 }
                                                             } catch (e: Exception) {
@@ -5905,20 +5939,46 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Scanned Result",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            val lineCount = scannedBarcodeText.lines().size
-                            val charCount = scannedBarcodeText.length
-                            Text(
-                                text = "$lineCount ${if (lineCount == 1) "line" else "lines"} • $charCount characters",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
-                            )
+                        if (parsedWifiConfig != null) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Wifi,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00C853),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Wi-Fi Network Detected",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                                Text(
+                                    text = "${parsedWifiConfig.ssid} • ${parsedWifiConfig.displaySecurity}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF00C853)
+                                )
+                            }
+                        } else {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Scanned Result",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                val lineCount = scannedBarcodeText.lines().size
+                                val charCount = scannedBarcodeText.length
+                                Text(
+                                    text = "$lineCount ${if (lineCount == 1) "line" else "lines"} • $charCount characters",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+                                )
+                            }
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -5964,72 +6024,311 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         }
                     }
 
-                    // Monospace text box with smooth scrolling all the way to the end!
-                    val cardResultScrollState = rememberScrollState()
-                    val cardScrollScope = rememberCoroutineScope()
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Black.copy(alpha = 0.25f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
+                    if (parsedWifiConfig != null) {
+                        // Dedicated Wi-Fi Connection Card
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                            ),
+                            border = BorderStroke(1.5.dp, Color(0xFF00C853)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .verticalScroll(cardResultScrollState)
-                                    .padding(12.dp)
+                                    .padding(14.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                SelectionContainer {
-                                    Text(
-                                        text = scannedBarcodeText,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp,
-                                        lineHeight = 19.sp,
-                                        fontFamily = FontFamily.Monospace,
+                                // Network Details Header
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00C853).copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Wifi,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00C853),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = parsedWifiConfig.ssid,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 17.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFF00C853).copy(alpha = 0.15f)
+                                            ) {
+                                                Text(
+                                                    text = parsedWifiConfig.displaySecurity,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF00C853),
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            if (parsedWifiConfig.isHidden) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                                                ) {
+                                                    Text(
+                                                        text = "Hidden SSID",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Password Details
+                                if (parsedWifiConfig.isSecured) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                                         modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Wi-Fi Password",
+                                                    fontSize = 10.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Text(
+                                                    text = if (isWifiPasswordVisible) parsedWifiConfig.password else "•".repeat(parsedWifiConfig.password.length.coerceIn(8, 16)),
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = { isWifiPasswordVisible = !isWifiPasswordVisible },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        if (isWifiPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                        contentDescription = "Toggle password visibility",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                        clipboard.setPrimaryClip(ClipData.newPlainText("wifi_password", parsedWifiConfig.password))
+                                                        Toast.makeText(context, "Password copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.ContentCopy,
+                                                        contentDescription = "Copy password",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF00C853).copy(alpha = 0.1f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF00C853), modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Open Wi-Fi Network • No password required",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = Color(0xFF00C853)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // PRIMARY CONNECT BUTTON: "Connect to Network"
+                                Button(
+                                    onClick = {
+                                        WifiConnectHelper.connectToWifi(context, parsedWifiConfig) { status ->
+                                            wifiConnectionStatus = status
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF00C853),
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Connect to Network",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
                                     )
                                 }
-                                // Ensure full clearance so the last line of text is easily visible and selectable
-                                Spacer(modifier = Modifier.height(48.dp))
-                            }
 
-                            // Quick scroll-to-end / scroll-to-top floating controls if text is long
-                            if (scannedBarcodeText.length > 200 || scannedBarcodeText.lines().size > 6) {
+                                // Wi-Fi Settings shortcut & status feedback
                                 Row(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    FilledTonalIconButton(
-                                        onClick = {
-                                            cardScrollScope.launch {
-                                                cardResultScrollState.animateScrollTo(0)
-                                            }
-                                        },
-                                        modifier = Modifier.size(30.dp),
-                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
-                                        )
+                                    TextButton(
+                                        onClick = { WifiConnectHelper.openWifiSettings(context) },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                                     ) {
-                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top", modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Wi-Fi Settings", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.primary)
                                     }
-                                    FilledTonalIconButton(
-                                        onClick = {
-                                            cardScrollScope.launch {
-                                                cardResultScrollState.animateScrollTo(cardResultScrollState.maxValue)
-                                            }
-                                        },
-                                        modifier = Modifier.size(30.dp),
-                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+
+                                    if (!wifiConnectionStatus.isNullOrBlank()) {
+                                        Text(
+                                            text = wifiConnectionStatus!!,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
                                         )
+                                    }
+                                }
+
+                                // Optional raw data viewer toggle
+                                TextButton(
+                                    onClick = { isRawDataExpanded = !isRawDataExpanded },
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(
+                                        text = if (isRawDataExpanded) "Hide Raw QR Data ▲" else "View Raw QR Data ▼",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                if (isRawDataExpanded) {
+                                    SelectionContainer {
+                                        Text(
+                                            text = scannedBarcodeText,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Monospace text box with smooth scrolling all the way to the end!
+                        val cardResultScrollState = rememberScrollState()
+                        val cardScrollScope = rememberCoroutineScope()
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Black.copy(alpha = 0.25f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(cardResultScrollState)
+                                        .padding(12.dp)
+                                ) {
+                                    SelectionContainer {
+                                        Text(
+                                            text = scannedBarcodeText,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.sp,
+                                            lineHeight = 19.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    // Ensure full clearance so the last line of text is easily visible and selectable
+                                    Spacer(modifier = Modifier.height(48.dp))
+                                }
+
+                                // Quick scroll-to-end / scroll-to-top floating controls if text is long
+                                if (scannedBarcodeText.length > 200 || scannedBarcodeText.lines().size > 6) {
+                                    Row(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to end", modifier = Modifier.size(18.dp))
+                                        FilledTonalIconButton(
+                                            onClick = {
+                                                cardScrollScope.launch {
+                                                    cardResultScrollState.animateScrollTo(0)
+                                                }
+                                            },
+                                            modifier = Modifier.size(30.dp),
+                                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                            )
+                                        ) {
+                                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top", modifier = Modifier.size(18.dp))
+                                        }
+                                        FilledTonalIconButton(
+                                            onClick = {
+                                                cardScrollScope.launch {
+                                                    cardResultScrollState.animateScrollTo(cardResultScrollState.maxValue)
+                                                }
+                                            },
+                                            modifier = Modifier.size(30.dp),
+                                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                            )
+                                        ) {
+                                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to end", modifier = Modifier.size(18.dp))
+                                        }
                                     }
                                 }
                             }
@@ -6042,6 +6341,27 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        if (parsedWifiConfig != null) {
+                            Button(
+                                onClick = {
+                                    WifiConnectHelper.connectToWifi(context, parsedWifiConfig) { status ->
+                                        wifiConnectionStatus = status
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1.3f)
+                                    .height(44.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF00C853),
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
                         Button(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -6050,13 +6370,13 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                 Toast.makeText(context, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier
-                                .weight(1.2f)
+                                .weight(if (parsedWifiConfig != null) 1.1f else 1.2f)
                                 .height(44.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(if (parsedWifiConfig != null) 4.dp else 6.dp))
+                            Text(if (parsedWifiConfig != null) "Copy" else "Copy All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
                         FilledTonalButton(
@@ -6072,11 +6392,11 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                 }
                             },
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(if (parsedWifiConfig != null) 0.9f else 1f)
                                 .height(44.dp)
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(if (parsedWifiConfig != null) 3.dp else 6.dp))
                             Text("Share", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
 
@@ -6107,7 +6427,7 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                 isScanningActive = true
                             },
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(if (parsedWifiConfig != null) 0.9f else 1f)
                                 .height(44.dp)
                         ) {
                             Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -6204,8 +6524,139 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScroll(fullScrollState)
-                                .padding(14.dp)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            if (parsedWifiConfig != null) {
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface
+                                    ),
+                                    border = BorderStroke(1.5.dp, Color(0xFF00C853)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(44.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF00C853).copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Wifi,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF00C853),
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = parsedWifiConfig.ssid,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 17.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    text = "Security: ${parsedWifiConfig.displaySecurity}",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF00C853),
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+
+                                        if (parsedWifiConfig.isSecured) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text("Wi-Fi Password", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                        Text(
+                                                            text = if (isWifiPasswordVisible) parsedWifiConfig.password else "•".repeat(parsedWifiConfig.password.length.coerceIn(8, 16)),
+                                                            fontFamily = FontFamily.Monospace,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 14.sp
+                                                        )
+                                                    }
+                                                    Row {
+                                                        IconButton(onClick = { isWifiPasswordVisible = !isWifiPasswordVisible }) {
+                                                            Icon(
+                                                                if (isWifiPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                                contentDescription = "Toggle password"
+                                                            )
+                                                        }
+                                                        IconButton(onClick = {
+                                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                            clipboard.setPrimaryClip(ClipData.newPlainText("wifi_password", parsedWifiConfig.password))
+                                                            Toast.makeText(context, "Password copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                                        }) {
+                                                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy password")
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                WifiConnectHelper.connectToWifi(context, parsedWifiConfig) { status ->
+                                                    wifiConnectionStatus = status
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF00C853),
+                                                contentColor = Color.White
+                                            )
+                                        ) {
+                                            Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(20.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Connect to Network", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                        }
+
+                                        if (!wifiConnectionStatus.isNullOrBlank()) {
+                                            Text(
+                                                text = wifiConnectionStatus!!,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "Raw Scanned Barcode Payload:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
                             SelectionContainer {
                                 Text(
                                     text = scannedBarcodeText,
@@ -6264,6 +6715,27 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            if (parsedWifiConfig != null) {
+                                Button(
+                                    onClick = {
+                                        WifiConnectHelper.connectToWifi(context, parsedWifiConfig) { status ->
+                                            wifiConnectionStatus = status
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1.2f)
+                                        .height(48.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF00C853),
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Connect", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+
                             Button(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -6277,14 +6749,14 @@ fun QrScannerScreen(viewModel: StudentKitViewModel) {
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Copy All Text", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (parsedWifiConfig != null) "Copy" else "Copy All Text", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
 
                             Button(
                                 onClick = { isFullScreenResultVisible = false },
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .weight(0.8f)
                                     .height(48.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                             ) {
