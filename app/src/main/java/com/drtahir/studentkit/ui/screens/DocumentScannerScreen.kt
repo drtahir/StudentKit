@@ -779,10 +779,23 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                 val bmps = mutableListOf<Bitmap>()
                 for ((idx, u) in uris.withIndex()) {
                     withContext(Dispatchers.Main) {
-                        extractingPdfMessage = "Loading picture ${idx + 1}/${uris.size}..."
+                        extractingPdfMessage = "Auto-cropping & processing image ${idx + 1}/${uris.size}..."
                     }
-                    val b = loadAndCorrectOrientationFromUri(context, u)
-                    if (b != null) bmps.add(b)
+                    val rawBmp = loadAndCorrectOrientationFromUri(context, u)
+                    if (rawBmp != null) {
+                        val croppedBmp = try {
+                            val corners = DocumentEdgeProcessor.detectDocumentCorners(rawBmp)
+                            DocumentEdgeProcessor.warpPerspectiveCrop(rawBmp, corners)
+                        } catch (e: Exception) {
+                            rawBmp
+                        }
+                        val finalBmp = try {
+                            DocumentEdgeProcessor.applyFilter(croppedBmp, currentFilter)
+                        } catch (e: Exception) {
+                            croppedBmp
+                        }
+                        bmps.add(finalBmp)
+                    }
                 }
                 withContext(Dispatchers.Main) {
                     isExtractingPdfPages = false
@@ -792,10 +805,11 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                         }
                         reorderPagesList.clear()
                         reorderPagesList.addAll(bmps)
-                        reorderDocTitle = "Batch_Scan_${System.currentTimeMillis() % 10000}"
+                        val timeStamp = SimpleDateFormat("MM-dd-yyyy HH.mm", Locale.getDefault()).format(Date())
+                        reorderDocTitle = "Hikmahscanner $timeStamp"
                         reorderOriginalDocId = null
                         scannerState = "REORDER_STUDIO"
-                        Toast.makeText(context, "Imported ${bmps.size} picture(s)!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Imported and auto-cropped ${bmps.size} page(s)!", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Failed to load selected images", Toast.LENGTH_SHORT).show()
                     }
@@ -1195,10 +1209,35 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                 reorderPdfPickerLauncher.launch(arrayOf("application/pdf"))
                             },
                             onImportMultiImagesForReorder = {
-                                reorderMultiImagePickerLauncher.launch("image/*")
+                                scannerState = "IMAGE_PICKER"
                             },
                             onImportMixedFilesForReorder = {
                                 reorderMixedFilesPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                            },
+                            onOpenMultiImagePicker = {
+                                scannerState = "IMAGE_PICKER"
+                            }
+                        )
+                    }
+                    "IMAGE_PICKER" -> {
+                        BackHandler {
+                            scannerState = "VIEWFINDER"
+                        }
+                        MultiImageImportPickerView(
+                            onClose = { scannerState = "VIEWFINDER" },
+                            onImportCompleted = { processedPages ->
+                                if (processedPages.isNotEmpty()) {
+                                    if (scanMode == "Batch") {
+                                        batchPages.addAll(processedPages)
+                                    }
+                                    reorderPagesList.clear()
+                                    reorderPagesList.addAll(processedPages)
+                                    val timeStamp = SimpleDateFormat("MM-dd-yyyy HH.mm", Locale.getDefault()).format(Date())
+                                    reorderDocTitle = "Hikmahscanner $timeStamp"
+                                    reorderOriginalDocId = null
+                                    scannerState = "REORDER_STUDIO"
+                                    Toast.makeText(context, "Imported and auto-cropped ${processedPages.size} page(s)!", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         )
                     }
@@ -1682,7 +1721,7 @@ fun DocumentScannerScreenNew(viewModel: StudentKitViewModel) {
                                 .fillMaxWidth()
                                 .clickable {
                                     showImportChoiceModal = false
-                                    reorderMultiImagePickerLauncher.launch("image/*")
+                                    scannerState = "IMAGE_PICKER"
                                 },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                             shape = RoundedCornerShape(12.dp)
@@ -2588,7 +2627,8 @@ fun LiveCameraViewfinderView(
     onOpenReorderPages: () -> Unit = {},
     onImportPdfForReorder: () -> Unit = {},
     onImportMultiImagesForReorder: () -> Unit = {},
-    onImportMixedFilesForReorder: () -> Unit = {}
+    onImportMixedFilesForReorder: () -> Unit = {},
+    onOpenMultiImagePicker: () -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
@@ -3599,25 +3639,28 @@ fun LiveCameraViewfinderView(
 
             var showImportPickerSheet by remember { mutableStateOf(false) }
 
-            // Shutter Row
+            // Shutter Row (CamScanner / Edge Scanner layout: All Features | Shutter | Import Images | Import Files)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 1. All Features
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable {
-                        onOpenAllFeatures()
-                    }
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onOpenAllFeatures() }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 ) {
-                    Icon(Icons.Default.GridView, contentDescription = "Features", tint = Color.White, modifier = Modifier.size(26.dp))
-                    Text("All Features", color = Color.White, fontSize = 9.sp)
+                    Icon(Icons.Default.GridView, contentDescription = "Features", tint = Color.White, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("All Features", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Medium)
                 }
 
-                // Hikmahscanner Shutter Button
+                // 2. Hikmahscanner Shutter Button
                 Box(
                     modifier = Modifier
                         .size(68.dp)
@@ -3678,15 +3721,30 @@ fun LiveCameraViewfinderView(
                     )
                 }
 
-                // Gallery Import / Reorder
+                // 3. Import Images (Direct Gallery Auto-Crop Picker)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable {
-                        showImportPickerSheet = true
-                    }
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onOpenMultiImagePicker() }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Import", tint = Color.White, modifier = Modifier.size(26.dp))
-                    Text("Import", color = Color.White, fontSize = 9.sp)
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Import Images", tint = Color.White, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("Import Images", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                }
+
+                // 4. Import Files (PDF & Documents)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onImportPdfForReorder() }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = "Import Files", tint = Color.White, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("Import Files", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Medium)
                 }
             }
 
